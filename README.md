@@ -75,13 +75,27 @@ a new game = one adapter file, zero UI changes.
 
 ## Roadmap
 
-- Trainer & wild encounter editing
-- Level-up learnsets and evolutions (needs table repointing)
-- Type effectiveness chart editing
-- Starter Pokémon editing
-- Sprite viewing/importing (Gen 1/2 2bpp, Gen 3 LZ77)
-- Item, text and script editing
-- UPS/BPS patch formats for >16 MiB ROMs
+The goal is full "make your own game" capability — custom areas, NPCs and
+events on top of a base ROM, shared as a patch. The engine layer for this
+already exists and is tested (`src/core/gba/lz77.ts`, `src/core/tiles.ts`,
+`src/core/freespace.ts`: LZ77 codec, tile/palette rendering, free-space
+allocation + pointer retargeting).
+
+In rough build order:
+
+1. **Trainer & wild encounter editing** — structured tables, same
+   declarative-form treatment as Pokémon stats.
+2. **Map viewer (Gen 3 first)** — decompress tilesets, render maps to
+   canvas; ROM Info-style verification before any editing unlocks.
+3. **Map editing & custom areas** — paint blocks, resize maps, add new
+   maps into free space with automatic repointing.
+4. **NPC & event editing** — place/move NPCs, edit warps, signs and
+   triggers as forms.
+5. **Visual script builder** — compose events ("Show text → Give item →
+   Set flag") from dropdowns; compiles to the game's script bytecode.
+   This is the zero-code answer to custom storytelling.
+6. Level-up learnsets, evolutions, type chart, starters, sprite
+   importing, item/text editing, UPS/BPS patches.
 
 ## Legal
 
