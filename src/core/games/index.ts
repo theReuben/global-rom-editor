@@ -1,0 +1,55 @@
+import { Rom } from '../rom'
+import { readRomInfo } from '../detect'
+import { tryBuildGen1 } from './gen1'
+import { tryBuildGen2 } from './gen2'
+import { tryBuildGen3 } from './gen3'
+import type { GameAdapter } from './schema'
+
+export type { GameAdapter } from './schema'
+
+const KNOWN_TITLES: [RegExp, string][] = [
+  [/POKEMON RED/, 'Pokémon Red'],
+  [/POKEMON BLUE/, 'Pokémon Blue'],
+  [/POKEMON YEL/, 'Pokémon Yellow'],
+  [/GLD/, 'Pokémon Gold'],
+  [/SLV|SILVER/, 'Pokémon Silver'],
+  [/CRYSTAL/, 'Pokémon Crystal'],
+  [/RUBY|AXVE/, 'Pokémon Ruby'],
+  [/SAPP|AXPE/, 'Pokémon Sapphire'],
+  [/EMER|BPEE/, 'Pokémon Emerald'],
+  [/FIRE|BPRE/, 'Pokémon FireRed'],
+  [/LEAF|BPGE/, 'Pokémon LeafGreen'],
+]
+
+export interface LoadResult {
+  adapter: GameAdapter | null
+  /** Set when the file is a valid ROM but no adapter matched. */
+  reason?: string
+}
+
+export function buildAdapter(rom: Rom): LoadResult {
+  const info = readRomInfo(rom.bytes)
+  if (!info) {
+    return { adapter: null, reason: 'This file does not look like a Game Boy / GBC / GBA ROM.' }
+  }
+
+  const headerId = `${info.title} ${info.gameCode}`.trim()
+  let pretty = KNOWN_TITLES.find(([re]) => re.test(headerId))?.[1]
+  const suffix = info.gameCode ? ` (${info.gameCode})` : ''
+  const gameName = (pretty ?? info.title ?? 'Unknown game') + suffix
+
+  const adapter =
+    info.platform === 'GBA'
+      ? tryBuildGen3(rom, gameName, info.platform)
+      : (tryBuildGen2(rom, gameName, info.platform) ?? tryBuildGen1(rom, gameName, info.platform))
+
+  if (!adapter) {
+    return {
+      adapter: null,
+      reason:
+        `Detected a ${info.platform} ROM ("${headerId}"), but no Pokémon data tables were found. ` +
+        'Supported games: Red, Blue, Yellow, Gold, Silver, Crystal, Ruby, Sapphire, Emerald, FireRed, LeafGreen (and hacks based on them).',
+    }
+  }
+  return { adapter }
+}
