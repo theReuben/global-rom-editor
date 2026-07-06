@@ -397,6 +397,8 @@ input[type='range'] { accent-color: var(--accent); }
 .script-step-row select { flex: 1; min-width: 0; }
 .script-step-row input[type='number'] { width: 76px; }
 .event-remove { padding: 0 8px; float: right; }
+.script-battle { display: flex; flex-direction: column; gap: 6px; }
+.script-battle input, .script-battle select { width: 100%; }
 .resize-control { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; color: var(--muted); }
 .resize-control input { width: 64px; }
 

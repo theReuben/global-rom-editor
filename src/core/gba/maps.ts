@@ -41,6 +41,7 @@ interface Layout {
   offset: number
   width: number
   height: number
+  borderOffset: number
   blocksOffset: number
   primaryTs: number
   secondaryTs: number
@@ -93,6 +94,7 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
       offset: off,
       width: bytes[off] | (bytes[off + 1] << 8),
       height: bytes[off + 4] | (bytes[off + 5] << 8),
+      borderOffset: u32ptr(bytes, off + 8),
       blocksOffset: u32ptr(bytes, off + 12),
       primaryTs: u32ptr(bytes, off + 16),
       secondaryTs: u32ptr(bytes, off + 20),
@@ -366,6 +368,70 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
       const entry = entries.find((e) => e.key === key)
       if (entry) entry.label = `${key} — ${width}×${height}`
       return true
+    },
+
+    duplicateMap(key) {
+      const m = load(key)
+      const bank = Number(key.split('.')[0])
+      const old = m.layout
+      const align4 = (n: number) => Math.ceil(n / 4) * 4
+
+      const gridLen = old.width * old.height * 2
+      // FRLG layouts carry border dimensions at +0x18/+0x19; RSE is 2×2.
+      const bw = family.primaryPalettes === 7 ? bytes[old.offset + 0x18] || 2 : 2
+      const bh = family.primaryPalettes === 7 ? bytes[old.offset + 0x19] || 2 : 2
+      const borderLen = bw * bh * 2
+      const LAYOUT_LEN = 28
+      const EVENTS_LEN = 20
+      const HEADER_LEN = 28
+
+      // One end-of-ROM blob: grid, border, layout, events, header.
+      const gridOff = findFreeSpaceAtEnd(
+        rom.bytes,
+        align4(gridLen) + align4(borderLen) + LAYOUT_LEN + EVENTS_LEN + HEADER_LEN + 16,
+      )
+      if (gridOff === null) return null
+      const borderOff = align4(gridOff + gridLen)
+      const layoutOff = align4(borderOff + borderLen)
+      const eventsOff = layoutOff + LAYOUT_LEN
+      const headerOff = eventsOff + EVENTS_LEN
+
+      rom.writeBytes(gridOff, bytes.subarray(old.blocksOffset, old.blocksOffset + gridLen))
+      rom.writeBytes(borderOff, bytes.subarray(old.borderOffset, old.borderOffset + borderLen))
+      rom.writeBytes(layoutOff, bytes.subarray(old.offset, old.offset + LAYOUT_LEN))
+      writeGbaPointer(rom, layoutOff + 8, borderOff)
+      writeGbaPointer(rom, layoutOff + 12, gridOff)
+      rom.writeBytes(eventsOff, new Uint8Array(EVENTS_LEN)) // no events yet
+      rom.writeBytes(headerOff, bytes.subarray(m.headerOffset, m.headerOffset + HEADER_LEN))
+      writeGbaPointer(rom, headerOff, layoutOff)
+      writeGbaPointer(rom, headerOff + 4, eventsOff)
+      rom.writeBytes(headerOff + 8, new Uint8Array(8)) // no map scripts/connections
+
+      // Grow this bank's group array (relocated; the bank table entry is
+      // retargeted automatically).
+      const bankEntryOff = index.bankTableOffset + bank * 4
+      const groupOff = u32ptr(bytes, bankEntryOff)
+      const count = index.banks[bank].length
+      const grown = new Uint8Array((count + 1) * 4)
+      grown.set(bytes.subarray(groupOff, groupOff + count * 4))
+      const headerAddr = (headerOff + 0x08000000) >>> 0
+      grown.set(
+        [headerAddr & 0xff, (headerAddr >> 8) & 0xff, (headerAddr >> 16) & 0xff, headerAddr >>> 24],
+        count * 4,
+      )
+      if (relocate(rom, groupOff, count * 4, grown) === null) return null
+
+      // Register the new map in the live module state.
+      index.banks[bank].push(headerOff)
+      const newKey = `${bank}.${count}`
+      headerByKey.set(newKey, headerOff)
+      const label = `${newKey} — ${old.width}×${old.height}`
+      const lastOfBank = entries.reduce(
+        (best, e, i) => (e.bank === bank ? i : best),
+        entries.length - 1,
+      )
+      entries.splice(lastOfBank + 1, 0, { key: newKey, bank, map: count, label })
+      return newKey
     },
 
     addEvent(key, kind) {

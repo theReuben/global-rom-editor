@@ -13,16 +13,15 @@
  */
 import { gen3Codec } from '../text'
 import { GBA_ROM_BASE } from '../freespace'
+import type { ScriptStep } from '../games/schema'
 
-export type ScriptStep =
-  | { kind: 'message'; text: string }
-  | { kind: 'giveItem'; item: number; quantity: number }
-  | { kind: 'givePokemon'; species: number; level: number }
-  | { kind: 'setFlag'; flag: number }
-  | { kind: 'clearFlag'; flag: number }
+export type { ScriptStep }
 
 const VAR_0X8000 = 0x8000
 const VAR_0X8001 = 0x8001
+const VAR_RESULT = 0x800d
+const NO = 0
+const COND_EQ = 1
 
 /** Encode dialogue: \n → new line (0xFE), blank line → new box (0xFB). */
 export function encodeScriptText(text: string): number[] | null {
@@ -71,6 +70,21 @@ export function compileScript(steps: ScriptStep[], base: number): CompiledScript
       case 'clearFlag':
         codeLength += 3
         break
+      case 'yesNo': {
+        const t = encodeScriptText(step.question)
+        if (!t || step.question.trim().length === 0) return null
+        texts.push(t)
+        codeLength += 6 + 2 + 5 + 6 // loadword + callstd + compare + goto_if
+        break
+      }
+      case 'trainerBattle': {
+        const intro = encodeScriptText(step.intro)
+        const defeat = encodeScriptText(step.defeat)
+        if (!intro || !defeat) return null
+        texts.push(intro, defeat)
+        codeLength += 14 // trainerbattle single
+        break
+      }
     }
   }
   codeLength += 2 // release, end
@@ -110,6 +124,22 @@ export function compileScript(steps: ScriptStep[], base: number): CompiledScript
       case 'clearFlag':
         code.push(0x2a, ...u16(step.flag))
         break
+      case 'yesNo': {
+        const addr = (textAddrs[textIndex++] + GBA_ROM_BASE) >>> 0
+        code.push(0x0f, 0x00, ...u32(addr)) // loadword 0, question
+        code.push(0x09, 0x05) // callstd MSGBOX_YESNO
+        code.push(0x21, ...u16(VAR_RESULT), ...u16(NO)) // compare result, NO
+        const epilogue = (base + codeLength - 2 + GBA_ROM_BASE) >>> 0 // → release
+        code.push(0x06, COND_EQ, ...u32(epilogue)) // goto_if eq
+        break
+      }
+      case 'trainerBattle': {
+        const intro = (textAddrs[textIndex++] + GBA_ROM_BASE) >>> 0
+        const defeat = (textAddrs[textIndex++] + GBA_ROM_BASE) >>> 0
+        // trainerbattle TRAINER_BATTLE_SINGLE, id, 0, intro, defeat
+        code.push(0x5c, 0x00, ...u16(step.trainerId), ...u16(0), ...u32(intro), ...u32(defeat))
+        break
+      }
     }
   }
   code.push(0x6c, 0x02) // release, end

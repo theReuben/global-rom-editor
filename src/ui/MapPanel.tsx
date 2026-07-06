@@ -358,6 +358,18 @@ export function MapPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: ()
           >
             Revert layout edits
           </button>
+          <button
+            title="Create a brand-new map in this bank, starting from a copy of this one"
+            onClick={() => {
+              const newKey = module.duplicateMap(mapKey)
+              if (newKey) {
+                setMapKey(newKey)
+                bump()
+              }
+            }}
+          >
+            ⧉ New map from this
+          </button>
         </div>
 
         {renderError ? (

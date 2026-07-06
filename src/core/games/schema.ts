@@ -218,6 +218,10 @@ export type ScriptStep =
   | { kind: 'givePokemon'; species: number; level: number }
   | { kind: 'setFlag'; flag: number }
   | { kind: 'clearFlag'; flag: number }
+  /** Ask a yes/no question; if the player answers No, the script ends. */
+  | { kind: 'yesNo'; question: string }
+  /** Single trainer battle with intro / defeat dialogue. */
+  | { kind: 'trainerBattle'; trainerId: number; intro: string; defeat: string }
 
 export interface MapModule {
   entries: MapEntry[]
@@ -237,6 +241,12 @@ export interface MapModule {
    * placed in free space and the layout repointed. False = no space.
    */
   resize(key: string, width: number, height: number): boolean
+  /**
+   * Create a brand-new map in the same bank by duplicating this one
+   * (terrain, tilesets and settings; no events). Returns the new map's
+   * key, or null if there was no free space.
+   */
+  duplicateMap(key: string): string | null
   /** Append a new blank NPC/warp/sign (relocates the event array). */
   addEvent(key: string, kind: EventKind): boolean
   /** Remove an event, shifting the rest down (in place). */

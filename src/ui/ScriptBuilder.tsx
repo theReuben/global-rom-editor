@@ -9,8 +9,10 @@ interface Props {
 
 const STEP_LABELS: Record<ScriptStep['kind'], string> = {
   message: '💬 Show message',
+  yesNo: '❓ Ask Yes/No (No ends the script)',
   giveItem: '🎁 Give item',
   givePokemon: '🐣 Give Pokémon',
+  trainerBattle: '⚔️ Trainer battle',
   setFlag: '🚩 Set flag',
   clearFlag: '⚐ Clear flag',
 }
@@ -19,10 +21,14 @@ function blankStep(kind: ScriptStep['kind']): ScriptStep {
   switch (kind) {
     case 'message':
       return { kind, text: 'HELLO!' }
+    case 'yesNo':
+      return { kind, question: 'WANT TO BATTLE?' }
     case 'giveItem':
       return { kind, item: 13, quantity: 1 }
     case 'givePokemon':
       return { kind, species: 1, level: 5 }
+    case 'trainerBattle':
+      return { kind, trainerId: 1, intro: 'LET US BATTLE!', defeat: 'YOU WIN!' }
     case 'setFlag':
     case 'clearFlag':
       return { kind, flag: 0x200 }
@@ -63,6 +69,35 @@ export function ScriptBuilder({ adapter, onApply, onClose }: Props) {
               placeholder="One line per text row; blank line = next box"
               onChange={(e) => update(i, { ...step, text: e.target.value })}
             />
+          )}
+          {step.kind === 'yesNo' && (
+            <textarea
+              rows={2}
+              value={step.question}
+              placeholder="The question to ask"
+              onChange={(e) => update(i, { ...step, question: e.target.value })}
+            />
+          )}
+          {step.kind === 'trainerBattle' && (
+            <div className="script-battle">
+              {adapter.trainerModule ? (
+                <select
+                  value={step.trainerId}
+                  onChange={(e) => update(i, { ...step, trainerId: Number(e.target.value) })}
+                >
+                  {adapter.trainerModule.entries.map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <input type="number" value={step.trainerId}
+                  onChange={(e) => update(i, { ...step, trainerId: Number(e.target.value) })} />
+              )}
+              <input value={step.intro} placeholder="Intro line"
+                onChange={(e) => update(i, { ...step, intro: e.target.value })} />
+              <input value={step.defeat} placeholder="Said when defeated"
+                onChange={(e) => update(i, { ...step, defeat: e.target.value })} />
+            </div>
           )}
           {step.kind === 'giveItem' && (
             <div className="script-step-row">

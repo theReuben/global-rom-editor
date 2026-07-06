@@ -52,6 +52,33 @@ describe('script compiler', () => {
   it('rejects empty or unencodable messages', () => {
     expect(compileScript([{ kind: 'message', text: '   ' }], 0)).toBeNull()
   })
+
+  it('compiles yes/no with a bail-out jump to the epilogue', () => {
+    const base = 0x2000
+    const s = compileScript([{ kind: 'yesNo', question: 'SURE?' }, { kind: 'setFlag', flag: 5 }], base)!
+    const b = s.bytes
+    expect(b[8]).toBe(0x09) // callstd
+    expect(b[9]).toBe(0x05) // MSGBOX_YESNO
+    expect(Array.from(b.slice(10, 15))).toEqual([0x21, 0x0d, 0x80, 0x00, 0x00]) // compare VAR_RESULT, NO
+    expect(b[15]).toBe(0x06) // goto_if
+    expect(b[16]).toBe(0x01) // eq
+    const dest = (b[17] | (b[18] << 8) | (b[19] << 16) | (b[20] << 24)) >>> 0
+    expect(dest).toBe(0x08000000 + base + s.codeLength - 2) // → release
+    expect(b[s.codeLength - 2]).toBe(0x6c)
+  })
+
+  it('compiles a trainer battle with both text pointers', () => {
+    const base = 0x40
+    const s = compileScript([{ kind: 'trainerBattle', trainerId: 261, intro: 'GO!', defeat: 'ARGH!' }], base)!
+    const b = s.bytes
+    expect(b[2]).toBe(0x5c) // trainerbattle
+    expect(b[3]).toBe(0x00) // TRAINER_BATTLE_SINGLE
+    expect(b[4] | (b[5] << 8)).toBe(261)
+    const intro = (b[8] | (b[9] << 8) | (b[10] << 16) | (b[11] << 24)) >>> 0
+    const defeat = (b[12] | (b[13] << 8) | (b[14] << 16) | (b[15] << 24)) >>> 0
+    expect(intro).toBe(0x08000000 + base + s.codeLength)
+    expect(defeat).toBe(intro + 4) // "GO!" + terminator = 4 bytes
+  })
 })
 
 describe('custom areas', () => {
@@ -105,6 +132,35 @@ describe('custom areas', () => {
     expect(scriptPtr).not.toBeNull()
     expect(rom.bytes[scriptPtr]).toBe(0x6a)
     expect(rom.bytes[scriptPtr + 1]).toBe(0x5a)
+  })
+
+  it('creates a brand-new map by duplication', () => {
+    const a = load()
+    const m = a.mapModule!
+    expect(m.entries).toHaveLength(2)
+    const newKey = m.duplicateMap('0.0')!
+    expect(newKey).toBe('0.1')
+    expect(m.entries).toHaveLength(3)
+    expect(m.entries[1].key).toBe('0.1') // inserted right after bank 0's maps
+
+    // Same terrain, same dimensions, renders identically at a sample pixel.
+    const d = m.describe(newKey)
+    expect(d.widthBlocks).toBe(4)
+    expect(d.heightBlocks).toBe(3)
+    expect(m.cell(newKey, 1, 0).blockId).toBe(1)
+    const img = m.render(newKey)
+    expect(img.width).toBe(64)
+
+    // Fully independent: painting the copy leaves the original alone.
+    m.paint(newKey, 1, 0, 0)
+    expect(m.cell(newKey, 1, 0).blockId).toBe(0)
+    expect(m.cell('0.0', 1, 0).blockId).toBe(1)
+
+    // Starts with no events; adding one uses the fresh-array path.
+    expect(m.events(newKey).npcs).toHaveLength(0)
+    expect(m.addEvent(newKey, 'npc')).toBe(true)
+    expect(m.events(newKey).npcs).toHaveLength(1)
+    expect(m.events('0.0').npcs).toHaveLength(1) // original untouched
   })
 
   it('allocates from the end padding', () => {

@@ -26,8 +26,9 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Wild encounter editing (grass/surf/rock/fishing) | 🔜 | 🔜 | ✅ |
 | Item names read from the ROM (dropdowns everywhere) | — | — | ✅ |
 | Map resizing (relocated into free space) | — | — | ✅ |
+| Brand-new maps (duplicate into a fresh bank slot) | — | — | ✅ |
 | Add / remove NPCs, warps and signs | — | — | ✅ |
-| Visual script builder (messages, items, Pokémon, flags) | — | — | ✅ |
+| Visual script builder (messages, Y/N questions, items, Pokémon, trainer battles, flags) | — | — | ✅ |
 | Decomp project editing (species stats, experimental) | — | — | ✅ |
 | Save edited ROM with fixed checksums | ✅ | ✅ | ✅ |
 | Export edits as an IPS patch | ✅ | ✅ | ✅ |
@@ -116,16 +117,20 @@ Also shipped: the first slice of the **decomp project backend** — open a
 pokeemerald/pokefirered source folder in Chromium and edit species stats
 with formatting-preserving writes back to `species_info.h`.
 
+**Also shipped:** brand-new map creation — "New map from this" clones a
+map's terrain and settings into a fresh layout/header/bank entry in free
+space (retarget any warp to reach it), and the script builder gained
+Yes/No questions (with bail-out) and single trainer battles. All of it
+verified on a real Emerald ROM: the edited ROM re-scans cleanly and the
+new map is discovered like any original one.
+
 In rough build order:
 
-1. **Brand-new maps** — create maps from scratch (new layout + header +
-   bank entry), plus richer script steps (trainer battles, movement,
-   conditions).
-2. **Gen 1/2 map, trainer & wild editing** — same editor UI on the GB
+1. **Gen 1/2 map, trainer & wild editing** — same editor UI on the GB
    data formats.
-3. **Deeper decomp editing** — types/abilities/items as dropdowns,
+2. **Deeper decomp editing** — types/abilities/items as dropdowns,
    trainers and encounters from source, project-wide save.
-4. Level-up learnsets, evolutions, type chart, starters, sprite
+3. Level-up learnsets, evolutions, type chart, starters, sprite
    importing, item/text editing, UPS/BPS patches.
 
 ## Relationship to the decompilation projects
