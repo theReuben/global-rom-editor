@@ -1,0 +1,350 @@
+/**
+ * Gen 3 map engine: parses discovered map structures, renders maps and
+ * block pickers to RGBA, and applies safe in-place edits (block painting,
+ * movement permissions, NPC/warp/sign fields).
+ */
+import type { Rom } from '../rom'
+import type { CellInfo, MapEntry, MapEvents, MapModule, EventKind } from '../games/schema'
+import { lz77Decompress } from './lz77'
+import { decodeTile4bpp, readPalette } from '../tiles'
+import { discoverMaps, type Gen3MapIndex } from './mapscan'
+
+/** RSE and FRLG split tiles/metatiles/palettes differently. */
+interface Family {
+  primaryTiles: number
+  primaryMetatiles: number
+  totalMetatiles: number
+  primaryPalettes: number
+}
+
+const RSE: Family = { primaryTiles: 512, primaryMetatiles: 512, totalMetatiles: 1024, primaryPalettes: 6 }
+const FRLG: Family = { primaryTiles: 640, primaryMetatiles: 640, totalMetatiles: 1024, primaryPalettes: 7 }
+
+export function familyForGameCode(code: string): Family {
+  if (code.startsWith('AX') || code.startsWith('BPE')) return RSE
+  return FRLG
+}
+
+function u32ptr(bytes: Uint8Array, off: number): number {
+  const v = (bytes[off] | (bytes[off + 1] << 8) | (bytes[off + 2] << 16) | (bytes[off + 3] << 24)) >>> 0
+  return v - 0x08000000
+}
+
+function s16(bytes: Uint8Array, off: number): number {
+  const v = bytes[off] | (bytes[off + 1] << 8)
+  return v >= 0x8000 ? v - 0x10000 : v
+}
+
+interface Layout {
+  offset: number
+  width: number
+  height: number
+  blocksOffset: number
+  primaryTs: number
+  secondaryTs: number
+}
+
+interface LoadedGfx {
+  /** Global tile atlas: primary tiles at 0, secondary at primaryTiles. */
+  tiles: (Uint8Array | undefined)[]
+  /** 16 palettes of 16 RGB triples. */
+  palettes: [number, number, number][][]
+  metatileOffset(blockId: number): number | null
+}
+
+interface LoadedMap {
+  headerOffset: number
+  eventsOffset: number
+  layout: Layout
+  gfx: LoadedGfx
+  metatileCache: Map<number, Uint8ClampedArray>
+}
+
+const NPC_SIZE = 24
+const WARP_SIZE = 8
+const TRIGGER_SIZE = 16
+const SIGN_SIZE = 12
+
+export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapModule; index: Gen3MapIndex } | null {
+  const bytes = rom.bytes
+  const index = discoverMaps(bytes)
+  if (!index) return null
+  const family = familyForGameCode(gameCode)
+
+  const entries: MapEntry[] = []
+  const headerByKey = new Map<string, number>()
+  index.banks.forEach((maps, bank) => {
+    maps.forEach((headerOff, map) => {
+      const layoutOff = u32ptr(bytes, headerOff)
+      const w = bytes[layoutOff] | (bytes[layoutOff + 1] << 8)
+      const h = bytes[layoutOff + 4] | (bytes[layoutOff + 5] << 8)
+      const key = `${bank}.${map}`
+      headerByKey.set(key, headerOff)
+      entries.push({ key, bank, map, label: `${bank}.${map} — ${w}×${h}` })
+    })
+  })
+
+  const loaded = new Map<string, LoadedMap>()
+
+  function parseLayout(off: number): Layout {
+    return {
+      offset: off,
+      width: bytes[off] | (bytes[off + 1] << 8),
+      height: bytes[off + 4] | (bytes[off + 5] << 8),
+      blocksOffset: u32ptr(bytes, off + 12),
+      primaryTs: u32ptr(bytes, off + 16),
+      secondaryTs: u32ptr(bytes, off + 20),
+    }
+  }
+
+  function loadTiles(tsOff: number, maxTiles: number): Uint8Array[] {
+    const compressed = bytes[tsOff] === 1
+    const gfxOff = u32ptr(bytes, tsOff + 4)
+    let gfx: Uint8Array
+    if (compressed) {
+      gfx = lz77Decompress(bytes, gfxOff)
+    } else {
+      gfx = bytes.subarray(gfxOff, Math.min(gfxOff + maxTiles * 32, bytes.length))
+    }
+    const tiles: Uint8Array[] = []
+    for (let i = 0; i + 32 <= gfx.length && i / 32 < maxTiles; i += 32) {
+      tiles.push(decodeTile4bpp(gfx, i))
+    }
+    return tiles
+  }
+
+  function loadGfx(layout: Layout): LoadedGfx {
+    const primary = layout.primaryTs
+    const secondary = layout.secondaryTs
+    const tiles: (Uint8Array | undefined)[] = new Array(1024)
+    loadTiles(primary, family.primaryTiles).forEach((t, i) => (tiles[i] = t))
+    loadTiles(secondary, 1024 - family.primaryTiles).forEach(
+      (t, i) => (tiles[family.primaryTiles + i] = t),
+    )
+
+    const palettes: [number, number, number][][] = []
+    const pPal = u32ptr(bytes, primary + 8)
+    const sPal = u32ptr(bytes, secondary + 8)
+    for (let i = 0; i < 16; i++) {
+      const base = i < family.primaryPalettes ? pPal : sPal
+      palettes.push(readPalette(bytes, base + i * 32))
+    }
+
+    const pMeta = u32ptr(bytes, primary + 12)
+    const sMeta = u32ptr(bytes, secondary + 12)
+    const metatileOffset = (blockId: number): number | null => {
+      let off: number
+      if (blockId < family.primaryMetatiles) off = pMeta + blockId * 16
+      else if (blockId < family.totalMetatiles) off = sMeta + (blockId - family.primaryMetatiles) * 16
+      else return null
+      return off + 16 <= bytes.length ? off : null
+    }
+    return { tiles, palettes, metatileOffset }
+  }
+
+  function load(key: string): LoadedMap {
+    const cached = loaded.get(key)
+    if (cached) return cached
+    const headerOffset = headerByKey.get(key)
+    if (headerOffset === undefined) throw new Error(`Unknown map ${key}`)
+    const layout = parseLayout(u32ptr(bytes, headerOffset))
+    const m: LoadedMap = {
+      headerOffset,
+      eventsOffset: u32ptr(bytes, headerOffset + 4),
+      layout,
+      gfx: loadGfx(layout),
+      metatileCache: new Map(),
+    }
+    loaded.set(key, m)
+    return m
+  }
+
+  /** Render one 16×16 metatile (two layers, 4 quadrants each) to RGBA. */
+  function renderMetatile(m: LoadedMap, blockId: number): Uint8ClampedArray {
+    const hit = m.metatileCache.get(blockId)
+    if (hit) return hit
+    const out = new Uint8ClampedArray(16 * 16 * 4)
+    const mtOff = m.gfx.metatileOffset(blockId)
+    if (mtOff === null) {
+      // Unknown block: magenta checker so problems are visible, not silent.
+      for (let i = 0; i < 256; i++) {
+        out[i * 4] = 255
+        out[i * 4 + 2] = 255
+        out[i * 4 + 3] = 255
+      }
+      m.metatileCache.set(blockId, out)
+      return out
+    }
+    for (let layer = 0; layer < 2; layer++) {
+      for (let q = 0; q < 4; q++) {
+        const v = bytes[mtOff + layer * 8 + q * 2] | (bytes[mtOff + layer * 8 + q * 2 + 1] << 8)
+        const tile = m.gfx.tiles[v & 0x3ff]
+        if (!tile) continue
+        const hFlip = (v >> 10) & 1
+        const vFlip = (v >> 11) & 1
+        const pal = m.gfx.palettes[v >> 12] ?? m.gfx.palettes[0]
+        const qx = (q % 2) * 8
+        const qy = q < 2 ? 0 : 8
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 8; x++) {
+            const p = tile[(vFlip ? 7 - y : y) * 8 + (hFlip ? 7 - x : x)]
+            if (layer === 1 && p === 0) continue // top layer: 0 is transparent
+            const o = ((qy + y) * 16 + qx + x) * 4
+            const [r, g, b] = pal[p] ?? [255, 0, 255]
+            out[o] = r
+            out[o + 1] = g
+            out[o + 2] = b
+            out[o + 3] = 255
+          }
+        }
+      }
+    }
+    m.metatileCache.set(blockId, out)
+    return out
+  }
+
+  function blockAt(m: LoadedMap, x: number, y: number): number {
+    return rom.readU16LE(m.layout.blocksOffset + (y * m.layout.width + x) * 2)
+  }
+
+  function blit(dst: Uint8ClampedArray, dstW: number, src: Uint8ClampedArray, px: number, py: number) {
+    for (let y = 0; y < 16; y++) {
+      const srcRow = y * 16 * 4
+      const dstRow = ((py + y) * dstW + px) * 4
+      dst.set(src.subarray(srcRow, srcRow + 64), dstRow)
+    }
+  }
+
+  function eventPtr(m: LoadedMap, kind: EventKind): { off: number; count: number; size: number } {
+    const e = m.eventsOffset
+    const slot = kind === 'npc' ? 0 : kind === 'warp' ? 1 : 3
+    const size = kind === 'npc' ? NPC_SIZE : kind === 'warp' ? WARP_SIZE : SIGN_SIZE
+    return { off: u32ptr(bytes, e + 4 + slot * 4), count: bytes[e + slot], size }
+  }
+
+  const module: MapModule = {
+    entries,
+
+    describe(key) {
+      const m = load(key)
+      return {
+        widthBlocks: m.layout.width,
+        heightBlocks: m.layout.height,
+        blockCount: family.totalMetatiles,
+      }
+    },
+
+    render(key) {
+      const m = load(key)
+      const { width, height } = m.layout
+      const pixels = new Uint8ClampedArray(width * 16 * height * 16 * 4)
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          blit(pixels, width * 16, renderMetatile(m, blockAt(m, x, y) & 0x3ff), x * 16, y * 16)
+        }
+      }
+      return { pixels, width: width * 16, height: height * 16 }
+    },
+
+    renderBlocks(key, perRow) {
+      const m = load(key)
+      const count = family.totalMetatiles
+      const rows = Math.ceil(count / perRow)
+      const width = perRow * 16
+      const pixels = new Uint8ClampedArray(width * rows * 16 * 4)
+      for (let i = 0; i < count; i++) {
+        blit(pixels, width, renderMetatile(m, i), (i % perRow) * 16, Math.floor(i / perRow) * 16)
+      }
+      return { pixels, width, height: rows * 16, perRow, count }
+    },
+
+    cell(key, x, y): CellInfo {
+      const v = blockAt(load(key), x, y)
+      return { blockId: v & 0x3ff, permission: v >> 10 }
+    },
+
+    paint(key, x, y, blockId) {
+      const m = load(key)
+      const off = m.layout.blocksOffset + (y * m.layout.width + x) * 2
+      rom.writeU16LE(off, (rom.readU16LE(off) & 0xfc00) | (blockId & 0x3ff))
+    },
+
+    setPermission(key, x, y, permission) {
+      const m = load(key)
+      const off = m.layout.blocksOffset + (y * m.layout.width + x) * 2
+      rom.writeU16LE(off, (rom.readU16LE(off) & 0x03ff) | ((permission & 0x3f) << 10))
+    },
+
+    events(key): MapEvents {
+      const m = load(key)
+      const npcs = []
+      const warps = []
+      const signs = []
+      const n = eventPtr(m, 'npc')
+      for (let i = 0; i < n.count; i++) {
+        const o = n.off + i * NPC_SIZE
+        npcs.push({
+          x: s16(bytes, o + 4),
+          y: s16(bytes, o + 6),
+          elevation: bytes[o + 8],
+          graphicsId: bytes[o + 1],
+          movementType: bytes[o + 9],
+        })
+      }
+      const w = eventPtr(m, 'warp')
+      for (let i = 0; i < w.count; i++) {
+        const o = w.off + i * WARP_SIZE
+        warps.push({
+          x: s16(bytes, o),
+          y: s16(bytes, o + 2),
+          elevation: bytes[o + 4],
+          warpId: bytes[o + 5],
+          targetMap: bytes[o + 6],
+          targetBank: bytes[o + 7],
+        })
+      }
+      const s = eventPtr(m, 'sign')
+      for (let i = 0; i < s.count; i++) {
+        const o = s.off + i * SIGN_SIZE
+        signs.push({ x: s16(bytes, o), y: s16(bytes, o + 2), elevation: bytes[o + 4], kind: bytes[o + 5] })
+      }
+      return { npcs, warps, signs }
+    },
+
+    updateEvent(key, kind, i, field, value) {
+      const m = load(key)
+      const { off, count, size } = eventPtr(m, kind)
+      if (i < 0 || i >= count) return
+      const o = off + i * size
+      const writeS16 = (at: number) => rom.writeU16LE(at, value < 0 ? value + 0x10000 : value)
+      if (kind === 'npc') {
+        if (field === 'x') writeS16(o + 4)
+        else if (field === 'y') writeS16(o + 6)
+        else if (field === 'elevation') rom.writeU8(o + 8, value)
+        else if (field === 'graphicsId') rom.writeU8(o + 1, value)
+        else if (field === 'movementType') rom.writeU8(o + 9, value)
+      } else if (kind === 'warp') {
+        if (field === 'x') writeS16(o)
+        else if (field === 'y') writeS16(o + 2)
+        else if (field === 'elevation') rom.writeU8(o + 4, value)
+        else if (field === 'warpId') rom.writeU8(o + 5, value)
+        else if (field === 'targetMap') rom.writeU8(o + 6, value)
+        else if (field === 'targetBank') rom.writeU8(o + 7, value)
+      } else {
+        if (field === 'x') writeS16(o)
+        else if (field === 'y') writeS16(o + 2)
+        else if (field === 'elevation') rom.writeU8(o + 4, value)
+        else if (field === 'kind') rom.writeU8(o + 5, value)
+      }
+    },
+
+    revertBlocks(key) {
+      const m = load(key)
+      rom.revertRange(m.layout.blocksOffset, m.layout.width * m.layout.height * 2)
+    },
+  }
+
+  // TRIGGER_SIZE reserved for coord-event editing (roadmap).
+  void TRIGGER_SIZE
+  return { module, index }
+}

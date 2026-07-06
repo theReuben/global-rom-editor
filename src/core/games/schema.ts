@@ -84,4 +84,77 @@ export interface GameAdapter {
 
   /** Type id → display name (used by 'type' fields). */
   typeOptions: SelectOption[]
+
+  /** Map/scene editing, when supported for this game (null = not yet). */
+  mapModule: MapModule | null
+}
+
+/* ------------------------------------------------------------------ maps */
+
+export interface MapEntry {
+  key: string
+  bank: number
+  map: number
+  label: string
+}
+
+export interface RenderedImage {
+  pixels: Uint8ClampedArray
+  width: number
+  height: number
+}
+
+export interface CellInfo {
+  blockId: number
+  /** Movement permission bits (collision/elevation), 0–63. */
+  permission: number
+}
+
+export interface NpcEvent {
+  x: number
+  y: number
+  elevation: number
+  graphicsId: number
+  movementType: number
+}
+
+export interface WarpEvent {
+  x: number
+  y: number
+  elevation: number
+  warpId: number
+  targetMap: number
+  targetBank: number
+}
+
+export interface SignEvent {
+  x: number
+  y: number
+  elevation: number
+  kind: number
+}
+
+export interface MapEvents {
+  npcs: NpcEvent[]
+  warps: WarpEvent[]
+  signs: SignEvent[]
+}
+
+export type EventKind = 'npc' | 'warp' | 'sign'
+
+export interface MapModule {
+  entries: MapEntry[]
+  describe(key: string): { widthBlocks: number; heightBlocks: number; blockCount: number }
+  /** Render the full map to RGBA (16px per block). */
+  render(key: string): RenderedImage
+  /** Render the block picker strip. */
+  renderBlocks(key: string, perRow: number): RenderedImage & { perRow: number; count: number }
+  cell(key: string, x: number, y: number): CellInfo
+  /** Paint a block; movement permission bits are preserved. */
+  paint(key: string, x: number, y: number, blockId: number): void
+  setPermission(key: string, x: number, y: number, permission: number): void
+  events(key: string): MapEvents
+  updateEvent(key: string, kind: EventKind, index: number, field: string, value: number): void
+  /** Revert all block-grid edits on this map. */
+  revertBlocks(key: string): void
 }

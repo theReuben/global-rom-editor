@@ -4,17 +4,21 @@ import { buildAdapter, type GameAdapter } from './core/games'
 import { Dropzone } from './ui/Dropzone'
 import { SpeciesPanel } from './ui/SpeciesPanel'
 import { MovesPanel } from './ui/MovesPanel'
+import { MapPanel } from './ui/MapPanel'
 import { PatchPanel } from './ui/PatchPanel'
 import { InfoPanel } from './ui/InfoPanel'
 
-type Tab = 'pokemon' | 'moves' | 'patch' | 'info'
+type Tab = 'pokemon' | 'moves' | 'maps' | 'patch' | 'info'
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'pokemon', label: '🧬 Pokémon' },
-  { id: 'moves', label: '⚔️ Moves' },
-  { id: 'patch', label: '📦 Save & Patches' },
-  { id: 'info', label: 'ℹ️ ROM Info' },
-]
+function tabsFor(adapter: GameAdapter): { id: Tab; label: string }[] {
+  return [
+    { id: 'pokemon' as const, label: '🧬 Pokémon' },
+    { id: 'moves' as const, label: '⚔️ Moves' },
+    ...(adapter.mapModule ? [{ id: 'maps' as const, label: '🗺️ Maps' }] : []),
+    { id: 'patch' as const, label: '📦 Save & Patches' },
+    { id: 'info' as const, label: 'ℹ️ ROM Info' },
+  ]
+}
 
 export function App() {
   const [adapter, setAdapter] = useState<GameAdapter | null>(null)
@@ -65,7 +69,7 @@ export function App() {
         </span>
       </header>
       <nav className="tabs">
-        {TABS.map((t) => (
+        {tabsFor(adapter).map((t) => (
           <button
             key={t.id}
             className={`tab ${tab === t.id ? 'active' : ''}`}
@@ -78,6 +82,7 @@ export function App() {
       <main className="content">
         {tab === 'pokemon' && <SpeciesPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'moves' && <MovesPanel adapter={adapter} onEdit={onEdit} />}
+        {tab === 'maps' && adapter.mapModule && <MapPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'patch' && (
           <PatchPanel
             adapter={adapter}

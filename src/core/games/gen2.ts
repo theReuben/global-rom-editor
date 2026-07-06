@@ -173,6 +173,7 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     species,
     speciesFields,
     typeOptions: GEN2_TYPES,
+    mapModule: null, // Gen 2 map editing: on the roadmap
     speciesNameLength: namesOff !== null ? NAME_LEN : null,
 
     readSpecies(dex) {

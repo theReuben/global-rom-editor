@@ -9,8 +9,9 @@
 import { Rom } from '../rom'
 import { findVerified } from '../scan'
 import { gen3Bytes, gen3Codec } from '../text'
+import { buildGen3MapModule } from '../gba/maps'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
-import type { EntryHandle, FieldSpec, FieldValue, GameAdapter, SelectOption, TableRegion } from './schema'
+import type { EntryHandle, FieldSpec, FieldValue, GameAdapter, MapModule, SelectOption, TableRegion } from './schema'
 
 const STATS_ENTRY = 28
 const NAME_LEN = 11 // 10 chars + terminator
@@ -89,6 +90,27 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
   const moveNamesOff = poundName === null ? null : poundName - MOVE_NAME_LEN
   if (moveNamesOff !== null) {
     regions.push({ name: 'Move names', offset: moveNamesOff, length: (MOVE_COUNT + 1) * MOVE_NAME_LEN })
+  }
+
+  // Map data: structural discovery (see gba/mapscan.ts). A failure here
+  // never blocks the rest of the editor.
+  let mapModule: MapModule | null = null
+  try {
+    const gameCode = String.fromCharCode(...bytes.subarray(0xac, 0xb0)).replace(/[^ -~]/g, '')
+    const maps = buildGen3MapModule(rom, gameCode)
+    if (maps) {
+      mapModule = maps.module
+      regions.push({
+        name: `Map bank table (${maps.index.banks.length} banks, ${maps.module.entries.length} maps)`,
+        offset: maps.index.bankTableOffset,
+        length: maps.index.banks.length * 4,
+      })
+    }
+  } catch {
+    mapModule = null
+  }
+  if (!mapModule) {
+    warnings.push("Couldn't verify the map data structures — map editing is disabled for this ROM.")
   }
 
   const stenchOff = findVerified(bytes, [...gen3Bytes('STENCH'), 0xff], [
@@ -205,6 +227,7 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     species,
     speciesFields,
     typeOptions: GEN3_TYPES,
+    mapModule,
     speciesNameLength: namesOff !== null ? NAME_LEN - 1 : null,
 
     readSpecies(id) {

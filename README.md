@@ -19,6 +19,9 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | EV yields | — | — | ✅ |
 | Move power / accuracy / PP / type / effect / priority / flags | ✅ | ✅ | ✅ |
 | Move renaming | 🔜 | 🔜 | ✅ |
+| Map viewer & block painting (scene editing) | 🔜 | 🔜 | ✅ |
+| Movement permission (collision) editing | — | — | ✅ |
+| NPC / warp / sign editing | 🔜 | 🔜 | ✅ |
 | Save edited ROM with fixed checksums | ✅ | ✅ | ✅ |
 | Export edits as an IPS patch | ✅ | ✅ | ✅ |
 | Apply community IPS patches | ✅ | ✅ | ✅ |
@@ -81,20 +84,24 @@ already exists and is tested (`src/core/gba/lz77.ts`, `src/core/tiles.ts`,
 `src/core/freespace.ts`: LZ77 codec, tile/palette rendering, free-space
 allocation + pointer retargeting).
 
+**Shipped:** the Gen 3 map editor (view, paint blocks, edit movement
+permissions, edit NPCs/warps/signs). Map data is discovered *structurally*
+— tileset headers by shape, layouts that point at verified tilesets,
+headers that point at verified layouts, then the bank table that ties it
+together (`src/core/gba/mapscan.ts`) — so it works across versions and
+most hacks with zero hardcoded offsets.
+
 In rough build order:
 
 1. **Trainer & wild encounter editing** — structured tables, same
    declarative-form treatment as Pokémon stats.
-2. **Map viewer (Gen 3 first)** — decompress tilesets, render maps to
-   canvas; ROM Info-style verification before any editing unlocks.
-3. **Map editing & custom areas** — paint blocks, resize maps, add new
-   maps into free space with automatic repointing.
-4. **NPC & event editing** — place/move NPCs, edit warps, signs and
-   triggers as forms.
-5. **Visual script builder** — compose events ("Show text → Give item →
+2. **Custom areas** — resize maps and add brand-new maps into free
+   space with automatic repointing; add/remove NPCs and warps.
+3. **Visual script builder** — compose events ("Show text → Give item →
    Set flag") from dropdowns; compiles to the game's script bytecode.
    This is the zero-code answer to custom storytelling.
-6. Level-up learnsets, evolutions, type chart, starters, sprite
+4. **Gen 1/2 map editing** — same editor UI on the GB map formats.
+5. Level-up learnsets, evolutions, type chart, starters, sprite
    importing, item/text editing, UPS/BPS patches.
 
 ## Legal

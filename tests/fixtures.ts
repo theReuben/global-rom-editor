@@ -6,6 +6,7 @@
  * on) to exercise every code path: detection, scanning, reading, writing.
  */
 import { gen12Bytes, gen3Bytes } from '../src/core/text'
+import { lz77Compress } from '../src/core/gba/lz77'
 
 function put(buf: Uint8Array, off: number, bytes: ArrayLike<number>): void {
   buf.set(Uint8Array.from(bytes as number[]), off)
@@ -137,5 +138,79 @@ export function makeGen3Rom(): Uint8Array {
   const abilities = 0x24fc40
   put(rom, abilities + 13, gen3Name('STENCH', 13))
   put(rom, abilities + 26, gen3Name('DRIZZLE', 13))
+
+  addMapData(rom)
   return rom
+}
+
+/* --------------------------------------------------- Gen 3 map fixtures */
+
+function ptr(off: number): number[] {
+  const v = (off + 0x08000000) >>> 0
+  return [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff]
+}
+
+function u16s(...values: number[]): number[] {
+  return values.flatMap((v) => [v & 0xff, (v >> 8) & 0xff])
+}
+
+/**
+ * A complete synthetic map-data chain (FRLG family, so primary metatiles
+ * run 0..639 and block 640 is the secondary tileset's entry 0):
+ * two tilesets → layout (4×3) → map header (+1 NPC, +1 warp) →
+ * two single-map groups → bank table.
+ */
+function addMapData(rom: Uint8Array): void {
+  const gfxP = 0x310100
+  const palP = 0x310200
+  const mtP = 0x310500
+  const tsP = 0x310000
+  const gfxS = 0x311100
+  const palS = 0x311300
+  const mtS = 0x311600
+  const tsS = 0x311000
+  const border = 0x312000
+  const blocks = 0x312100
+  const layout = 0x312200
+  const events = 0x312300
+  const npcs = 0x312400
+  const warps = 0x312500
+  const header = 0x312700
+  const group0 = 0x313000
+  const group1 = 0x313010
+  const bankTable = 0x313100
+
+  // Primary tileset: compressed gfx, 3 tiles (solid color 1, 2, 0).
+  const tiles = new Uint8Array(96)
+  tiles.fill(0x11, 0, 32)
+  tiles.fill(0x22, 32, 64)
+  put(rom, tsP, [1, 0, 0, 0, ...ptr(gfxP), ...ptr(palP), ...ptr(mtP), 0, 0, 0, 0, 0, 0, 0, 0])
+  put(rom, gfxP, lz77Compress(tiles))
+  put(rom, palP + 0 * 32 + 1 * 2, u16s(0x001f)) // palette 0, color 1: red
+  put(rom, palP + 1 * 32 + 2 * 2, u16s(0x03e0)) // palette 1, color 2: green
+  // Metatile 0: bottom layer tile 0 pal 0, top layer tile 2 (transparent).
+  put(rom, mtP, u16s(0, 0, 0, 0, 2, 2, 2, 2))
+  // Metatile 1: bottom layer tile 1 pal 1.
+  put(rom, mtP + 16, u16s(0x1001, 0x1001, 0x1001, 0x1001, 2, 2, 2, 2))
+
+  // Secondary tileset: raw gfx, 1 tile (solid color 3).
+  put(rom, tsS, [0, 1, 0, 0, ...ptr(gfxS), ...ptr(palS), ...ptr(mtS), 0, 0, 0, 0, 0, 0, 0, 0])
+  put(rom, gfxS, new Uint8Array(32).fill(0x33))
+  put(rom, palS + 7 * 32 + 3 * 2, u16s(0x7c00)) // palette 7, color 3: blue
+  // Secondary metatile 0 (= block 640): tile 640 pal 7.
+  put(rom, mtS, u16s(0x7280, 0x7280, 0x7280, 0x7280, 2, 2, 2, 2))
+
+  // 4×3 block grid; cell (0,1) has movement permission 1.
+  put(rom, blocks, u16s(0, 1, 0, 640, 0x0400, 1, 0, 0, 1, 0, 1, 0))
+  put(rom, layout, [4, 0, 0, 0, 3, 0, 0, 0, ...ptr(border), ...ptr(blocks), ...ptr(tsP), ...ptr(tsS), 2, 2, 0, 0])
+
+  // Events: 1 NPC at (2,1), 1 warp at (3,2).
+  put(rom, events, [1, 1, 0, 0, ...ptr(npcs), ...ptr(warps), 0, 0, 0, 0, 0, 0, 0, 0])
+  put(rom, npcs, [1, 5, 0, 0, ...u16s(2, 1), 3, 1, 0x11, 0, ...u16s(0, 0), 0, 0, 0, 0, ...u16s(0, 0)])
+  put(rom, warps, [...u16s(3, 2), 0, 1, 0, 1])
+
+  put(rom, header, [...ptr(layout), ...ptr(events), 0, 0, 0, 0, 0, 0, 0, 0, ...u16s(0x012c, 1), 1, 0, 2, 1, 0, 0, 1, 0])
+  put(rom, group0, ptr(header))
+  put(rom, group1, ptr(header))
+  put(rom, bankTable, [...ptr(group0), ...ptr(group1)])
 }
