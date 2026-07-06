@@ -9,6 +9,7 @@ import { TrainerPanel } from './ui/TrainerPanel'
 import { WildPanel } from './ui/WildPanel'
 import { PatchPanel } from './ui/PatchPanel'
 import { InfoPanel } from './ui/InfoPanel'
+import { DecompApp, openDecompProject, type DecompProject } from './ui/DecompApp'
 
 type Tab = 'pokemon' | 'moves' | 'trainers' | 'wild' | 'maps' | 'patch' | 'info'
 
@@ -26,6 +27,7 @@ function tabsFor(adapter: GameAdapter): { id: Tab; label: string }[] {
 
 export function App() {
   const [adapter, setAdapter] = useState<GameAdapter | null>(null)
+  const [decomp, setDecomp] = useState<DecompProject | null>(null)
   const [tab, setTab] = useState<Tab>('pokemon')
   const [error, setError] = useState<string | null>(null)
   const [, setTick] = useState(0)
@@ -54,8 +56,26 @@ export function App() {
     [loadBytes],
   )
 
+  if (decomp) {
+    return <DecompApp project={decomp} onClose={() => setDecomp(null)} />
+  }
+
   if (!adapter) {
-    return <Dropzone onFile={(f) => void onFile(f)} error={error} />
+    return (
+      <Dropzone
+        onFile={(f) => void onFile(f)}
+        error={error}
+        onOpenDecomp={async () => {
+          try {
+            const project = await openDecompProject()
+            if (project) setDecomp(project)
+          } catch (e) {
+            if (e instanceof Error && e.name === 'AbortError') return
+            setError(e instanceof Error ? e.message : String(e))
+          }
+        }}
+      />
+    )
   }
 
   return (

@@ -1,8 +1,10 @@
 import { useRef, useState } from 'react'
+import { decompSupported } from './DecompApp'
 
 interface Props {
   onFile: (file: File) => void
   error: string | null
+  onOpenDecomp: () => void
 }
 
 const FEATURES = [
@@ -18,7 +20,7 @@ const GAMES = [
   ['Gen 3', 'Ruby · Sapphire · Emerald · FireRed · LeafGreen'],
 ] as const
 
-export function Dropzone({ onFile, error }: Props) {
+export function Dropzone({ onFile, error, onOpenDecomp }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
 
@@ -64,6 +66,16 @@ export function Dropzone({ onFile, error }: Props) {
           }}
         />
       </div>
+
+      {decompSupported() && (
+        <p className="decomp-link">
+          Working from source instead?{' '}
+          <button className="linkish" onClick={onOpenDecomp}>
+            Open a pokeemerald / pokefirered project folder
+          </button>{' '}
+          <span className="muted">(experimental)</span>
+        </p>
+      )}
 
       {error && <div className="notice err">{error}</div>}
 

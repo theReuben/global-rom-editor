@@ -110,6 +110,7 @@ export function makeGen2Rom(): Uint8Array {
 
 export function makeGen3Rom(): Uint8Array {
   const rom = new Uint8Array(4 * 1024 * 1024)
+  rom.fill(0xff, 0x3e0000) // trailing padding, like a real GBA ROM
   rom[0xb2] = 0x96 // GBA fixed header byte
   put(rom, 0xa0, Array.from('POKEMON FIRE').map((c) => c.charCodeAt(0)))
   put(rom, 0xac, Array.from('BPRE').map((c) => c.charCodeAt(0)))

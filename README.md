@@ -25,6 +25,10 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Trainer editing (class, AI, items, full parties) | 🔜 | 🔜 | ✅ |
 | Wild encounter editing (grass/surf/rock/fishing) | 🔜 | 🔜 | ✅ |
 | Item names read from the ROM (dropdowns everywhere) | — | — | ✅ |
+| Map resizing (relocated into free space) | — | — | ✅ |
+| Add / remove NPCs, warps and signs | — | — | ✅ |
+| Visual script builder (messages, items, Pokémon, flags) | — | — | ✅ |
+| Decomp project editing (species stats, experimental) | — | — | ✅ |
 | Save edited ROM with fixed checksums | ✅ | ✅ | ✅ |
 | Export edits as an IPS patch | ✅ | ✅ | ✅ |
 | Apply community IPS patches | ✅ | ✅ | ✅ |
@@ -102,15 +106,25 @@ headers that point at verified layouts, then the bank table that ties it
 together (`src/core/gba/mapscan.ts`) — so it works across versions and
 most hacks with zero hardcoded offsets.
 
+**Shipped:** map resizing (block grids relocate into the ROM's trailing
+free space with automatic repointing), adding/removing NPCs/warps/signs,
+and the first **visual script builder** — compose "Show message → Give
+item → Give Pokémon → Set flag" steps and they compile to the games'
+real script bytecode (opcodes verified against both pokeemerald and
+pokefirered), get written to free space, and attach to any NPC or sign.
+Also shipped: the first slice of the **decomp project backend** — open a
+pokeemerald/pokefirered source folder in Chromium and edit species stats
+with formatting-preserving writes back to `species_info.h`.
+
 In rough build order:
 
-1. **Custom areas** — resize maps and add brand-new maps into free
-   space with automatic repointing; add/remove NPCs and warps.
-2. **Visual script builder** — compose events ("Show text → Give item →
-   Set flag") from dropdowns; compiles to the game's script bytecode.
-   This is the zero-code answer to custom storytelling.
-3. **Gen 1/2 map, trainer & wild editing** — same editor UI on the GB
+1. **Brand-new maps** — create maps from scratch (new layout + header +
+   bank entry), plus richer script steps (trainer battles, movement,
+   conditions).
+2. **Gen 1/2 map, trainer & wild editing** — same editor UI on the GB
    data formats.
+3. **Deeper decomp editing** — types/abilities/items as dropdowns,
+   trainers and encounters from source, project-wide save.
 4. Level-up learnsets, evolutions, type chart, starters, sprite
    importing, item/text editing, UPS/BPS patches.
 

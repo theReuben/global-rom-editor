@@ -212,6 +212,13 @@ export interface MapEvents {
 
 export type EventKind = 'npc' | 'warp' | 'sign'
 
+export type ScriptStep =
+  | { kind: 'message'; text: string }
+  | { kind: 'giveItem'; item: number; quantity: number }
+  | { kind: 'givePokemon'; species: number; level: number }
+  | { kind: 'setFlag'; flag: number }
+  | { kind: 'clearFlag'; flag: number }
+
 export interface MapModule {
   entries: MapEntry[]
   describe(key: string): { widthBlocks: number; heightBlocks: number; blockCount: number }
@@ -225,6 +232,20 @@ export interface MapModule {
   setPermission(key: string, x: number, y: number, permission: number): void
   events(key: string): MapEvents
   updateEvent(key: string, kind: EventKind, index: number, field: string, value: number): void
+  /**
+   * Resize the map, keeping the overlapping area. The new block grid is
+   * placed in free space and the layout repointed. False = no space.
+   */
+  resize(key: string, width: number, height: number): boolean
+  /** Append a new blank NPC/warp/sign (relocates the event array). */
+  addEvent(key: string, kind: EventKind): boolean
+  /** Remove an event, shifting the rest down (in place). */
+  removeEvent(key: string, kind: EventKind, index: number): void
+  /**
+   * Compile steps to script bytecode in free space and attach it to an
+   * NPC (talk script) or sign. False = encoding failed or no space.
+   */
+  attachScript(key: string, kind: 'npc' | 'sign', index: number, steps: ScriptStep[]): boolean
   /** Revert all block-grid edits on this map. */
   revertBlocks(key: string): void
 }

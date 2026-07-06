@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import type { GameAdapter, MapModule } from '../core/games/schema'
 import { GEN3_MOVEMENT_TYPES } from '../core/games/gen3-constants'
+import { ScriptBuilder } from './ScriptBuilder'
 
 type Tool = 'paint' | 'inspect'
 
@@ -50,15 +51,18 @@ function EventMarkers({
 }
 
 function EventList({
+  adapter,
   module,
   mapKey,
   onEdit,
 }: {
+  adapter: GameAdapter
   module: MapModule
   mapKey: string
   onEdit: () => void
 }) {
   const events = module.events(mapKey)
+  const [scriptTarget, setScriptTarget] = useState<{ kind: 'npc' | 'sign'; index: number } | null>(null)
   const num = (
     kind: 'npc' | 'warp' | 'sign',
     index: number,
@@ -81,14 +85,66 @@ function EventList({
     </label>
   )
 
+  const addButtons = (
+    <div className="button-row" style={{ marginBottom: 8 }}>
+      {(['npc', 'warp', 'sign'] as const).map((kind) => (
+        <button
+          key={kind}
+          onClick={() => {
+            if (module.addEvent(mapKey, kind)) onEdit()
+          }}
+        >
+          + {kind.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  )
+
   if (events.npcs.length + events.warps.length + events.signs.length === 0) {
-    return <p className="muted">This map has no NPCs, warps or signs.</p>
+    return (
+      <div>
+        {addButtons}
+        <p className="muted">This map has no NPCs, warps or signs yet.</p>
+      </div>
+    )
   }
+  const removeBtn = (kind: 'npc' | 'warp' | 'sign', i: number) => (
+    <button
+      className="ghost event-remove"
+      title="Remove"
+      onClick={() => {
+        module.removeEvent(mapKey, kind, i)
+        setScriptTarget(null)
+        onEdit()
+      }}
+    >
+      ✕
+    </button>
+  )
+  const scriptBtn = (kind: 'npc' | 'sign', i: number) => (
+    <button className="ghost" onClick={() => setScriptTarget({ kind, index: i })}>
+      ✨ Script
+    </button>
+  )
   return (
     <div className="event-list">
+      {addButtons}
+      {scriptTarget && (
+        <ScriptBuilder
+          adapter={adapter}
+          onApply={(steps) => {
+            const ok = module.attachScript(mapKey, scriptTarget.kind, scriptTarget.index, steps)
+            if (ok) onEdit()
+            return ok
+          }}
+          onClose={() => setScriptTarget(null)}
+        />
+      )}
       {events.npcs.map((e, i) => (
         <div className="event-card" key={`n${i}`}>
-          <h4>🧍 NPC {i}</h4>
+          <h4>
+            🧍 NPC {i} {scriptBtn('npc', i)} {removeBtn('npc', i)}
+          </h4>
           {num('npc', i, 'x', e.x, 'X')}
           {num('npc', i, 'y', e.y, 'Y')}
           {num('npc', i, 'graphicsId', e.graphicsId, 'Sprite')}
@@ -116,7 +172,7 @@ function EventList({
       ))}
       {events.warps.map((e, i) => (
         <div className="event-card" key={`w${i}`}>
-          <h4>🌀 Warp {i}</h4>
+          <h4>🌀 Warp {i} {removeBtn('warp', i)}</h4>
           {num('warp', i, 'x', e.x, 'X')}
           {num('warp', i, 'y', e.y, 'Y')}
           {num('warp', i, 'targetBank', e.targetBank, 'To bank')}
@@ -126,12 +182,47 @@ function EventList({
       ))}
       {events.signs.map((e, i) => (
         <div className="event-card" key={`s${i}`}>
-          <h4>🪧 Sign {i}</h4>
+          <h4>
+            🪧 Sign {i} {scriptBtn('sign', i)} {removeBtn('sign', i)}
+          </h4>
           {num('sign', i, 'x', e.x, 'X')}
           {num('sign', i, 'y', e.y, 'Y')}
           {num('sign', i, 'kind', e.kind, 'Kind')}
         </div>
       ))}
+    </div>
+  )
+}
+
+function ResizeControl({
+  module,
+  mapKey,
+  onEdit,
+}: {
+  module: MapModule
+  mapKey: string
+  onEdit: () => void
+}) {
+  const d = module.describe(mapKey)
+  const [w, setW] = useState(d.widthBlocks)
+  const [h, setH] = useState(d.heightBlocks)
+  const [error, setError] = useState(false)
+  return (
+    <div className="resize-control">
+      <input type="number" min={1} max={255} value={w} onChange={(e) => setW(Number(e.target.value))} />
+      ×
+      <input type="number" min={1} max={255} value={h} onChange={(e) => setH(Number(e.target.value))} />
+      <button
+        disabled={w === d.widthBlocks && h === d.heightBlocks}
+        onClick={() => {
+          const ok = module.resize(mapKey, w, h)
+          setError(!ok)
+          if (ok) onEdit()
+        }}
+      >
+        Resize
+      </button>
+      {error && <span className="name-hint">Not enough free ROM space.</span>}
     </div>
   )
 }
@@ -344,8 +435,10 @@ export function MapPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: ()
             }}
           />
         </div>
+        <h3>Map size</h3>
+        <ResizeControl module={module} mapKey={mapKey} onEdit={bump} />
         <h3>Events</h3>
-        <EventList module={module} mapKey={mapKey} onEdit={bump} />
+        <EventList adapter={adapter} module={module} mapKey={mapKey} onEdit={bump} />
       </div>
     </div>
   )

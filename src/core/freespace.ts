@@ -36,6 +36,21 @@ export function findFreeSpace(
   return null
 }
 
+/**
+ * Allocate from the ROM's trailing padding — the large 0xFF fill at the
+ * end of every GBA ROM. This is the safest free space: unlike interior
+ * 0xFF runs it can never be a table of legitimate 0xFF values.
+ * Allocations advance past earlier writes automatically because written
+ * bytes are no longer 0xFF.
+ */
+export function findFreeSpaceAtEnd(bytes: Uint8Array, length: number, align = 4): number | null {
+  let start = bytes.length
+  while (start > 0 && bytes[start - 1] === 0xff) start--
+  start += 16 // margin after the last data byte
+  const aligned = Math.ceil(start / align) * align
+  return aligned + length <= bytes.length ? aligned : null
+}
+
 /** Read a GBA ROM pointer (little-endian u32 minus 0x08000000). */
 export function readGbaPointer(bytes: Uint8Array, off: number): number | null {
   const v =
@@ -82,7 +97,9 @@ export function relocate(
   opts: { fill?: number; from?: number } = {},
 ): number | null {
   const fill = opts.fill ?? 0xff
-  const dest = findFreeSpace(rom.bytes, newData.length, { fill, from: opts.from ?? 0 })
+  const dest =
+    findFreeSpaceAtEnd(rom.bytes, newData.length) ??
+    findFreeSpace(rom.bytes, newData.length, { fill, from: opts.from ?? 0 })
   if (dest === null) return null
   const refs = findGbaPointerRefs(rom.bytes, oldOffset)
   rom.writeBytes(dest, newData)

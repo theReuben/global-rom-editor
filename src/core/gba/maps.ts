@@ -8,6 +8,8 @@ import type { CellInfo, MapEntry, MapEvents, MapModule, EventKind } from '../gam
 import { lz77Decompress } from './lz77'
 import { decodeTile4bpp, readPalette } from '../tiles'
 import { discoverMaps, type Gen3MapIndex } from './mapscan'
+import { findFreeSpaceAtEnd, relocate, writeGbaPointer } from '../freespace'
+import { compileScript } from './script'
 
 /** RSE and FRLG split tiles/metatiles/palettes differently. */
 interface Family {
@@ -336,6 +338,93 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
         else if (field === 'elevation') rom.writeU8(o + 4, value)
         else if (field === 'kind') rom.writeU8(o + 5, value)
       }
+    },
+
+    resize(key, width, height) {
+      const m = load(key)
+      const old = m.layout
+      if (width < 1 || height < 1 || width > 255 || height > 255) return false
+      if (width === old.width && height === old.height) return true
+      // Build the new grid: keep the overlap, fill new cells with block 0.
+      const grid = new Uint8Array(width * height * 2)
+      for (let y = 0; y < Math.min(height, old.height); y++) {
+        for (let x = 0; x < Math.min(width, old.width); x++) {
+          const v = blockAt(m, x, y)
+          const o = (y * width + x) * 2
+          grid[o] = v & 0xff
+          grid[o + 1] = v >> 8
+        }
+      }
+      const dest = relocate(rom, old.blocksOffset, old.width * old.height * 2, grid)
+      if (dest === null) return false
+      // Dimensions are s32 in the layout struct.
+      rom.writeU16LE(old.offset, width)
+      rom.writeU16LE(old.offset + 2, 0)
+      rom.writeU16LE(old.offset + 4, height)
+      rom.writeU16LE(old.offset + 6, 0)
+      loaded.delete(key) // re-parse on next access
+      const entry = entries.find((e) => e.key === key)
+      if (entry) entry.label = `${key} — ${width}×${height}`
+      return true
+    },
+
+    addEvent(key, kind) {
+      const m = load(key)
+      const { off, count, size } = eventPtr(m, kind)
+      if (count >= 200) return false
+      const blank = new Uint8Array(size)
+      if (kind === 'npc') {
+        blank[0] = count + 1 // local id
+        blank[8] = 3 // elevation
+        blank[9] = 0x08 // face down
+      }
+      const slot = kind === 'npc' ? 0 : kind === 'warp' ? 1 : 3
+      const rawPtr =
+        rom.readU16LE(m.eventsOffset + 4 + slot * 4) |
+        (rom.readU16LE(m.eventsOffset + 6 + slot * 4) << 16)
+      if (count === 0 || rawPtr === 0) {
+        // No array yet: allocate a fresh one.
+        const dest = findFreeSpaceAtEnd(rom.bytes, size)
+        if (dest === null) return false
+        rom.writeBytes(dest, blank)
+        writeGbaPointer(rom, m.eventsOffset + 4 + slot * 4, dest)
+      } else {
+        const grown = new Uint8Array((count + 1) * size)
+        grown.set(bytes.subarray(off, off + count * size))
+        grown.set(blank, count * size)
+        if (relocate(rom, off, count * size, grown) === null) return false
+      }
+      rom.writeU8(m.eventsOffset + slot, count + 1)
+      return true
+    },
+
+    removeEvent(key, kind, index) {
+      const m = load(key)
+      const { off, count, size } = eventPtr(m, kind)
+      if (index < 0 || index >= count) return
+      for (let i = index; i < count - 1; i++) {
+        rom.writeBytes(off + i * size, bytes.subarray(off + (i + 1) * size, off + (i + 2) * size))
+      }
+      for (let b = 0; b < size; b++) rom.writeU8(off + (count - 1) * size + b, 0)
+      const slot = kind === 'npc' ? 0 : kind === 'warp' ? 1 : 3
+      rom.writeU8(m.eventsOffset + slot, count - 1)
+    },
+
+    attachScript(key, kind, index, steps) {
+      const m = load(key)
+      const { off, count, size } = eventPtr(m, kind)
+      if (index < 0 || index >= count || steps.length === 0) return false
+      // Two-phase: measure with a dummy base, then compile at the real one.
+      const probe = compileScript(steps, 0)
+      if (!probe) return false
+      const base = findFreeSpaceAtEnd(rom.bytes, probe.bytes.length)
+      if (base === null) return false
+      const compiled = compileScript(steps, base)!
+      rom.writeBytes(base, compiled.bytes)
+      // NPC talk script pointer at +16; sign script/arg pointer at +8.
+      const ptrOff = off + index * size + (kind === 'npc' ? 16 : 8)
+      writeGbaPointer(rom, ptrOff, base)
+      return true
     },
 
     revertBlocks(key) {

@@ -109,6 +109,15 @@ input[type='number'] { width: 90px; }
 .feature h3 { margin: 8px 0 6px; font-size: 16px; }
 .feature p { margin: 0; color: var(--muted); font-size: 14px; }
 .legal { color: var(--muted); font-size: 13px; margin-top: 36px; }
+.decomp-link { margin-top: 16px; color: var(--muted); font-size: 14px; }
+button.linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent2);
+  text-decoration: underline;
+  cursor: pointer;
+}
 
 /* ----------------------------------------------------------------- app */
 .app { display: flex; flex-direction: column; height: 100vh; }
@@ -364,6 +373,32 @@ input[type='range'] { accent-color: var(--accent); }
 .event-card h4 { width: 100%; margin: 0 0 2px; font-size: 13px; }
 .event-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
 .event-field input { width: 74px; padding: 4px 8px; }
+
+/* ------------------------------------------------------ script builder */
+.script-builder {
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.script-builder h4 { margin: 0 0 4px; }
+.script-step {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 8px 0;
+}
+.script-step-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; margin-bottom: 6px; }
+.script-step-head button { padding: 1px 8px; }
+.script-step textarea { width: 100%; font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.script-step-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.script-step-row select { flex: 1; min-width: 0; }
+.script-step-row input[type='number'] { width: 76px; }
+.event-remove { padding: 0 8px; float: right; }
+.resize-control { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; color: var(--muted); }
+.resize-control input { width: 64px; }
 
 /* --------------------------------------------------- trainers & wild */
 .party-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
