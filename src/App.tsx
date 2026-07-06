@@ -9,9 +9,10 @@ import { TrainerPanel } from './ui/TrainerPanel'
 import { WildPanel } from './ui/WildPanel'
 import { PatchPanel } from './ui/PatchPanel'
 import { InfoPanel } from './ui/InfoPanel'
+import { TypeChartPanel } from './ui/TypeChartPanel'
 import { DecompApp, openDecompProject, type DecompProject } from './ui/DecompApp'
 
-type Tab = 'pokemon' | 'moves' | 'trainers' | 'wild' | 'maps' | 'patch' | 'info'
+type Tab = 'pokemon' | 'moves' | 'trainers' | 'wild' | 'maps' | 'types' | 'patch' | 'info'
 
 function tabsFor(adapter: GameAdapter): { id: Tab; label: string }[] {
   return [
@@ -20,6 +21,7 @@ function tabsFor(adapter: GameAdapter): { id: Tab; label: string }[] {
     ...(adapter.trainerModule ? [{ id: 'trainers' as const, label: '🥊 Trainers' }] : []),
     ...(adapter.wildModule ? [{ id: 'wild' as const, label: '🌿 Wild' }] : []),
     ...(adapter.mapModule ? [{ id: 'maps' as const, label: '🗺️ Maps' }] : []),
+    ...(adapter.typeChart ? [{ id: 'types' as const, label: '🧪 Types' }] : []),
     { id: 'patch' as const, label: '📦 Save & Patches' },
     { id: 'info' as const, label: 'ℹ️ ROM Info' },
   ]
@@ -109,6 +111,7 @@ export function App() {
         {tab === 'trainers' && adapter.trainerModule && <TrainerPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'wild' && adapter.wildModule && <WildPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'maps' && adapter.mapModule && <MapPanel adapter={adapter} onEdit={onEdit} />}
+        {tab === 'types' && adapter.typeChart && <TypeChartPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'patch' && (
           <PatchPanel
             adapter={adapter}

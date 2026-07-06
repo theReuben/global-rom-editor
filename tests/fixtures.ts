@@ -148,7 +148,35 @@ export function makeGen3Rom(): Uint8Array {
   addTrainerData(rom)
   addWildData(rom)
   addClassNames(rom)
+  addSpeciesExtras(rom)
   return rom
+}
+
+/** Evolutions, learnsets and type chart. */
+function addSpeciesExtras(rom: Uint8Array): void {
+  // Evolutions: 40 bytes/species (5 × 8). Entry 0 dummy.
+  const evos = 0x3d1000
+  put(rom, evos + 40, u16s(4, 16, 2)) // Bulbasaur → #2 at 16
+  put(rom, evos + 80, u16s(4, 32, 3)) // Ivysaur → #3 at 32
+  put(rom, evos + 160, u16s(4, 16, 5)) // Charmander (species 4) → #5 at 16
+
+  // Learnsets: pointer table + packed u16 lists.
+  const lsDummy = 0x3d20f0
+  put(rom, lsDummy, [0xff, 0xff])
+  const lsBulba = 0x3d2100
+  put(rom, lsBulba, u16s((1 << 9) | 33, (4 << 9) | 45, 0xffff))
+  const lsIvy = 0x3d2110
+  put(rom, lsIvy, u16s((1 << 9) | 33, (4 << 9) | 45, 0xffff))
+  const lsVenu = 0x3d2120
+  put(rom, lsVenu, u16s((1 << 9) | 33, (4 << 9) | 45, 0xffff))
+  const lsChar = 0x3d2130
+  put(rom, lsChar, u16s((1 << 9) | 10, (1 << 9) | 45, 0xffff))
+  const lsTable = 0x3d2200
+  put(rom, lsTable, [...ptr(lsDummy), ...ptr(lsBulba), ...ptr(lsIvy), ...ptr(lsVenu), ...ptr(lsChar)])
+
+  // Type chart: two normal rows + separator + one Foresight row + end.
+  const chart = 0x3d3000
+  put(rom, chart, [0, 5, 5, 0, 8, 5, 10, 10, 5, 10, 12, 20, 0xfe, 0xfe, 0, 0, 7, 0, 0xff, 0xff, 0])
 }
 
 /** Trainer class names: 13-byte entries; run must include the anchors. */

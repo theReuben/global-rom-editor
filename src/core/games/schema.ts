@@ -89,6 +89,12 @@ export interface GameAdapter {
   mapModule: MapModule | null
   /** Trainer editing, when supported for this game (null = not yet). */
   trainerModule: TrainerModule | null
+  /** Evolution editing (null = not supported / not found). */
+  evolutions: EvolutionModule | null
+  /** Level-up learnset editing (null = not supported / not found). */
+  learnsets: LearnsetModule | null
+  /** Type effectiveness chart editing (null = not supported / not found). */
+  typeChart: TypeChartModule | null
   /** Wild encounter editing, when supported for this game (null = not yet). */
   wildModule: WildModule | null
   /** Item id → name options, when item names could be read from the ROM. */
@@ -134,6 +140,47 @@ export interface TrainerModule {
   party(id: number): PartyMon[]
   writePartyField(id: number, slot: number, field: string, value: number): void
   revert(id: number): void
+}
+
+/* ----------------------------------------- evolutions / learnsets / types */
+
+export interface EvolutionEntry {
+  method: number
+  param: number
+  target: number
+}
+
+export interface EvolutionModule {
+  methods: SelectOption[]
+  read(id: number): EvolutionEntry[]
+  write(id: number, slot: number, field: string, value: number): void
+  revert(id: number): void
+}
+
+export interface LearnsetEntry {
+  level: number
+  move: number
+}
+
+export interface LearnsetModule {
+  read(id: number): LearnsetEntry[]
+  /** Replace the whole list; relocates to free space when it grows. */
+  write(id: number, entries: LearnsetEntry[]): boolean
+}
+
+export interface TypeChartEntry {
+  attacker: number
+  defender: number
+  /** Damage ×10: 0 = immune, 5 = ½×, 20 = 2×. */
+  multiplier: number
+  offset: number
+}
+
+export interface TypeChartModule {
+  entries(): TypeChartEntry[]
+  setMultiplier(index: number, multiplier: number): void
+  addEntry(attacker: number, defender: number, multiplier: number): boolean
+  removeEntry(index: number): boolean
 }
 
 /* ------------------------------------------------------- wild encounters */

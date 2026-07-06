@@ -177,6 +177,9 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     trainerModule: null,
     wildModule: null,
     itemOptions: null,
+    evolutions: null,
+    learnsets: null,
+    typeChart: null,
     speciesNameLength: namesOff !== null ? NAME_LEN : null,
 
     readSpecies(dex) {

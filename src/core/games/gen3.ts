@@ -12,6 +12,7 @@ import { gen3Bytes, gen3Codec } from '../text'
 import { buildGen3MapModule } from '../gba/maps'
 import { buildTrainerModule } from '../gba/trainers'
 import { buildWildModule } from '../gba/wild'
+import { buildEvolutions, buildLearnsets, buildTypeChart } from '../gba/species-extras'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
 import type {
   EntryHandle,
@@ -179,6 +180,20 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     regions.push({ name: 'Item data', offset: itemsOff, length: itemOptions.length * 44 })
   }
 
+  // Evolutions, learnsets and the type chart — each optional.
+  const evoResult = buildEvolutions(rom, SPECIES_COUNT)
+  if (evoResult) {
+    regions.push({ name: 'Evolutions', offset: evoResult.offset, length: (SPECIES_COUNT + 1) * 40 })
+  }
+  const lsResult = buildLearnsets(rom, SPECIES_COUNT)
+  if (lsResult) {
+    regions.push({ name: 'Learnset pointers', offset: lsResult.offset, length: (SPECIES_COUNT + 1) * 4 })
+  }
+  const chartResult = buildTypeChart(rom)
+  if (chartResult) {
+    regions.push({ name: 'Type chart', offset: chartResult.offset, length: chartResult.module.entries().length * 3 + 6 })
+  }
+
   // Trainers: structural discovery of the 40-byte trainer table.
   let trainerModule: TrainerModule | null = null
   try {
@@ -344,6 +359,9 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     trainerModule,
     wildModule,
     itemOptions,
+    evolutions: evoResult?.module ?? null,
+    learnsets: lsResult?.module ?? null,
+    typeChart: chartResult?.module ?? null,
     speciesNameLength: namesOff !== null ? NAME_LEN - 1 : null,
 
     readSpecies(id) {

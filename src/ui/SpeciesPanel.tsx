@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { FieldSpec, GameAdapter } from '../core/games/schema'
 import { EntryList } from './EntryList'
 import { FieldEditor } from './FieldEditor'
+import { EvolutionCard, LearnsetCard } from './SpeciesExtras'
 
 const GROUP_TITLES: Record<string, string> = {
   stats: 'Base stats',
@@ -130,6 +131,9 @@ export function SpeciesPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
             />
           ))}
         </section>
+
+        {adapter.evolutions && <EvolutionCard adapter={adapter} speciesId={selected} onEdit={onEdit} />}
+        {adapter.learnsets && <LearnsetCard adapter={adapter} speciesId={selected} onEdit={onEdit} />}
 
         {[...groups.entries()]
           .filter(([g]) => g !== 'stats')
