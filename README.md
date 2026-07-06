@@ -133,6 +133,25 @@ In rough build order:
 3. Level-up learnsets, evolutions, type chart, starters, sprite
    importing, item/text editing, UPS/BPS patches.
 
+## What about 1000+ Pokémon, Megas, Tera, Z-moves?
+
+Those mechanics don't exist in the vanilla GB/GBC/GBA engines — no binary
+editor can flip them on. In the ROM-hacking world they come from
+**[pokeemerald-expansion](https://github.com/rh-hideout/pokeemerald-expansion)**
+(the community engine fork with Gen 1–9 species, Megas, Z-moves, Dynamax
+and Tera backported to the GBA engine) or from large binary engine
+overhauls built on it. This editor meets that world twice:
+
+- **Binary ROMs with expanded rosters**: table sizes are detected from
+  the ROM itself (name-table scanning with stats plausibility checks),
+  so hacks with more than 411 species, extra moves or extra abilities
+  expose their full rosters instead of being capped at vanilla counts.
+- **The decomp backend opens pokeemerald-expansion directly**: all
+  `species_info/gen_*.h` family files load together — 1,300+ entries
+  including every Mega and regional/battle form — with the same stat
+  editor and formatting-preserving saves. This is the recommended base
+  for "custom game" projects that want modern mechanics.
+
 ## Relationship to the decompilation projects
 
 The [pret](https://github.com/pret) decompilations (pokered, pokecrystal,

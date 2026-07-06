@@ -125,6 +125,7 @@ export function makeGen3Rom(): Uint8Array {
   put(rom, stats + 56, [60, 62, 63, 60, 80, 80, 12, 3, 45, 141])
 
   const names = 0x245ee0
+  put(rom, names, gen3Name('??????????', 11)) // entry 0 dummy
   put(rom, names + 11, gen3Name('BULBASAUR', 11))
   put(rom, names + 22, gen3Name('IVYSAUR', 11))
 
@@ -133,10 +134,12 @@ export function makeGen3Rom(): Uint8Array {
   put(rom, moves + 24, [44, 50, 1, 100, 25, 0, 0, 0, 0x33, 0, 0, 0]) // Karate Chop
 
   const moveNames = 0x247111
+  put(rom, moveNames, gen3Name('-', 13)) // entry 0 dummy
   put(rom, moveNames + 13, gen3Name('POUND', 13))
   put(rom, moveNames + 26, gen3Name('KARATE CHOP', 13))
 
   const abilities = 0x24fc40
+  put(rom, abilities, gen3Name('-', 13)) // entry 0: no ability
   put(rom, abilities + 13, gen3Name('STENCH', 13))
   put(rom, abilities + 26, gen3Name('DRIZZLE', 13))
 

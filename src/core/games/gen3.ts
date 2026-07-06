@@ -30,9 +30,30 @@ const NAME_LEN = 11 // 10 chars + terminator
 const MOVE_ENTRY = 12
 const MOVE_NAME_LEN = 13 // 12 chars + terminator
 const ABILITY_NAME_LEN = 13
-const SPECIES_COUNT = 411 // internal ids 1..411
-const MOVE_COUNT = 354 // ids 1..354
-const ABILITY_COUNT = 78 // ids 0..77
+
+/** Is this a plausible name byte (letters, digits, punct, PK/MN glyphs)? */
+function nameByte(b: number): boolean {
+  return b === 0x00 || (b >= 0xa1 && b <= 0xee) || (b >= 0x53 && b <= 0x56)
+}
+
+/**
+ * Count consecutive valid fixed-width names from a table start. This is
+ * how expanded ROMs (CFRU-style hacks with 1000+ species) get their real
+ * table sizes instead of the vanilla constants.
+ */
+function countNames(bytes: Uint8Array, off: number, entryLen: number, cap: number): number {
+  let count = 0
+  while (count < cap && off + (count + 1) * entryLen <= bytes.length) {
+    const o = off + count * entryLen
+    const term = bytes.subarray(o, o + entryLen).indexOf(0xff)
+    if (term < 1) break
+    let ok = true
+    for (let i = 0; i < term; i++) if (!nameByte(bytes[o + i])) ok = false
+    if (!ok) break
+    count++
+  }
+  return count
+}
 
 // HP,ATK,DEF,SPD,SAT,SDF, Grass(12), Poison(3), catch, base EXP — Bulbasaur.
 const BULBASAUR = [45, 49, 49, 45, 65, 65, 12, 3, 45, 64]
@@ -77,14 +98,24 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
   const statsOff = bulbaOff - STATS_ENTRY // entry 0 is a dummy
 
   const warnings: string[] = []
-  const regions: TableRegion[] = [
-    { name: 'Base stats', offset: statsOff, length: (SPECIES_COUNT + 1) * STATS_ENTRY },
-  ]
+  const regions: TableRegion[] = []
 
   const bulbaName = findVerified(bytes, [...gen3Bytes('BULBASAUR'), 0xff], [
     { delta: NAME_LEN, pattern: [...gen3Bytes('IVYSAUR'), 0xff] },
   ])
   const namesOff = bulbaName === null ? null : bulbaName - NAME_LEN
+  // Table sizes come from the ROM itself, so expanded hacks (1000+
+  // species) get their full rosters instead of the vanilla counts. The
+  // name scan can overshoot into neighbouring text, so trailing entries
+  // must also have plausible base stats.
+  const plausibleStats = (id: number) => {
+    const o = statsOff + id * STATS_ENTRY
+    if (o + STATS_ENTRY > bytes.length) return false
+    return bytes[o + 19] <= 5 && bytes[o + 20] <= 15 && bytes[o + 21] <= 15 // growth, egg groups
+  }
+  let SPECIES_COUNT = namesOff === null ? 411 : Math.max(1, countNames(bytes, namesOff, NAME_LEN, 4096) - 1)
+  while (SPECIES_COUNT > 1 && !plausibleStats(SPECIES_COUNT)) SPECIES_COUNT--
+  regions.push({ name: 'Base stats', offset: statsOff, length: (SPECIES_COUNT + 1) * STATS_ENTRY })
   if (namesOff === null) {
     warnings.push("Couldn't locate the Pokémon name table — names are shown as numbers.")
   } else {
@@ -93,13 +124,16 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
 
   const poundOff = findVerified(bytes, POUND, [{ delta: MOVE_ENTRY, pattern: KARATE_CHOP }])
   const moveOff = poundOff === null ? null : poundOff - MOVE_ENTRY
-  if (moveOff === null) warnings.push("Couldn't locate the move data table — move editing disabled.")
-  else regions.push({ name: 'Move data', offset: moveOff, length: (MOVE_COUNT + 1) * MOVE_ENTRY })
 
   const poundName = findVerified(bytes, [...gen3Bytes('POUND'), 0xff], [
     { delta: MOVE_NAME_LEN, pattern: [...gen3Bytes('KARATE CHOP'), 0xff] },
   ])
   const moveNamesOff = poundName === null ? null : poundName - MOVE_NAME_LEN
+  const MOVE_COUNT =
+    moveNamesOff === null ? 354 : Math.max(1, countNames(bytes, moveNamesOff, MOVE_NAME_LEN, 4096) - 1)
+
+  if (moveOff === null) warnings.push("Couldn't locate the move data table — move editing disabled.")
+  else regions.push({ name: 'Move data', offset: moveOff, length: (MOVE_COUNT + 1) * MOVE_ENTRY })
   if (moveNamesOff !== null) {
     regions.push({ name: 'Move names', offset: moveNamesOff, length: (MOVE_COUNT + 1) * MOVE_NAME_LEN })
   }
@@ -190,6 +224,8 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     { delta: ABILITY_NAME_LEN, pattern: [...gen3Bytes('DRIZZLE'), 0xff] },
   ])
   const abilityNamesOff = stenchOff === null ? null : stenchOff - ABILITY_NAME_LEN
+  const ABILITY_COUNT =
+    abilityNamesOff === null ? 78 : countNames(bytes, abilityNamesOff, ABILITY_NAME_LEN, 1024)
 
   const readSlice = (off: number, len: number) => gen3Codec.decode(bytes.subarray(off, off + len))
   const speciesName = (id: number): string =>

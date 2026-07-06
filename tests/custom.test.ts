@@ -222,4 +222,32 @@ const struct SpeciesInfo gSpeciesInfo[] =
     expect(prettySpeciesName('MR_MIME')).toBe('Mr Mime')
     expect(prettySpeciesName('BULBASAUR')).toBe('Bulbasaur')
   })
+
+  it('parses pokeemerald-expansion entries (Megas, forms)', () => {
+    // Mirrors the shape of species_info/gen_*.h in pokeemerald-expansion.
+    const EXPANSION = `
+    [SPECIES_VENUSAUR_MEGA] =
+    {
+        .baseHP        = 80,
+        .baseAttack    = 100,
+        .baseDefense   = 123,
+        .types = MON_TYPES(TYPE_GRASS, TYPE_POISON),
+        .catchRate = 45,
+        .expYield = 281,
+        .abilities = { ABILITY_THICK_FAT, ABILITY_NONE },
+        .isMegaEvolution = TRUE,
+    },
+    [SPECIES_MIRAIDON] =
+    {
+        .baseHP        = 100,
+        .catchRate = 3,
+    },
+`
+    const entries = parseSpeciesInfo(EXPANSION)
+    expect(entries.map((e) => e.species)).toEqual(['VENUSAUR_MEGA', 'MIRAIDON'])
+    expect(numericValue(entries[0], 'baseAttack')).toBe(100)
+    const edited = setNumericField(EXPANSION, entries[0], 'baseAttack', 150)!
+    expect(numericValue(parseSpeciesInfo(edited)[0], 'baseAttack')).toBe(150)
+    expect(numericValue(parseSpeciesInfo(edited)[1], 'baseHP')).toBe(100)
+  })
 })

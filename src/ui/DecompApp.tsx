@@ -6,20 +6,17 @@ import {
   prettySpeciesName,
   NUMERIC_FIELDS,
   INFO_FIELDS,
-  type DecompSpecies,
 } from '../decomp/speciesInfo'
 
-/** Candidate species data files across pret projects. */
-const SPECIES_FILES = [
-  ['src', 'data', 'pokemon', 'species_info.h'],
-  ['src', 'data', 'pokemon', 'base_stats.h'],
-]
+export interface DecompFile {
+  name: string
+  handle: FileSystemFileHandle
+  text: string
+}
 
 export interface DecompProject {
   dirName: string
-  fileName: string
-  fileHandle: FileSystemFileHandle
-  text: string
+  files: DecompFile[]
 }
 
 /** Minimal typings for the File System Access API (Chromium). */
@@ -27,69 +24,120 @@ declare global {
   interface Window {
     showDirectoryPicker?: (options?: { mode?: string }) => Promise<FileSystemDirectoryHandle>
   }
+  interface FileSystemDirectoryHandle {
+    values(): AsyncIterableIterator<FileSystemHandle>
+  }
 }
 
 export function decompSupported(): boolean {
   return typeof window !== 'undefined' && !!window.showDirectoryPicker
 }
 
+async function dig(dir: FileSystemDirectoryHandle, parts: string[]): Promise<FileSystemDirectoryHandle> {
+  let handle = dir
+  for (const part of parts) handle = await handle.getDirectoryHandle(part)
+  return handle
+}
+
+/**
+ * Opens a pret source tree. Supports both vanilla (one species_info.h /
+ * base_stats.h) and pokeemerald-expansion (species_info/gen_*.h with
+ * 1000+ species, Megas and regional forms).
+ */
 export async function openDecompProject(): Promise<DecompProject | null> {
   const dir = await window.showDirectoryPicker!({ mode: 'readwrite' })
-  for (const path of SPECIES_FILES) {
+  const files: DecompFile[] = []
+
+  const addFile = async (parent: FileSystemDirectoryHandle, name: string) => {
+    const handle = await parent.getFileHandle(name)
+    files.push({ name, handle, text: await (await handle.getFile()).text() })
+  }
+
+  let pokemonDir: FileSystemDirectoryHandle | null = null
+  try {
+    pokemonDir = await dig(dir, ['src', 'data', 'pokemon'])
+  } catch {
+    throw new Error('Pick the root folder of a pokeemerald / pokefirered / expansion source tree.')
+  }
+  for (const name of ['species_info.h', 'base_stats.h']) {
     try {
-      let handle: FileSystemDirectoryHandle = dir
-      for (const part of path.slice(0, -1)) handle = await handle.getDirectoryHandle(part)
-      const fileHandle = await handle.getFileHandle(path[path.length - 1])
-      const text = await (await fileHandle.getFile()).text()
-      return { dirName: dir.name, fileName: path[path.length - 1], fileHandle, text }
+      await addFile(pokemonDir, name)
     } catch {
-      continue
+      /* not present in this fork */
     }
   }
-  throw new Error(
-    'No species data file found — pick the root folder of a pokeemerald or pokefirered source tree.',
-  )
+  try {
+    const infoDir = await pokemonDir.getDirectoryHandle('species_info')
+    for await (const entry of infoDir.values()) {
+      if (entry.kind === 'file' && entry.name.endsWith('.h') && entry.name.startsWith('gen_')) {
+        const handle = entry as FileSystemFileHandle
+        files.push({ name: `species_info/${entry.name}`, handle, text: await (await handle.getFile()).text() })
+      }
+    }
+  } catch {
+    /* vanilla layout without the folder */
+  }
+
+  if (files.length === 0) {
+    throw new Error('No species data files found in this folder.')
+  }
+  files.sort((a, b) => a.name.localeCompare(b.name))
+  return { dirName: dir.name, files }
 }
 
 export function DecompApp({ project, onClose }: { project: DecompProject; onClose: () => void }) {
-  const [text, setText] = useState(project.text)
-  const [selected, setSelected] = useState(1)
+  const [texts, setTexts] = useState(() => project.files.map((f) => f.text))
+  const [dirtyFiles, setDirtyFiles] = useState<Set<number>>(new Set())
+  const [selected, setSelected] = useState(0)
   const [query, setQuery] = useState('')
-  const [dirty, setDirty] = useState(0)
+  const [edits, setEdits] = useState(0)
   const [status, setStatus] = useState<string | null>(null)
 
-  const species = useMemo(() => parseSpeciesInfo(text), [text])
+  // All species across all files, each remembering its file.
+  const species = useMemo(
+    () =>
+      texts.flatMap((text, fileIndex) =>
+        parseSpeciesInfo(text).map((entry) => ({ entry, fileIndex })),
+      ),
+    [texts],
+  )
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return q ? species.filter((s) => s.species.toLowerCase().includes(q)) : species
+    return q ? species.filter((s) => s.entry.species.toLowerCase().includes(q)) : species
   }, [species, query])
 
-  const entry: DecompSpecies | undefined = species[selected]
+  const current = species[selected]
 
   const write = (key: string, value: number) => {
-    if (!entry) return
-    const next = setNumericField(text, entry, key, value)
+    if (!current) return
+    const next = setNumericField(texts[current.fileIndex], current.entry, key, value)
     if (next !== null) {
-      setText(next)
-      setDirty((d) => d + 1)
+      setTexts((t) => t.map((old, i) => (i === current.fileIndex ? next : old)))
+      setDirtyFiles((d) => new Set(d).add(current.fileIndex))
+      setEdits((e) => e + 1)
       setStatus(null)
     }
   }
 
   const save = async () => {
     try {
-      const writable = await project.fileHandle.createWritable()
-      await writable.write(text)
-      await writable.close()
-      setDirty(0)
-      setStatus(`Saved ${project.fileName}. Rebuild the project (make) to see changes in game.`)
+      let saved = 0
+      for (const i of dirtyFiles) {
+        const writable = await project.files[i].handle.createWritable()
+        await writable.write(texts[i])
+        await writable.close()
+        saved++
+      }
+      setDirtyFiles(new Set())
+      setEdits(0)
+      setStatus(`Saved ${saved} file(s). Rebuild the project (make) to see changes in game.`)
     } catch (e) {
       setStatus(`Couldn't save: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
-  const bst = entry
-    ? NUMERIC_FIELDS.slice(0, 6).reduce((sum, f) => sum + (numericValue(entry, f.key) ?? 0), 0)
+  const bst = current
+    ? NUMERIC_FIELDS.slice(0, 6).reduce((sum, f) => sum + (numericValue(current.entry, f.key) ?? 0), 0)
     : 0
 
   return (
@@ -98,11 +146,13 @@ export function DecompApp({ project, onClose }: { project: DecompProject; onClos
         <span className="brand">
           <span className="logo-ball" /> Global ROM Editor
         </span>
-        <span className="game-badge">📁 {project.dirName} (decomp project)</span>
+        <span className="game-badge">
+          📁 {project.dirName} · {species.length.toLocaleString()} species
+        </span>
         <span className="spacer" />
-        <span className="dirty">{dirty > 0 ? `${dirty} unsaved edit(s)` : 'No edits yet'}</span>
-        <button className="primary" onClick={save} disabled={dirty === 0}>
-          💾 Save file
+        <span className="dirty">{edits > 0 ? `${edits} unsaved edit(s)` : 'No edits yet'}</span>
+        <button className="primary" onClick={save} disabled={dirtyFiles.size === 0}>
+          💾 Save {dirtyFiles.size > 1 ? `${dirtyFiles.size} files` : 'file'}
         </button>
         <button className="ghost" onClick={onClose}>
           Close
@@ -114,29 +164,32 @@ export function DecompApp({ project, onClose }: { project: DecompProject; onClos
             <input
               className="search"
               type="search"
-              placeholder="Search species…"
+              placeholder="Search species (try MEGA)…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
             <div className="entry-scroll">
-              {filtered.map((s) => (
+              {filtered.slice(0, 800).map((s) => (
                 <button
-                  key={s.species}
+                  key={`${s.fileIndex}-${s.entry.species}`}
                   className={`entry ${species.indexOf(s) === selected ? 'selected' : ''}`}
                   onClick={() => setSelected(species.indexOf(s))}
                 >
-                  {prettySpeciesName(s.species)}
+                  {prettySpeciesName(s.entry.species)}
                 </button>
               ))}
+              {filtered.length > 800 && (
+                <div className="empty">…{filtered.length - 800} more — refine the search</div>
+              )}
             </div>
           </div>
           <div className="detail">
             {status && <div className="notice ok">{status}</div>}
-            {entry && (
+            {current && (
               <>
                 <div className="detail-header">
-                  <h2 className="entry-title">{prettySpeciesName(entry.species)}</h2>
-                  <span className="muted">editing {project.fileName}</span>
+                  <h2 className="entry-title">{prettySpeciesName(current.entry.species)}</h2>
+                  <span className="muted">{project.files[current.fileIndex].name}</span>
                 </div>
                 <section className="card">
                   <h3>
@@ -144,7 +197,7 @@ export function DecompApp({ project, onClose }: { project: DecompProject; onClos
                   </h3>
                   <div className="field-grid">
                     {NUMERIC_FIELDS.map((f) => {
-                      const v = numericValue(entry, f.key)
+                      const v = numericValue(current.entry, f.key)
                       if (v === null) return null
                       return (
                         <label className="field" key={f.key}>
@@ -168,10 +221,10 @@ export function DecompApp({ project, onClose }: { project: DecompProject; onClos
                   <h3>Other properties (read-only for now)</h3>
                   <table className="info-table">
                     <tbody>
-                      {INFO_FIELDS.filter((k) => entry.fields.has(k)).map((k) => (
+                      {INFO_FIELDS.filter((k) => current.entry.fields.has(k)).map((k) => (
                         <tr key={k}>
                           <td>{k}</td>
-                          <td className="mono">{entry.fields.get(k)}</td>
+                          <td className="mono">{current.entry.fields.get(k)}</td>
                         </tr>
                       ))}
                     </tbody>
