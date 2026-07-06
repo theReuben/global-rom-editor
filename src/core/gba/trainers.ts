@@ -18,9 +18,10 @@
  * and take the contiguous table around it.
  */
 import type { Rom } from '../rom'
-import type { EntryHandle, PartyMon, TrainerModule } from '../games/schema'
+import type { EntryHandle, PartyMon, SelectOption, TrainerModule } from '../games/schema'
 import { readGbaPointer } from '../freespace'
-import { gen3Codec } from '../text'
+import { findAll } from '../scan'
+import { gen3Bytes, gen3Codec } from '../text'
 
 const ENTRY = 40
 const NAME_LEN = 12
@@ -80,6 +81,45 @@ function strongValid(bytes: Uint8Array, o: number): boolean {
   for (let i = 0; i < NAME_LEN; i++) if (bytes[o + 4 + i] === 0xff) terminated = true
   if (!terminated) return false
   return partyValid(bytes, ptr, bytes[o], size)
+}
+
+/* --------------------------------------------------- trainer class names */
+
+const CLASS_NAME_LEN = 13
+
+function validClassName(bytes: Uint8Array, off: number): string | null {
+  if (off < 0 || off + CLASS_NAME_LEN > bytes.length) return null
+  const slice = bytes.subarray(off, off + CLASS_NAME_LEN)
+  if (!slice.includes(0xff)) return null
+  const name = gen3Codec.decode(slice)
+  if (name.length < 2 || name.length > 13 || name.includes('?')) return null
+  return name
+}
+
+/**
+ * gTrainerClassNames: an array of 13-byte strings. Anchored on
+ * "BUG CATCHER" (present in every Gen 3 game), then the run is walked in
+ * both directions and sanity-checked against other universal classes.
+ */
+export function findTrainerClassNames(bytes: Uint8Array): SelectOption[] | null {
+  const anchors = findAll(bytes, [...gen3Bytes('BUG CATCHER'), 0xff], 8)
+  let best: SelectOption[] | null = null
+  for (const anchor of anchors) {
+    let start = anchor
+    while (validClassName(bytes, start - CLASS_NAME_LEN) !== null) start -= CLASS_NAME_LEN
+    let end = anchor
+    while (validClassName(bytes, end + CLASS_NAME_LEN) !== null) end += CLASS_NAME_LEN
+    const count = (end - start) / CLASS_NAME_LEN + 1
+    if (count < 20 || count > 130) continue
+    const options: SelectOption[] = []
+    for (let i = 0; i < count; i++) {
+      options.push({ value: i, label: validClassName(bytes, start + i * CLASS_NAME_LEN)! })
+    }
+    const labels = options.map((o) => o.label)
+    if (!labels.includes('YOUNGSTER') || !labels.includes('LASS')) continue
+    if (!best || options.length > best.length) best = options
+  }
+  return best
 }
 
 function isZeroEntry(bytes: Uint8Array, o: number): boolean {
@@ -149,7 +189,6 @@ export function buildTrainerModule(rom: Rom): { module: TrainerModule; offset: n
 
   const FIELD_BYTES: Record<string, { off: number; size: 1 | 4 }> = {
     trainerClass: { off: 1, size: 1 },
-    music: { off: 2, size: 1 },
     pic: { off: 3, size: 1 },
     doubleBattle: { off: 24, size: 4 },
     aiFlags: { off: 28, size: 4 },
@@ -158,6 +197,7 @@ export function buildTrainerModule(rom: Rom): { module: TrainerModule; offset: n
   const module: TrainerModule = {
     entries,
     nameLength: NAME_LEN - 1,
+    classOptions: findTrainerClassNames(bytes),
 
     read(id) {
       const o = base(id)
@@ -165,7 +205,8 @@ export function buildTrainerModule(rom: Rom): { module: TrainerModule; offset: n
       return {
         name: readName(id),
         trainerClass: bytes[o + 1],
-        music: bytes[o + 2],
+        music: bytes[o + 2] & 0x7f,
+        gender: bytes[o + 2] >> 7,
         pic: bytes[o + 3],
         doubleBattle: u32(bytes, o + 24),
         aiFlags: u32(bytes, o + 28),
@@ -180,6 +221,9 @@ export function buildTrainerModule(rom: Rom): { module: TrainerModule; offset: n
     write(id, field, value) {
       const spec = FIELD_BYTES[field]
       const o = base(id)
+      // Music and gender share a byte: gender is the top bit.
+      if (field === 'music') return rom.writeU8(o + 2, (bytes[o + 2] & 0x80) | (value & 0x7f))
+      if (field === 'gender') return rom.writeU8(o + 2, (bytes[o + 2] & 0x7f) | ((value & 1) << 7))
       if (spec) {
         if (spec.size === 1) rom.writeU8(o + spec.off, value)
         else {

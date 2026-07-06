@@ -26,6 +26,26 @@ describe('Gen 3 trainers', () => {
     expect(t.entries[2].name.trim()).toBe('YOUNGSTER')
   })
 
+  it('reads trainer class names from the ROM', () => {
+    const t = load().trainerModule!
+    expect(t.classOptions).not.toBeNull()
+    expect(t.classOptions![0].label).toBe('PKMN TRAINER')
+    expect(t.classOptions![2].label).toBe('BUG CATCHER')
+    expect(t.classOptions!.length).toBe(20)
+  })
+
+  it('splits the music/gender byte', () => {
+    const t = load().trainerModule!
+    expect(t.read(1).music).toBe(1)
+    expect(t.read(1).gender).toBe(0)
+    t.write(1, 'gender', 1)
+    expect(t.read(1).gender).toBe(1)
+    expect(t.read(1).music).toBe(1) // untouched
+    t.write(1, 'music', 42)
+    expect(t.read(1).music).toBe(42)
+    expect(t.read(1).gender).toBe(1) // untouched
+  })
+
   it('reads trainer data and parties (items + custom moves)', () => {
     const t = load().trainerModule!
     const d = t.read(1)

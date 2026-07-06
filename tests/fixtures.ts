@@ -143,7 +143,19 @@ export function makeGen3Rom(): Uint8Array {
   addItemData(rom)
   addTrainerData(rom)
   addWildData(rom)
+  addClassNames(rom)
   return rom
+}
+
+/** Trainer class names: 13-byte entries; run must include the anchors. */
+function addClassNames(rom: Uint8Array): void {
+  const table = 0x3d0000
+  const names = ['PKMN TRAINER', 'YOUNGSTER', 'BUG CATCHER', 'LASS', 'HIKER']
+  const filler = ['SAILOR', 'FISHERMAN', 'CAMPER', 'PICNICKER', 'BEAUTY', 'PSYCHIC', 'BLACK BELT',
+    'BIRD KEEPER', 'JUGGLER', 'ENGINEER', 'GAMBLER', 'SWIMMER', 'CUE BALL', 'GENTLEMAN', 'ROCKER']
+  const all = [...names, ...filler]
+  all.forEach((n, i) => put(rom, table + i * 13, gen3Name(n, 13)))
+  rom[table - 13] = 0x01 // undecodable byte stops the backward walk
 }
 
 /** Item table: 44-byte entries starting with a 14-byte name. */

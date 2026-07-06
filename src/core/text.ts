@@ -102,6 +102,11 @@ const GEN3_PAIRS: [number, string][] = [
   [0xba, '/'],
   [0xb8, ','],
   [0x1b, 'é'],
+  // Composite glyphs (decode-only in practice): PKMN, POKé.
+  [0x53, 'PK'],
+  [0x54, 'MN'],
+  [0x55, 'PO'],
+  [0x56, 'Ké'],
 ]
 
 const gen3Maps = buildMaps(GEN3_PAIRS)

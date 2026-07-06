@@ -113,6 +113,7 @@ export interface TrainerData {
   trainerClass: number
   pic: number
   music: number
+  gender: number
   doubleBattle: number
   aiFlags: number
   items: number[]
@@ -124,6 +125,8 @@ export interface TrainerData {
 export interface TrainerModule {
   entries: EntryHandle[]
   nameLength: number
+  /** Class id → name, when class names could be read from the ROM. */
+  classOptions: SelectOption[] | null
   read(id: number): TrainerData
   write(id: number, field: string, value: number): void
   setName(id: number, name: string): boolean

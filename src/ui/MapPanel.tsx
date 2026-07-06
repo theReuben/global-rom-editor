@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import type { GameAdapter, MapModule } from '../core/games/schema'
+import { GEN3_MOVEMENT_TYPES } from '../core/games/gen3-constants'
 
 type Tool = 'paint' | 'inspect'
 
@@ -91,7 +92,25 @@ function EventList({
           {num('npc', i, 'x', e.x, 'X')}
           {num('npc', i, 'y', e.y, 'Y')}
           {num('npc', i, 'graphicsId', e.graphicsId, 'Sprite')}
-          {num('npc', i, 'movementType', e.movementType, 'Movement')}
+          <label className="event-field">
+            <span>Movement</span>
+            <select
+              value={e.movementType}
+              onChange={(ev) => {
+                module.updateEvent(mapKey, 'npc', i, 'movementType', Number(ev.target.value))
+                onEdit()
+              }}
+            >
+              {!GEN3_MOVEMENT_TYPES.some((o) => o.value === e.movementType) && (
+                <option value={e.movementType}>Type {e.movementType}</option>
+              )}
+              {GEN3_MOVEMENT_TYPES.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
           {num('npc', i, 'elevation', e.elevation, 'Elev.')}
         </div>
       ))}

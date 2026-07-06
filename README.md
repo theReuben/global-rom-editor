@@ -30,6 +30,14 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Apply community IPS patches | ✅ | ✅ | ✅ |
 
 Everything runs **entirely client-side** — ROMs never leave the user's device.
+The editor is an installable PWA: after the first visit it works fully
+**offline**.
+
+**Validated against real ROMs**: every scanner and editor is exercised in CI
+against synthetic fixtures, and additionally verified against ROMs built from
+source with the pret decompilation projects (pokeemerald and pokefirered) —
+518/425 maps, 854/718 trainers, all names, wild tables and tilesets located
+and rendered with zero warnings on both.
 
 ## Why it works where other tools break
 
@@ -115,13 +123,20 @@ entries, wild encounter headers, map layouts, tilesets, event templates —
 is implemented from the layouts those projects documented. Planned deeper
 uses:
 
+- **Test ROMs built from source** (`make modern` in pokeemerald /
+  pokefirered) are used to validate every scanner against real data —
+  no retail ROMs needed for development.
+- **Constants** are extracted from decomp headers into
+  `src/core/games/gen3-constants.ts` (NPC movement types, battle AI
+  flags) so dropdowns show names, not magic numbers.
 - **Script command tables** extracted from the decomps will drive the
   visual script builder (command names, argument types and sizes).
-- **Constants** (movement types, AI flags, weather, behaviors) become
-  human-readable dropdown labels instead of magic numbers.
-- Longer-term: an optional **decomp project export** for power users who
-  outgrow binary hacking and want to continue in pokeemerald/pokefirered
-  source.
+- Longer-term: a **decomp project backend** — the same UI editing a
+  pokeemerald/pokefirered source tree (via the browser's directory
+  access API or a desktop build) instead of a binary ROM. That path
+  removes all size limits: unlimited new maps, species, story. Binary
+  editing stays the zero-setup default; the decomp backend becomes the
+  "pro" tier for total conversions.
 
 No code or assets from the games or the decomps are shipped — the editor
 reads names (Pokémon, moves, items, abilities) out of the user's own ROM

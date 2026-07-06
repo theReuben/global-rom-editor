@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { GameAdapter } from '../core/games/schema'
+import { GEN3_AI_FLAG_LABELS } from '../core/games/gen3-constants'
 import { EntryList } from './EntryList'
 
 function Num({
@@ -122,16 +123,41 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
         <section className="card">
           <h3>Trainer</h3>
           <div className="field-grid">
-            <Num label="Class ID" value={data.trainerClass} min={0} max={255} onChange={(v) => write('trainerClass', v)} help="Determines title & prize money." />
+            {module.classOptions ? (
+              <Options label="Class" value={data.trainerClass} options={module.classOptions} onChange={(v) => write('trainerClass', v)} />
+            ) : (
+              <Num label="Class ID" value={data.trainerClass} min={0} max={255} onChange={(v) => write('trainerClass', v)} help="Determines title & prize money." />
+            )}
             <Num label="Sprite ID" value={data.pic} min={0} max={255} onChange={(v) => write('pic', v)} />
-            <Num label="Music / gender" value={data.music} min={0} max={255} onChange={(v) => write('music', v)} />
+            <Options
+              label="Gender"
+              value={data.gender}
+              options={[{ value: 0, label: 'Male' }, { value: 1, label: 'Female' }]}
+              onChange={(v) => write('gender', v)}
+            />
+            <Num label="Encounter music" value={data.music} min={0} max={127} onChange={(v) => write('music', v)} />
             <Options
               label="Battle type"
               value={data.doubleBattle}
               options={[{ value: 0, label: 'Single battle' }, { value: 1, label: 'Double battle' }]}
               onChange={(v) => write('doubleBattle', v)}
             />
-            <Num label="AI flags" value={data.aiFlags} min={0} onChange={(v) => write('aiFlags', v)} help="Bitmask; higher = smarter (e.g. 7 = checks moves)." />
+          </div>
+          <h4>Battle AI</h4>
+          <div className="flags-grid">
+            {GEN3_AI_FLAG_LABELS.map((label, bit) => (
+              <label key={bit} className={`flag ${(data.aiFlags >> bit) & 1 ? 'on' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={((data.aiFlags >> bit) & 1) === 1}
+                  onChange={(e) => {
+                    const next = e.target.checked ? data.aiFlags | (1 << bit) : data.aiFlags & ~(1 << bit)
+                    write('aiFlags', next >>> 0)
+                  }}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
           </div>
           <h4>Battle items</h4>
           <div className="field-grid">
