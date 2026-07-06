@@ -140,7 +140,74 @@ export function makeGen3Rom(): Uint8Array {
   put(rom, abilities + 26, gen3Name('DRIZZLE', 13))
 
   addMapData(rom)
+  addItemData(rom)
+  addTrainerData(rom)
+  addWildData(rom)
   return rom
+}
+
+/** Item table: 44-byte entries starting with a 14-byte name. */
+function addItemData(rom: Uint8Array): void {
+  const items = 0x3a0000
+  const names = ['??????????', 'MASTER BALL', 'ULTRA BALL', 'POTION']
+  names.forEach((n, i) => put(rom, items + i * 44, gen3Name(n, 14)))
+}
+
+/**
+ * Trainer table: 61 entries of 40 bytes. Most are simple one-mon
+ * trainers (enough "strong" entries for alignment detection); trainer 1
+ * uses held items + custom moves (partyFlags = 3).
+ */
+function addTrainerData(rom: Uint8Array): void {
+  const table = 0x3b0000
+  const simpleParty = 0x3b8000
+  const richParty = 0x3b8100
+
+  // Non-trainer data immediately before the table, like a real ROM.
+  rom[table - 40] = 0xff
+
+  // Shared simple party: 1 mon — iv, level, species, padding (8 bytes).
+  put(rom, simpleParty, u16s(50, 10, 1, 0))
+  // Rich party: 2 mons with items + custom moves (16 bytes each).
+  put(rom, richParty, u16s(100, 20, 1, 3, 1, 2, 0, 0))
+  put(rom, richParty + 16, u16s(0, 22, 2, 0, 2, 0, 0, 0))
+
+  for (let i = 0; i < 61; i++) {
+    const o = table + i * 40
+    if (i === 1) {
+      put(rom, o, [3, 2, 1, 4]) // flags=items+moves, class 2, music 1, pic 4
+      put(rom, o + 4, gen3Name('BRENDAN', 12))
+      put(rom, o + 16, u16s(3, 0, 0, 0)) // battle items: POTION
+      put(rom, o + 24, [0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0]) // single, ai=1, size=2
+      put(rom, o + 36, ptr(richParty))
+    } else {
+      put(rom, o, [0, 1, 0, 2])
+      put(rom, o + 4, gen3Name('YOUNGSTER', 12))
+      put(rom, o + 24, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]) // ai=0, size=1
+      put(rom, o + 36, ptr(simpleParty))
+    }
+  }
+}
+
+/**
+ * Wild encounters for the two fixture maps: map 0.0 has grass + fishing,
+ * map 1.0 has grass only; table ends with the FF FF terminator.
+ */
+function addWildData(rom: Uint8Array): void {
+  const grass = 0x3c0000
+  for (let i = 0; i < 12; i++) put(rom, grass + i * 4, [3, 5, ...u16s(i % 2 === 0 ? 1 : 2).slice(0, 2)])
+  const fishing = 0x3c0100
+  for (let i = 0; i < 10; i++) put(rom, fishing + i * 4, [10, 15, ...u16s(2).slice(0, 2)])
+
+  const grassInfo = 0x3c0200
+  put(rom, grassInfo, [20, 0, 0, 0, ...ptr(grass)])
+  const fishingInfo = 0x3c0210
+  put(rom, fishingInfo, [30, 0, 0, 0, ...ptr(fishing)])
+
+  const table = 0x3c1000
+  put(rom, table, [0, 0, 0, 0, ...ptr(grassInfo), 0, 0, 0, 0, 0, 0, 0, 0, ...ptr(fishingInfo)])
+  put(rom, table + 20, [1, 0, 0, 0, ...ptr(grassInfo), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  put(rom, table + 40, [0xff, 0xff])
 }
 
 /* --------------------------------------------------- Gen 3 map fixtures */

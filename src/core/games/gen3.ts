@@ -10,8 +10,20 @@ import { Rom } from '../rom'
 import { findVerified } from '../scan'
 import { gen3Bytes, gen3Codec } from '../text'
 import { buildGen3MapModule } from '../gba/maps'
+import { buildTrainerModule } from '../gba/trainers'
+import { buildWildModule } from '../gba/wild'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
-import type { EntryHandle, FieldSpec, FieldValue, GameAdapter, MapModule, SelectOption, TableRegion } from './schema'
+import type {
+  EntryHandle,
+  FieldSpec,
+  FieldValue,
+  GameAdapter,
+  MapModule,
+  SelectOption,
+  TableRegion,
+  TrainerModule,
+  WildModule,
+} from './schema'
 
 const STATS_ENTRY = 28
 const NAME_LEN = 11 // 10 chars + terminator
@@ -113,6 +125,67 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     warnings.push("Couldn't verify the map data structures — map editing is disabled for this ROM.")
   }
 
+  // Item names: 44-byte item entries starting with a 14-byte name.
+  let itemOptions: SelectOption[] | null = null
+  const masterBall = findVerified(bytes, [...gen3Bytes('MASTER BALL'), 0xff], [
+    { delta: 44, pattern: [...gen3Bytes('ULTRA BALL'), 0xff] },
+  ])
+  if (masterBall !== null) {
+    const itemsOff = masterBall - 44
+    itemOptions = [{ value: 0, label: '— none —' }]
+    for (let i = 1; i < 500; i++) {
+      const name = gen3Codec.decode(bytes.subarray(itemsOff + i * 44, itemsOff + i * 44 + 14))
+      if (name.length < 1 || name.length > 14 || /\?{3,}/.test(name)) {
+        if (i > 300) break // past the real table
+        itemOptions.push({ value: i, label: `Item #${i}` })
+        continue
+      }
+      itemOptions.push({ value: i, label: name })
+    }
+    regions.push({ name: 'Item data', offset: itemsOff, length: itemOptions.length * 44 })
+  }
+
+  // Trainers: structural discovery of the 40-byte trainer table.
+  let trainerModule: TrainerModule | null = null
+  try {
+    const trainers = buildTrainerModule(rom)
+    if (trainers) {
+      trainerModule = trainers.module
+      regions.push({
+        name: `Trainers (${trainers.count})`,
+        offset: trainers.offset,
+        length: trainers.count * 40,
+      })
+    }
+  } catch {
+    trainerModule = null
+  }
+  if (!trainerModule) {
+    warnings.push("Couldn't verify the trainer table — trainer editing is disabled for this ROM.")
+  }
+
+  // Wild encounters: cross-checked against the discovered map index.
+  let wildModule: WildModule | null = null
+  try {
+    if (mapModule) {
+      const mapKeys = new Set(mapModule.entries.map((e) => e.key))
+      const wild = buildWildModule(rom, mapKeys)
+      if (wild) {
+        wildModule = wild.module
+        regions.push({
+          name: `Wild encounters (${wild.module.entries.length} maps)`,
+          offset: wild.offset,
+          length: wild.count * 20,
+        })
+      }
+    }
+  } catch {
+    wildModule = null
+  }
+  if (!wildModule) {
+    warnings.push("Couldn't verify wild encounter tables — wild editing is disabled for this ROM.")
+  }
+
   const stenchOff = findVerified(bytes, [...gen3Bytes('STENCH'), 0xff], [
     { delta: ABILITY_NAME_LEN, pattern: [...gen3Bytes('DRIZZLE'), 0xff] },
   ])
@@ -155,8 +228,12 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     { key: 'catchRate', label: 'Catch rate', kind: 'number', min: 1, max: 255, group: 'battle' },
     { key: 'baseExp', label: 'Base EXP yield', kind: 'number', min: 0, max: 255, group: 'battle' },
     { key: 'growthRate', label: 'Level curve', kind: 'select', options: GEN3_GROWTH, group: 'battle' },
-    { key: 'item1', label: 'Wild held item 1', kind: 'number', min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none). 50% chance in the wild.' },
-    { key: 'item2', label: 'Wild held item 2', kind: 'number', min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none). 5% chance in the wild.' },
+    itemOptions
+      ? { key: 'item1', label: 'Wild held item 1', kind: 'select', options: itemOptions, group: 'battle', help: '50% chance in the wild.' }
+      : { key: 'item1', label: 'Wild held item 1', kind: 'number', min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none). 50% chance in the wild.' },
+    itemOptions
+      ? { key: 'item2', label: 'Wild held item 2', kind: 'select', options: itemOptions, group: 'battle', help: '5% chance in the wild.' }
+      : { key: 'item2', label: 'Wild held item 2', kind: 'number', min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none). 5% chance in the wild.' },
     { key: 'evHp', label: 'EV yield: HP', kind: 'select', options: evOptions, group: 'evs' },
     { key: 'evAtk', label: 'EV yield: Attack', kind: 'select', options: evOptions, group: 'evs' },
     { key: 'evDef', label: 'EV yield: Defense', kind: 'select', options: evOptions, group: 'evs' },
@@ -228,6 +305,9 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     speciesFields,
     typeOptions: GEN3_TYPES,
     mapModule,
+    trainerModule,
+    wildModule,
+    itemOptions,
     speciesNameLength: namesOff !== null ? NAME_LEN - 1 : null,
 
     readSpecies(id) {

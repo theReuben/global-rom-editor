@@ -22,6 +22,9 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Map viewer & block painting (scene editing) | 🔜 | 🔜 | ✅ |
 | Movement permission (collision) editing | — | — | ✅ |
 | NPC / warp / sign editing | 🔜 | 🔜 | ✅ |
+| Trainer editing (class, AI, items, full parties) | 🔜 | 🔜 | ✅ |
+| Wild encounter editing (grass/surf/rock/fishing) | 🔜 | 🔜 | ✅ |
+| Item names read from the ROM (dropdowns everywhere) | — | — | ✅ |
 | Save edited ROM with fixed checksums | ✅ | ✅ | ✅ |
 | Export edits as an IPS patch | ✅ | ✅ | ✅ |
 | Apply community IPS patches | ✅ | ✅ | ✅ |
@@ -93,16 +96,36 @@ most hacks with zero hardcoded offsets.
 
 In rough build order:
 
-1. **Trainer & wild encounter editing** — structured tables, same
-   declarative-form treatment as Pokémon stats.
-2. **Custom areas** — resize maps and add brand-new maps into free
+1. **Custom areas** — resize maps and add brand-new maps into free
    space with automatic repointing; add/remove NPCs and warps.
-3. **Visual script builder** — compose events ("Show text → Give item →
+2. **Visual script builder** — compose events ("Show text → Give item →
    Set flag") from dropdowns; compiles to the game's script bytecode.
    This is the zero-code answer to custom storytelling.
-4. **Gen 1/2 map editing** — same editor UI on the GB map formats.
-5. Level-up learnsets, evolutions, type chart, starters, sprite
+3. **Gen 1/2 map, trainer & wild editing** — same editor UI on the GB
+   data formats.
+4. Level-up learnsets, evolutions, type chart, starters, sprite
    importing, item/text editing, UPS/BPS patches.
+
+## Relationship to the decompilation projects
+
+The [pret](https://github.com/pret) decompilations (pokered, pokecrystal,
+pokeemerald, pokefirered) are this project's ground truth for **data
+formats**: every struct this editor reads or writes — base stats, trainer
+entries, wild encounter headers, map layouts, tilesets, event templates —
+is implemented from the layouts those projects documented. Planned deeper
+uses:
+
+- **Script command tables** extracted from the decomps will drive the
+  visual script builder (command names, argument types and sizes).
+- **Constants** (movement types, AI flags, weather, behaviors) become
+  human-readable dropdown labels instead of magic numbers.
+- Longer-term: an optional **decomp project export** for power users who
+  outgrow binary hacking and want to continue in pokeemerald/pokefirered
+  source.
+
+No code or assets from the games or the decomps are shipped — the editor
+reads names (Pokémon, moves, items, abilities) out of the user's own ROM
+at load time, and only struct *shapes* live in this repository.
 
 ## Legal
 

@@ -87,6 +87,73 @@ export interface GameAdapter {
 
   /** Map/scene editing, when supported for this game (null = not yet). */
   mapModule: MapModule | null
+  /** Trainer editing, when supported for this game (null = not yet). */
+  trainerModule: TrainerModule | null
+  /** Wild encounter editing, when supported for this game (null = not yet). */
+  wildModule: WildModule | null
+  /** Item id → name options, when item names could be read from the ROM. */
+  itemOptions: SelectOption[] | null
+}
+
+/* -------------------------------------------------------------- trainers */
+
+export interface PartyMon {
+  species: number
+  level: number
+  /** IV strength 0-255 (scales all IVs). */
+  iv: number
+  /** Held item id; null when this trainer's party has no item slots. */
+  item: number | null
+  /** Four move ids; null when the party uses default level-up moves. */
+  moves: number[] | null
+}
+
+export interface TrainerData {
+  name: string
+  trainerClass: number
+  pic: number
+  music: number
+  doubleBattle: number
+  aiFlags: number
+  items: number[]
+  partySize: number
+  /** Largest party size that fits the original allocation. */
+  maxPartySize: number
+}
+
+export interface TrainerModule {
+  entries: EntryHandle[]
+  nameLength: number
+  read(id: number): TrainerData
+  write(id: number, field: string, value: number): void
+  setName(id: number, name: string): boolean
+  setItem(id: number, slot: number, item: number): void
+  party(id: number): PartyMon[]
+  writePartyField(id: number, slot: number, field: string, value: number): void
+  revert(id: number): void
+}
+
+/* ------------------------------------------------------- wild encounters */
+
+export interface WildSlot {
+  minLevel: number
+  maxLevel: number
+  species: number
+}
+
+export interface WildGroup {
+  name: string
+  rate: number
+  slots: WildSlot[]
+}
+
+export interface WildModule {
+  /** Maps that have wild encounter data, keyed like MapModule ("bank.map"). */
+  entries: { key: string; label: string }[]
+  groups(key: string): WildGroup[]
+  setRate(key: string, group: number, rate: number): void
+  setSlot(key: string, group: number, slot: number, field: string, value: number): void
+  revert(key: string): void
 }
 
 /* ------------------------------------------------------------------ maps */

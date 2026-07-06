@@ -365,6 +365,20 @@ input[type='range'] { accent-color: var(--accent); }
 .event-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
 .event-field input { width: 74px; padding: 4px 8px; }
 
+/* --------------------------------------------------- trainers & wild */
+.party-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.party-grid .event-card { flex-direction: column; align-items: stretch; gap: 8px; }
+.party-grid .field { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; }
+.party-grid .field input, .party-grid .field select { width: 150px; }
+
+.rate-input { width: 70px; padding: 3px 8px; margin-left: 6px; }
+.wild-grid { display: flex; flex-direction: column; gap: 6px; }
+.wild-slot { display: flex; align-items: center; gap: 8px; }
+.wild-slot-n { width: 22px; text-align: right; color: var(--muted); font-size: 13px; }
+.wild-slot select { flex: 1; max-width: 260px; }
+.wild-slot label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.wild-slot input { width: 64px; }
+
 @media (max-width: 760px) {
   .editor-layout { grid-template-columns: 1fr; grid-template-rows: 220px 1fr; }
   .entry-list { border-right: none; border-bottom: 1px solid var(--border); }

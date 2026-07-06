@@ -199,7 +199,10 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
     species,
     speciesFields,
     typeOptions: GEN1_TYPES,
-    mapModule: null, // Gen 1 map editing: on the roadmap
+    mapModule: null, // Gen 1 map/trainer/wild editing: on the roadmap
+    trainerModule: null,
+    wildModule: null,
+    itemOptions: null,
     speciesNameLength: namesOff !== null ? NAME_LEN : null,
 
     readSpecies(dex) {
