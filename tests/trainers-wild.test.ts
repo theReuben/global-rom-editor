@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Rom } from '../src/core/rom'
 import { buildAdapter } from '../src/core/games'
-import { makeGen3Rom } from './fixtures'
+import { makeGen1Rom, makeGen3Rom } from './fixtures'
 
 const load = () => buildAdapter(new Rom('firered.gba', makeGen3Rom())).adapter!
 
@@ -94,6 +94,39 @@ describe('Gen 3 trainers', () => {
     expect(t.read(1).partySize).toBe(1)
     t.write(1, 'partySize', 6)
     expect(t.read(1).partySize).toBe(2) // clamped to the original 2
+  })
+})
+
+describe('Gen 1 wild encounters', () => {
+  const loadGen1 = () => buildAdapter(new Rom('red.gb', makeGen1Rom())).adapter!
+
+  it('discovers the wild pointer table via the Route 1 anchor', () => {
+    const w = loadGen1().wildModule!
+    expect(w).not.toBeNull()
+    expect(w.entries.map((e) => e.key)).toEqual(['12', '13'])
+    expect(w.entries[0].label).toBe('Route 1')
+  })
+
+  it('reads grass and water groups with dex-translated species', () => {
+    const w = loadGen1().wildModule!
+    const groups = w.groups('13')
+    expect(groups).toHaveLength(2)
+    expect(groups[0]).toMatchObject({ name: 'Grass', rate: 10 })
+    expect(groups[0].slots[0]).toEqual({ minLevel: 5, maxLevel: 5, species: 1 })
+    expect(groups[1]).toMatchObject({ name: 'Water', rate: 20 })
+    expect(groups[1].slots[0].species).toBe(2)
+  })
+
+  it('edits slots in internal ids while the UI speaks dex numbers', () => {
+    const w = loadGen1().wildModule!
+    w.setSlot('13', 0, 0, 'species', 2) // dex 2 -> internal 9
+    w.setSlot('13', 0, 0, 'minLevel', 7)
+    w.setRate('13', 0, 30)
+    const g = w.groups('13')[0]
+    expect(g.rate).toBe(30)
+    expect(g.slots[0]).toEqual({ minLevel: 7, maxLevel: 7, species: 2 })
+    w.revert('13')
+    expect(w.groups('13')[0].slots[0].species).toBe(1)
   })
 })
 

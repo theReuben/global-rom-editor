@@ -13,7 +13,8 @@ import { Rom } from '../rom'
 import { findAll, findVerified, matchesAt } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { GEN1_TYPES, GEN12_GROWTH, padDex } from './data'
-import type { EntryHandle, FieldSpec, FieldValue, GameAdapter, TableRegion } from './schema'
+import { GEN1_MAP_NAMES } from './gen1-constants'
+import type { EntryHandle, FieldSpec, FieldValue, GameAdapter, TableRegion, WildModule } from './schema'
 
 const STATS_ENTRY = 28
 const NAME_LEN = 10
@@ -50,6 +51,110 @@ const STAT_BYTES: Record<string, number> = {
   startMove2: 16,
   startMove3: 17,
   startMove4: 18,
+}
+
+// Route 1's grass encounters (rate 25; Pidgey 0x24 / Rattata 0xA5 pairs,
+// water rate 0) — byte-exact in Red and Blue, the wild-data anchor.
+const ROUTE1_WILD = [25, 3, 0x24, 3, 0xa5, 3, 0xa5, 2, 0xa5, 2, 0x24, 3, 0x24, 3, 0x24, 4, 0xa5, 4, 0x24, 5, 0x24, 0]
+const ROUTE1_MAP_ID = 12
+const WILD_SLOTS = 10
+
+/**
+ * Gen 1 wild encounters: a per-map table of bank-local 2-byte pointers;
+ * each block is [grassRate, 10×(level, species)?, waterRate, 10×pairs?].
+ * Species are internal ids — translated to dex numbers for the UI.
+ */
+function buildGen1Wild(
+  rom: Rom,
+  internalToDex: (internal: number) => number,
+  dexToInternalFn: (dex: number) => number,
+): { module: WildModule; offset: number; count: number } | null {
+  const bytes = rom.bytes
+  const route1 = findVerified(bytes, ROUTE1_WILD, [])
+  if (route1 === null) return null
+  const bank = Math.floor(route1 / 0x4000)
+  const toLocal = (off: number) => 0x4000 + (off % 0x4000)
+  const toFile = (local: number) => bank * 0x4000 + (local - 0x4000)
+
+  // Find Route 1's pointer; the 12 map slots before it share one
+  // "no encounters" pointer, which pins the table start exactly.
+  const lo = toLocal(route1) & 0xff
+  const hi = toLocal(route1) >> 8
+  let table: number | null = null
+  for (let o = ROUTE1_MAP_ID * 2; o + 2 <= bytes.length; o += 1) {
+    if (bytes[o] !== lo || bytes[o + 1] !== hi) continue
+    const start = o - ROUTE1_MAP_ID * 2
+    const v0 = bytes[start] | (bytes[start + 1] << 8)
+    if (v0 < 0x4000 || v0 >= 0x8000) continue
+    let same = true
+    for (let i = 1; i < ROUTE1_MAP_ID; i++) {
+      if ((bytes[start + i * 2] | (bytes[start + i * 2 + 1] << 8)) !== v0) same = false
+    }
+    if (!same) continue
+    table = start
+    break
+  }
+  if (table === null) return null
+
+  let count = 0
+  while (count < 249) {
+    const v = rom.readU16LE(table + count * 2)
+    if (v < 0x4000 || v >= 0x8000) break
+    count++
+  }
+
+  const tableOff = table
+  const blockOff = (mapId: number) => toFile(rom.readU16LE(tableOff + mapId * 2))
+  const groupOffsets = (mapId: number): { name: string; rateOff: number; monsOff: number }[] => {
+    const out = []
+    let p = blockOff(mapId)
+    const grassRate = bytes[p]
+    if (grassRate > 0) out.push({ name: 'Grass', rateOff: p, monsOff: p + 1 })
+    p += grassRate > 0 ? 1 + WILD_SLOTS * 2 : 1
+    if (bytes[p] > 0) out.push({ name: 'Water', rateOff: p, monsOff: p + 1 })
+    return out
+  }
+
+  const entries: { key: string; label: string }[] = []
+  for (let m = 0; m < count; m++) {
+    if (groupOffsets(m).length === 0) continue
+    entries.push({ key: String(m), label: GEN1_MAP_NAMES[m] ?? `Map #${m}` })
+  }
+
+  const module: WildModule = {
+    entries,
+    groups(key) {
+      return groupOffsets(Number(key)).map((g) => ({
+        name: g.name,
+        rate: bytes[g.rateOff],
+        slots: Array.from({ length: WILD_SLOTS }, (_, i) => ({
+          minLevel: bytes[g.monsOff + i * 2],
+          maxLevel: bytes[g.monsOff + i * 2],
+          species: internalToDex(bytes[g.monsOff + i * 2 + 1]),
+        })),
+      }))
+    },
+    setRate(key, group, rate) {
+      const g = groupOffsets(Number(key))[group]
+      if (g) rom.writeU8(g.rateOff, rate)
+    },
+    setSlot(key, group, slot, field, value) {
+      const g = groupOffsets(Number(key))[group]
+      if (!g || slot < 0 || slot >= WILD_SLOTS) return
+      // Gen 1 has a single level per slot; min and max both map to it.
+      if (field === 'minLevel' || field === 'maxLevel') rom.writeU8(g.monsOff + slot * 2, value)
+      else if (field === 'species') {
+        const internal = dexToInternalFn(value)
+        if (internal > 0) rom.writeU8(g.monsOff + slot * 2 + 1, internal)
+      }
+    },
+    revert(key) {
+      for (const g of groupOffsets(Number(key))) {
+        rom.revertRange(g.rateOff, 1 + WILD_SLOTS * 2)
+      }
+    },
+  }
+  return { module, offset: tableOff, count }
 }
 
 export function tryBuildGen1(rom: Rom, gameName: string, platform: string): GameAdapter | null {
@@ -116,6 +221,19 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
       const dex = bytes[mapOff + i]
       if (dex >= 1 && dex <= 151 && !dexToInternal.has(dex)) dexToInternal.set(dex, i + 1)
     }
+  }
+
+  // Wild encounters (Red/Blue; Yellow uses different Route 1 data).
+  const wild = buildGen1Wild(
+    rom,
+    (internal) =>
+      mapOff !== null && internal >= 1 && internal <= INTERNAL_COUNT ? bytes[mapOff + internal - 1] : 0,
+    (dex) => dexToInternal.get(dex) ?? 0,
+  )
+  if (wild) {
+    regions.push({ name: `Wild encounters (${wild.module.entries.length} maps)`, offset: wild.offset, length: wild.count * 2 })
+  } else {
+    warnings.push("Couldn't locate wild encounter data — wild editing disabled (Yellow not yet supported).")
   }
 
   regions.push({ name: 'Base stats', offset: statsOff, length: 150 * STATS_ENTRY })
@@ -199,9 +317,9 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
     species,
     speciesFields,
     typeOptions: GEN1_TYPES,
-    mapModule: null, // Gen 1 map/trainer/wild editing: on the roadmap
+    mapModule: null, // Gen 1 map/trainer editing: on the roadmap
     trainerModule: null,
-    wildModule: null,
+    wildModule: wild?.module ?? null,
     itemOptions: null,
     evolutions: null,
     learnsets: null,

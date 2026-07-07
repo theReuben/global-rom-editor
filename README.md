@@ -23,7 +23,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Movement permission (collision) editing | — | — | ✅ |
 | NPC / warp / sign editing | 🔜 | 🔜 | ✅ |
 | Trainer editing (class, AI, items, full parties) | 🔜 | 🔜 | ✅ |
-| Wild encounter editing (grass/surf/rock/fishing) | 🔜 | 🔜 | ✅ |
+| Wild encounter editing | ✅ R/B | 🔜 | ✅ |
 | Item names read from the ROM (dropdowns everywhere) | — | — | ✅ |
 | Map resizing (relocated into free space) | — | — | ✅ |
 | Brand-new maps (duplicate into a fresh bank slot) | — | — | ✅ |
@@ -126,8 +126,9 @@ new map is discovered like any original one.
 
 In rough build order:
 
-1. **Gen 1/2 map, trainer & wild editing** — same editor UI on the GB
-   data formats.
+1. **Gen 1/2 map & trainer editing** — same editor UI on the GB data
+   formats (Gen 1 Red/Blue wild encounters already shipped; Yellow and
+   Gen 2 wild next).
 2. **Deeper decomp editing** — types/abilities/items as dropdowns,
    trainers and encounters from source, project-wide save.
 3. Level-up learnsets, evolutions, type chart, starters, sprite

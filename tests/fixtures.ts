@@ -72,6 +72,19 @@ export function makeGen1Rom(): Uint8Array {
 
   // TM/HM move list.
   put(rom, 0x13773, [5, 13, 14, 18, 25, 92, 32, 34])
+
+  // Wild encounters (bank 3): pointer table + blocks.
+  put(rom, 0xd500, [0, 0]) // "nothing" block: grass 0, water 0
+  put(rom, 0xd510, [25, 3, 0x24, 3, 0xa5, 3, 0xa5, 2, 0xa5, 2, 0x24, 3, 0x24, 3, 0x24, 4, 0xa5, 4, 0x24, 5, 0x24, 0])
+  // Map 13: grass (internal 10 = dex 1) and water (internal 9 = dex 2).
+  const grassPairs = Array.from({ length: 10 }, () => [5, 10]).flat()
+  const waterPairs = Array.from({ length: 10 }, () => [10, 9]).flat()
+  put(rom, 0xd530, [10, ...grassPairs, 20, ...waterPairs])
+  const wildTable = 0xd000
+  for (let m = 0; m < 12; m++) put(rom, wildTable + m * 2, [0x00, 0x55])
+  put(rom, wildTable + 24, [0x10, 0x55]) // Route 1
+  put(rom, wildTable + 26, [0x30, 0x55]) // map 13
+  // next u16 is 0x0000 → out of pointer range → table ends (count 14)
   return rom
 }
 
