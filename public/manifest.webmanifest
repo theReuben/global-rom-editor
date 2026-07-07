@@ -1,0 +1,17 @@
+{
+  "name": "Global ROM Editor",
+  "short_name": "ROM Editor",
+  "description": "The all-in-one Pokémon ROM hacking studio. Edit Pokémon, moves, trainers, wild encounters and maps — no coding required.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f1218",
+  "theme_color": "#0f1218",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

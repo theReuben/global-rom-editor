@@ -1,0 +1,81 @@
+/**
+ * Human-readable Gen 3 constant labels, generated from the pret
+ * pokeemerald decompilation headers (constants are facts about the game
+ * engine; no game code or assets are included).
+ *
+ * Generated from include/constants/event_object_movement.h and
+ * include/constants/battle_ai.h.
+ */
+import type { SelectOption } from './schema'
+
+export const GEN3_MOVEMENT_TYPES: SelectOption[] = [
+  { value: 0, label: 'None' },
+  { value: 1, label: 'Look around' },
+  { value: 2, label: 'Wander around' },
+  { value: 3, label: 'Wander up and down' },
+  { value: 4, label: 'Wander down and up' },
+  { value: 5, label: 'Wander left and right' },
+  { value: 6, label: 'Wander right and left' },
+  { value: 7, label: 'Face up' },
+  { value: 8, label: 'Face down' },
+  { value: 9, label: 'Face left' },
+  { value: 10, label: 'Face right' },
+  { value: 11, label: 'Player' },
+  { value: 12, label: 'Berry tree growth' },
+  { value: 13, label: 'Face down and up' },
+  { value: 14, label: 'Face left and right' },
+  { value: 15, label: 'Face up and left' },
+  { value: 16, label: 'Face up and right' },
+  { value: 17, label: 'Face down and left' },
+  { value: 18, label: 'Face down and right' },
+  { value: 19, label: 'Face down up and left' },
+  { value: 20, label: 'Face down up and right' },
+  { value: 21, label: 'Face up left and right' },
+  { value: 22, label: 'Face down left and right' },
+  { value: 23, label: 'Rotate counterclockwise' },
+  { value: 24, label: 'Rotate clockwise' },
+  { value: 25, label: 'Walk up and down' },
+  { value: 26, label: 'Walk down and up' },
+  { value: 27, label: 'Walk left and right' },
+  { value: 28, label: 'Walk right and left' },
+  { value: 29, label: 'Walk sequence up right left down' },
+  { value: 30, label: 'Walk sequence right left down up' },
+  { value: 31, label: 'Walk sequence down up right left' },
+  { value: 32, label: 'Walk sequence left down up right' },
+  { value: 33, label: 'Walk sequence up left right down' },
+  { value: 34, label: 'Walk sequence left right down up' },
+  { value: 35, label: 'Walk sequence down up left right' },
+  { value: 36, label: 'Walk sequence right down up left' },
+  { value: 37, label: 'Walk sequence left up down right' },
+  { value: 38, label: 'Walk sequence up down right left' },
+  { value: 39, label: 'Walk sequence right left up down' },
+  { value: 40, label: 'Walk sequence down right left up' },
+  { value: 41, label: 'Walk sequence right up down left' },
+  { value: 42, label: 'Walk sequence up down left right' },
+  { value: 43, label: 'Walk sequence left right up down' },
+  { value: 44, label: 'Walk sequence down left right up' },
+  { value: 45, label: 'Walk sequence up left down right' },
+  { value: 46, label: 'Walk sequence down right up left' },
+  { value: 47, label: 'Walk sequence left down right up' },
+  { value: 48, label: 'Walk sequence right up left down' },
+  { value: 49, label: 'Walk sequence up right down left' },
+  { value: 50, label: 'Walk sequence down left up right' },
+  { value: 51, label: 'Walk sequence left up right down' },
+  { value: 52, label: 'Walk sequence right down left up' },
+  { value: 57, label: 'Tree disguise' },
+  { value: 58, label: 'Mountain disguise' },
+  { value: 63, label: 'Buried' },
+]
+
+export const GEN3_AI_FLAG_LABELS: string[] = [
+  'Avoid bad moves',
+  'Try to KO',
+  'Judge move viability',
+  'Set up on first turn',
+  'Risky plays',
+  'Prefer power extremes',
+  'Prefer Baton Pass',
+  'Double battle logic',
+  'HP aware',
+  'Try Sunny Day start',
+]
