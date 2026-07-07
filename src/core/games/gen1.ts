@@ -53,9 +53,10 @@ const STAT_BYTES: Record<string, number> = {
   startMove4: 18,
 }
 
-// Route 1's grass encounters (rate 25; Pidgey 0x24 / Rattata 0xA5 pairs,
-// water rate 0) — byte-exact in Red and Blue, the wild-data anchor.
-const ROUTE1_WILD = [25, 3, 0x24, 3, 0xa5, 3, 0xa5, 2, 0xa5, 2, 0x24, 3, 0x24, 3, 0x24, 4, 0xa5, 4, 0x24, 5, 0x24, 0]
+// Route 1's grass encounters (Pidgey 0x24 / Rattata 0xA5 pairs, water
+// rate 0) — byte-exact anchors from the pokered / pokeyellow sources.
+const ROUTE1_WILD_RB = [25, 3, 0x24, 3, 0xa5, 3, 0xa5, 2, 0xa5, 2, 0x24, 3, 0x24, 3, 0x24, 4, 0xa5, 4, 0x24, 5, 0x24, 0]
+const ROUTE1_WILD_Y = [25, 3, 0x24, 4, 0x24, 2, 0xa5, 3, 0xa5, 2, 0x24, 3, 0x24, 5, 0x24, 4, 0xa5, 6, 0x24, 7, 0x24, 0]
 const ROUTE1_MAP_ID = 12
 const WILD_SLOTS = 10
 
@@ -70,7 +71,7 @@ function buildGen1Wild(
   dexToInternalFn: (dex: number) => number,
 ): { module: WildModule; offset: number; count: number } | null {
   const bytes = rom.bytes
-  const route1 = findVerified(bytes, ROUTE1_WILD, [])
+  const route1 = findVerified(bytes, ROUTE1_WILD_RB, []) ?? findVerified(bytes, ROUTE1_WILD_Y, [])
   if (route1 === null) return null
   const bank = Math.floor(route1 / 0x4000)
   const toLocal = (off: number) => 0x4000 + (off % 0x4000)
@@ -223,7 +224,7 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
     }
   }
 
-  // Wild encounters (Red/Blue; Yellow uses different Route 1 data).
+  // Wild encounters (Red / Blue / Yellow).
   const wild = buildGen1Wild(
     rom,
     (internal) =>
@@ -233,7 +234,7 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
   if (wild) {
     regions.push({ name: `Wild encounters (${wild.module.entries.length} maps)`, offset: wild.offset, length: wild.count * 2 })
   } else {
-    warnings.push("Couldn't locate wild encounter data — wild editing disabled (Yellow not yet supported).")
+    warnings.push("Couldn't locate wild encounter data — wild editing disabled for this ROM.")
   }
 
   regions.push({ name: 'Base stats', offset: statsOff, length: 150 * STATS_ENTRY })
