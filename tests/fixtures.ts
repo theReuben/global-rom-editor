@@ -338,3 +338,106 @@ function addMapData(rom: Uint8Array): void {
   put(rom, group1, ptr(header))
   put(rom, bankTable, [...ptr(group0), ...ptr(group1)])
 }
+
+/* ------------------------------------------------------------ Gen 4/5 */
+
+function buildNarc(subfiles: Uint8Array[]): Uint8Array {
+  const total = subfiles.reduce((s, f) => s + f.length, 0)
+  const btafSize = 12 + subfiles.length * 8
+  const narc = new Uint8Array(16 + btafSize + 16 + 8 + total)
+  const w16 = (o: number, v: number) => put(narc, o, u16s(v))
+  const w32 = (o: number, v: number) =>
+    put(narc, o, [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >>> 24) & 0xff])
+  put(narc, 0, Array.from('NARC').map((c) => c.charCodeAt(0)))
+  narc[4] = 0xfe
+  narc[5] = 0xff
+  w32(8, narc.length)
+  w16(12, 16)
+  w16(14, 3)
+  let p = 16
+  put(narc, p, Array.from('BTAF').map((c) => c.charCodeAt(0)))
+  w32(p + 4, btafSize)
+  w16(p + 8, subfiles.length)
+  let rel = 0
+  subfiles.forEach((f, i) => {
+    w32(p + 12 + i * 8, rel)
+    w32(p + 16 + i * 8, rel + f.length)
+    rel += f.length
+  })
+  p += btafSize
+  put(narc, p, Array.from('BTNF').map((c) => c.charCodeAt(0)))
+  w32(p + 4, 16)
+  w32(p + 8, 4)
+  w16(p + 12, 0)
+  w16(p + 14, 1)
+  p += 16
+  put(narc, p, Array.from('GMIF').map((c) => c.charCodeAt(0)))
+  w32(p + 4, 8 + total)
+  p += 8
+  for (const f of subfiles) {
+    put(narc, p, f)
+    p += f.length
+  }
+  return narc
+}
+
+/** NDS ROM with one file at /dir0/dir1/.../fileName. */
+export function makeNdsRomWithFile(
+  gameCode: string,
+  dirs: string[],
+  fileName: string,
+  content: Uint8Array,
+): Uint8Array {
+  const rom = new Uint8Array(0x100000)
+  put(rom, 0x00, Array.from('POKEMON').map((c) => c.charCodeAt(0)))
+  put(rom, 0x0c, Array.from(gameCode).map((c) => c.charCodeAt(0)))
+  const fnt = 0x1000
+  const fat = 0x3000
+  const fileOff = 0x8000
+  put(rom, 0x40, [0, 16, 0, 0]) // fnt offset 0x1000
+  put(rom, 0x44, [0, 8, 0, 0]) // fnt size
+  put(rom, 0x48, [0, 48, 0, 0]) // fat offset 0x3000
+  put(rom, 0x4c, [8, 0, 0, 0]) // fat size: 1 file
+  const dirCount = dirs.length + 1
+  // Main table entries: root + one per dir; subtables every 0x40 from +0x100.
+  const sub = (i: number) => 0x100 + i * 0x40
+  put(rom, fnt, [sub(0) & 0xff, sub(0) >> 8, 0, 0, 0, 0, dirCount & 0xff, dirCount >> 8])
+  dirs.forEach((_, i) => {
+    const parent = i === 0 ? 0xf000 : 0xf000 + i
+    put(rom, fnt + 8 * (i + 1), [sub(i + 1) & 0xff, sub(i + 1) >> 8, 0, 0, 0, 0, parent & 0xff, parent >> 8])
+  })
+  // Subtables: each dir level points into the next; the last holds the file.
+  dirs.forEach((name, i) => {
+    const id = 0xf001 + i
+    put(rom, fnt + sub(i), [0x80 | name.length, ...Array.from(name).map((c) => c.charCodeAt(0)), id & 0xff, id >> 8, 0])
+  })
+  put(rom, fnt + sub(dirs.length), [fileName.length, ...Array.from(fileName).map((c) => c.charCodeAt(0)), 0])
+  put(rom, fat, [fileOff & 0xff, (fileOff >> 8) & 0xff, (fileOff >> 16) & 0xff, 0])
+  const end = fileOff + content.length
+  put(rom, fat + 4, [end & 0xff, (end >> 8) & 0xff, (end >> 16) & 0xff, 0])
+  put(rom, fileOff, content)
+  return rom
+}
+
+/** Platinum-style ROM: 150-species personal NARC, Gen 4 layout. */
+export function makeGen4Rom(): Uint8Array {
+  const entries: Uint8Array[] = []
+  for (let i = 0; i < 150; i++) entries.push(new Uint8Array(44))
+  // Bulbasaur-ish entry 1 (offsets verified against pokeplatinum).
+  const b = entries[1]
+  put(b, 0, [45, 49, 49, 45, 65, 65, 12, 3, 45, 64])
+  put(b, 10, u16s(0x0100)) // 1 Sp. Atk EV
+  put(b, 12, u16s(0, 0))
+  put(b, 16, [31, 20, 70, 3, 1, 7, 65, 0])
+  b[28] = 0b0000_0101 // TMs 1 and 3
+  put(entries[2], 0, [60, 62, 63, 60, 80, 80, 12, 3, 45, 141])
+  return makeNdsRomWithFile('CPUE', ['poketool', 'personal'], 'pl_personal.narc', buildNarc(entries))
+}
+
+/** Black-style ROM: 60-byte entries → minimal Gen 5 support. */
+export function makeGen5Rom(): Uint8Array {
+  const entries: Uint8Array[] = []
+  for (let i = 0; i < 160; i++) entries.push(new Uint8Array(60))
+  put(entries[1], 0, [45, 49, 49, 45, 65, 65, 11, 3, 45]) // grass = 11 in Gen 5
+  return makeNdsRomWithFile('IRBO', ['a', '0', '1'], '6', buildNarc(entries))
+}

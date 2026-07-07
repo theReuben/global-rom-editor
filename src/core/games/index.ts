@@ -1,6 +1,7 @@
 import { Rom } from '../rom'
 import { readRomInfo } from '../detect'
 import { parseNdsHeader, listNdsFiles } from '../nds/nds'
+import { tryBuildGen45 } from './gen45'
 import { tryBuildGen1 } from './gen1'
 import { tryBuildGen2 } from './gen2'
 import { tryBuildGen3 } from './gen3'
@@ -33,12 +34,14 @@ export function buildAdapter(rom: Rom): LoadResult {
   if (!info) {
     const nds = parseNdsHeader(rom.bytes)
     if (nds) {
+      const dsAdapter = tryBuildGen45(rom)
+      if (dsAdapter) return { adapter: dsAdapter }
       const files = listNdsFiles(rom.bytes, nds)
       return {
         adapter: null,
         reason:
-          `Nintendo DS ROM detected ("${nds.title}", ${nds.gameCode}; ${files.length} files in its file system). ` +
-          'Gen 4/5 editing is in progress — the NDS file-system layer is already in place. See the roadmap.',
+          `Nintendo DS ROM detected ("${nds.title}", ${nds.gameCode}; ${files.length} files in its file system), ` +
+          "but no Pokémon personal-data archive was found at the known paths — this game/hack isn't supported yet.",
       }
     }
     return { adapter: null, reason: 'This file does not look like a Game Boy / GBC / GBA ROM.' }

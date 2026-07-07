@@ -26,11 +26,19 @@ export function PatchPanel({ adapter, onEdit, onRomRebuilt }: Props) {
   }
 
   const exportIps = () => {
-    fixChecksums(rom)
-    onEdit()
-    const patch = createIps(rom.original, rom.bytes)
-    downloadBytes(patch, `${base}.ips`)
-    setStatus(`IPS patch exported (${patch.length.toLocaleString()} bytes). Share the patch — never the ROM.`)
+    try {
+      fixChecksums(rom)
+      onEdit()
+      const patch = createIps(rom.original, rom.bytes)
+      downloadBytes(patch, `${base}.ips`)
+      setError(null)
+      setStatus(`IPS patch exported (${patch.length.toLocaleString()} bytes). Share the patch — never the ROM.`)
+    } catch (e) {
+      setStatus(null)
+      setError(
+        `${e instanceof Error ? e.message : String(e)} — for DS ROMs, share the edited ROM privately or wait for UPS/BPS export (roadmap).`,
+      )
+    }
   }
 
   const applyPatchFile = async (file: File) => {

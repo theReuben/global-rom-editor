@@ -54,7 +54,7 @@ export interface GameAdapter {
   /** e.g. "Pokémon FireRed (BPRE)". */
   gameName: string
   platform: string
-  generation: 1 | 2 | 3
+  generation: 1 | 2 | 3 | 4 | 5
   rom: Rom
 
   /** Data tables that were located & verified — shown for transparency. */
