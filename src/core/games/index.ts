@@ -1,5 +1,6 @@
 import { Rom } from '../rom'
 import { readRomInfo } from '../detect'
+import { parseNdsHeader, listNdsFiles } from '../nds/nds'
 import { tryBuildGen1 } from './gen1'
 import { tryBuildGen2 } from './gen2'
 import { tryBuildGen3 } from './gen3'
@@ -30,6 +31,16 @@ export interface LoadResult {
 export function buildAdapter(rom: Rom): LoadResult {
   const info = readRomInfo(rom.bytes)
   if (!info) {
+    const nds = parseNdsHeader(rom.bytes)
+    if (nds) {
+      const files = listNdsFiles(rom.bytes, nds)
+      return {
+        adapter: null,
+        reason:
+          `Nintendo DS ROM detected ("${nds.title}", ${nds.gameCode}; ${files.length} files in its file system). ` +
+          'Gen 4/5 editing is in progress — the NDS file-system layer is already in place. See the roadmap.',
+      }
+    }
     return { adapter: null, reason: 'This file does not look like a Game Boy / GBC / GBA ROM.' }
   }
 
