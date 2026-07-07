@@ -116,6 +116,22 @@ export function makeGen2Rom(): Uint8Array {
   put(rom, moveNames, [...gen12Bytes('POUND'), 0x50, ...gen12Bytes('KARATE CHOP'), 0x50])
 
   put(rom, 0x1167a, [223, 29, 174, 205, 46, 92, 192, 249])
+
+  // Wild data (Crystal layout): 4 Johto grass blocks, 1 water block.
+  const morn = [3, 19, 4, 19, 5, 19, 3, 19, 6, 19, 5, 19, 5, 19]
+  const nite = [3, 92, 4, 92, 5, 92, 3, 19, 6, 92, 5, 19, 5, 19]
+  const filler = (g: number, m: number) => [g, m, 4, 4, 4, ...Array.from({ length: 21 }, () => [5, 16]).flat()]
+  let w = 0x2ab00
+  const putw = (b: number[]) => { put(rom, w, b); w += b.length }
+  putw([3, 2, 5, 5, 5, ...morn, ...morn, ...nite]) // Sprout Tower 2F anchor
+  putw(filler(10, 1))
+  putw(filler(10, 2))
+  putw(filler(10, 3))
+  putw([0xff]) // end Johto grass
+  putw([11, 1, 10, 15, 194, 20, 195, 15, 194]) // Johto water
+  putw([0xff])
+  putw([0xff]) // empty Kanto grass
+  putw([0xff]) // empty Kanto water
   return rom
 }
 

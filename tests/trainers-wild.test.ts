@@ -163,3 +163,45 @@ describe('Gen 3 wild encounters', () => {
     expect(w.groups('0.0')[0].slots[0].species).toBe(1)
   })
 })
+
+describe('Gen 2 wild encounters (Crystal)', () => {
+  const loadGen2 = async () => {
+    const { makeGen2Rom } = await import('./fixtures')
+    return buildAdapter(new Rom('crystal.gbc', makeGen2Rom())).adapter!
+  }
+
+  it('discovers areas via the Sprout Tower anchor', async () => {
+    const w = (await loadGen2()).wildModule!
+    expect(w).not.toBeNull()
+    expect(w.entries).toHaveLength(5)
+    expect(w.entries.map((e) => e.key)).toContain('3.2')
+    expect(w.entries.map((e) => e.key)).toContain('11.1')
+  })
+
+  it('exposes morning/day/night grass and water groups', async () => {
+    const w = (await loadGen2()).wildModule!
+    const sprout = w.groups('3.2')
+    expect(sprout.map((g) => g.name)).toEqual(['Grass (morning)', 'Grass (day)', 'Grass (night)'])
+    expect(sprout[0].rate).toBe(5)
+    expect(sprout[0].slots).toHaveLength(7)
+    expect(sprout[0].slots[0]).toEqual({ minLevel: 3, maxLevel: 3, species: 19 })
+    expect(sprout[2].slots[0].species).toBe(92) // Gastly at night
+
+    const water = w.groups('11.1')
+    expect(water).toHaveLength(1)
+    expect(water[0].name).toBe('Water')
+    expect(water[0].slots).toHaveLength(3)
+    expect(water[0].slots[1]).toEqual({ minLevel: 20, maxLevel: 20, species: 195 })
+  })
+
+  it('edits and reverts per time-of-day', async () => {
+    const w = (await loadGen2()).wildModule!
+    w.setSlot('3.2', 2, 0, 'species', 200)
+    w.setRate('3.2', 1, 40)
+    expect(w.groups('3.2')[2].slots[0].species).toBe(200)
+    expect(w.groups('3.2')[1].rate).toBe(40)
+    expect(w.groups('3.2')[0].rate).toBe(5) // morning untouched
+    w.revert('3.2')
+    expect(w.groups('3.2')[2].slots[0].species).toBe(92)
+  })
+})

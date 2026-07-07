@@ -7,32 +7,32 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 
 ## What it does today
 
-| Feature | Gen 1 (R/B/Y) | Gen 2 (G/S/C) | Gen 3 (R/S/E/FR/LG) |
-| --- | :-: | :-: | :-: |
-| Base stats, types, catch rate, EXP yield | ✅ | ✅ | ✅ |
-| Pokémon renaming | ✅ | ✅ | ✅ |
-| Level curve (growth rate) | ✅ | ✅ | ✅ |
-| TM/HM compatibility (checkbox grid) | ✅ | ✅ | 🔜 |
-| Starting moves | ✅ | — | 🔜 |
-| Wild held items, gender ratio, egg groups, hatch cycles | — | ✅ | ✅ |
-| Abilities (named, read from the ROM) | — | — | ✅ |
-| EV yields | — | — | ✅ |
-| Move power / accuracy / PP / type / effect / priority / flags | ✅ | ✅ | ✅ |
-| Move renaming | 🔜 | 🔜 | ✅ |
-| Map viewer & block painting (scene editing) | 🔜 | 🔜 | ✅ |
-| Movement permission (collision) editing | — | — | ✅ |
-| NPC / warp / sign editing | 🔜 | 🔜 | ✅ |
-| Trainer editing (class, AI, items, full parties) | 🔜 | 🔜 | ✅ |
-| Wild encounter editing | ✅ R/B | 🔜 | ✅ |
-| Item names read from the ROM (dropdowns everywhere) | — | — | ✅ |
-| Map resizing (relocated into free space) | — | — | ✅ |
-| Brand-new maps (duplicate into a fresh bank slot) | — | — | ✅ |
-| Add / remove NPCs, warps and signs | — | — | ✅ |
-| Visual script builder (messages, Y/N questions, items, Pokémon, trainer battles, flags) | — | — | ✅ |
-| Decomp project editing (species stats, experimental) | — | — | ✅ |
-| Save edited ROM with fixed checksums | ✅ | ✅ | ✅ |
-| Export edits as an IPS patch | ✅ | ✅ | ✅ |
-| Apply community IPS patches | ✅ | ✅ | ✅ |
+| Feature | Gen 1 (R/B/Y) | Gen 2 (G/S/C) | Gen 3 (R/S/E/FR/LG) | Gen 4/5 (DS) |
+| --- | :-: | :-: | :-: | :-: |
+| Base stats, types, catch rate, EXP yield | ✅ | ✅ | ✅ | ✅ |
+| Pokémon renaming | ✅ | ✅ | ✅ | — |
+| Level curve (growth rate) | ✅ | ✅ | ✅ | ✅ Gen 4 |
+| TM/HM compatibility (checkbox grid) | ✅ | ✅ | 🔜 | ✅ Gen 4 |
+| Starting moves | ✅ | — | 🔜 | — |
+| Wild held items, gender ratio, egg groups, hatch cycles | — | ✅ | ✅ | ✅ Gen 4 |
+| Abilities (named, read from the ROM) | — | — | ✅ | ✅ Gen 4 |
+| EV yields | — | — | ✅ | ✅ Gen 4 |
+| Move power / accuracy / PP / type / effect / priority / flags | ✅ | ✅ | ✅ | — |
+| Move renaming | 🔜 | 🔜 | ✅ | — |
+| Map viewer & block painting (scene editing) | 🔜 | 🔜 | ✅ | — |
+| Movement permission (collision) editing | — | — | ✅ | — |
+| NPC / warp / sign editing | 🔜 | 🔜 | ✅ | — |
+| Trainer editing (class, AI, items, full parties) | 🔜 | 🔜 | ✅ | — |
+| Wild encounter editing (time-of-day in Gen 2) | ✅ R/B/Y | ✅ Crystal | ✅ | 🔜 |
+| Item names read from the ROM (dropdowns everywhere) | — | — | ✅ | — |
+| Map resizing (relocated into free space) | — | — | ✅ | — |
+| Brand-new maps (duplicate into a fresh bank slot) | — | — | ✅ | — |
+| Add / remove NPCs, warps and signs | — | — | ✅ | — |
+| Visual script builder (messages, Y/N questions, items, Pokémon, trainer battles, flags) | — | — | ✅ | — |
+| Decomp project editing (species stats, experimental) | — | — | ✅ | — |
+| Save edited ROM with fixed checksums | ✅ | ✅ | ✅ | ✅ |
+| Export edits as an IPS patch | ✅ | ✅ | ✅ | — |
+| Apply community IPS patches | ✅ | ✅ | ✅ | — |
 
 Everything runs **entirely client-side** — ROMs never leave the user's device.
 The editor is an installable PWA: after the first visit it works fully
@@ -126,9 +126,9 @@ new map is discovered like any original one.
 
 In rough build order:
 
-1. **Gen 1/2 map & trainer editing** — same editor UI on the GB data
-   formats (Gen 1 Red/Blue wild encounters already shipped; Yellow and
-   Gen 2 wild next).
+1. **Gen 1/2 map & trainer editing**; Gold/Silver wild anchors; Gen 5
+   full personal layout verification; Gen 4 trainers/encounters
+   (per-version NARCs) and the Gen 4 text codec for names.
 2. **Deeper decomp editing** — types/abilities/items as dropdowns,
    trainers and encounters from source, project-wide save.
 3. Level-up learnsets, evolutions, type chart, starters, sprite

@@ -8,7 +8,8 @@ import { Rom } from '../rom'
 import { findVerified } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { EGG_GROUPS, GEN2_TYPES, GEN12_GROWTH, GENDER_RATIOS, padDex } from './data'
-import type { EntryHandle, FieldSpec, FieldValue, GameAdapter, TableRegion } from './schema'
+import { GEN2_MAP_NAMES } from './gen2-constants'
+import type { EntryHandle, FieldSpec, FieldValue, GameAdapter, TableRegion, WildModule } from './schema'
 
 const STATS_ENTRY = 32
 const NAME_LEN = 10
@@ -41,6 +42,120 @@ const STAT_BYTES: Record<string, number> = {
   gender: 13,
   eggCycles: 15,
   growthRate: 22,
+}
+
+
+/* -------------------------------------------------------- wild (Crystal) */
+
+const GRASS_BLOCK = 47 // group, map, 3 rates, 3 × 7 (level, species)
+const WATER_BLOCK = 9 // group, map, rate, 3 × (level, species)
+const TIME_NAMES = ['Grass (morning)', 'Grass (day)', 'Grass (night)']
+
+// Sprout Tower 2F — the first Johto grass block in Crystal, byte-exact
+// from pokecrystal (rates 2% ≈ 5; morning & day all Rattata).
+const SPROUT_RATES_MORN_DAY = [
+  5, 5, 5,
+  3, 19, 4, 19, 5, 19, 3, 19, 6, 19, 5, 19, 5, 19,
+  3, 19, 4, 19, 5, 19, 3, 19, 6, 19, 5, 19, 5, 19,
+]
+const SPROUT_NITE = [3, 92, 4, 92, 5, 92] // Gastly at night
+
+interface Gen2WildArea {
+  key: string
+  grass: number | null // block offset
+  water: number | null
+}
+
+function buildGen2Wild(rom: Rom): { module: WildModule; offset: number; count: number } | null {
+  const bytes = rom.bytes
+  const anchor = findVerified(bytes, SPROUT_RATES_MORN_DAY, [{ delta: 31, pattern: SPROUT_NITE }])
+  if (anchor === null) return null
+  const start = anchor - 2 // group/map bytes precede the rates
+
+  const plausible = (p: number, block: number): boolean => {
+    if (bytes[p] === 0xff || bytes[p] < 1 || bytes[p] > 26 || bytes[p + 1] < 1 || bytes[p + 1] > 120) return false
+    const pairsOff = block === GRASS_BLOCK ? p + 5 : p + 3
+    for (let i = pairsOff; i < p + block; i += 2) {
+      if (bytes[i] < 1 || bytes[i] > 100 || bytes[i + 1] < 1 || bytes[i + 1] > 251) return false
+    }
+    return true
+  }
+
+  const areas = new Map<string, Gen2WildArea>()
+  const area = (key: string): Gen2WildArea => {
+    if (!areas.has(key)) areas.set(key, { key, grass: null, water: null })
+    return areas.get(key)!
+  }
+
+  // Johto grass → Johto water → Kanto grass → Kanto water are laid out
+  // back to back, each list 0xFF-terminated. Every block is validated;
+  // an implausible block ends the walk safely.
+  let p = start
+  let end = start
+  for (const kind of ['grass', 'water', 'grass', 'water'] as const) {
+    const size = kind === 'grass' ? GRASS_BLOCK : WATER_BLOCK
+    let n = 0
+    while (n < 200 && bytes[p] !== 0xff && plausible(p, size)) {
+      const key = `${bytes[p]}.${bytes[p + 1]}`
+      area(key)[kind] = p
+      p += size
+      n++
+    }
+    if (bytes[p] !== 0xff) break // unexpected layout: keep what validated
+    p++
+    end = p
+  }
+  if (areas.size < 5) return null
+
+  const entries = [...areas.values()].map((a) => ({
+    key: a.key,
+    label: GEN2_MAP_NAMES[a.key] ?? `Map ${a.key}`,
+  }))
+
+  const groupDefs = (key: string) => {
+    const a = areas.get(key)
+    const out: { name: string; rateOff: number; monsOff: number; slots: number }[] = []
+    if (!a) return out
+    if (a.grass !== null) {
+      for (let t = 0; t < 3; t++) {
+        out.push({ name: TIME_NAMES[t], rateOff: a.grass + 2 + t, monsOff: a.grass + 5 + t * 14, slots: 7 })
+      }
+    }
+    if (a.water !== null) out.push({ name: 'Water', rateOff: a.water + 2, monsOff: a.water + 3, slots: 3 })
+    return out
+  }
+
+  const module: WildModule = {
+    entries,
+    groups(key) {
+      return groupDefs(key).map((g) => ({
+        name: g.name,
+        rate: bytes[g.rateOff],
+        slots: Array.from({ length: g.slots }, (_, i) => ({
+          minLevel: bytes[g.monsOff + i * 2],
+          maxLevel: bytes[g.monsOff + i * 2],
+          species: bytes[g.monsOff + i * 2 + 1], // Gen 2 uses dex ids directly
+        })),
+      }))
+    },
+    setRate(key, group, rate) {
+      const g = groupDefs(key)[group]
+      if (g) rom.writeU8(g.rateOff, rate)
+    },
+    setSlot(key, group, slot, field, value) {
+      const g = groupDefs(key)[group]
+      if (!g || slot < 0 || slot >= g.slots) return
+      if (field === 'minLevel' || field === 'maxLevel') rom.writeU8(g.monsOff + slot * 2, value)
+      else if (field === 'species' && value >= 1 && value <= 251) rom.writeU8(g.monsOff + slot * 2 + 1, value)
+    },
+    revert(key) {
+      const a = areas.get(key)
+      if (!a) return
+      if (a.grass !== null) rom.revertRange(a.grass, GRASS_BLOCK)
+      if (a.water !== null) rom.revertRange(a.water, WATER_BLOCK)
+    },
+  }
+  return { module, offset: start, count: end - start }
 }
 
 export function tryBuildGen2(rom: Rom, gameName: string, platform: string): GameAdapter | null {
@@ -103,6 +218,14 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
           : `Tutor/extra ${i - 56}`
     const mv = tmMoves && i < 57 ? ` ${moveName(tmMoves[i])}` : ''
     tmFlagLabels.push(label + mv)
+  }
+
+  // Wild encounters (Crystal; Gold/Silver anchors to be added).
+  const wild = buildGen2Wild(rom)
+  if (wild) {
+    regions.push({ name: `Wild encounters (${wild.module.entries.length} areas)`, offset: wild.offset, length: wild.count })
+  } else {
+    warnings.push("Couldn't locate wild encounter data — wild editing disabled (Crystal only so far).")
   }
 
   const readName = (dex: number): string =>
@@ -175,7 +298,7 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     typeOptions: GEN2_TYPES,
     mapModule: null, // Gen 2 map/trainer/wild editing: on the roadmap
     trainerModule: null,
-    wildModule: null,
+    wildModule: wild?.module ?? null,
     itemOptions: null,
     evolutions: null,
     learnsets: null,
