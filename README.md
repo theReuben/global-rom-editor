@@ -23,7 +23,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Movement permission (collision) editing | — | — | ✅ | — |
 | NPC / warp / sign editing | 🔜 | 🔜 | ✅ | — |
 | Trainer editing (class, AI, items, full parties) | 🔜 | 🔜 | ✅ | — |
-| Wild encounter editing (time-of-day in Gen 2) | ✅ R/B/Y | ✅ Crystal | ✅ | 🔜 |
+| Wild encounter editing (time-of-day in Gen 2) | ✅ | ✅ | ✅ | 🔜 |
 | Item names read from the ROM (dropdowns everywhere) | — | — | ✅ | — |
 | Map resizing (relocated into free space) | — | — | ✅ | — |
 | Brand-new maps (duplicate into a fresh bank slot) | — | — | ✅ | — |
@@ -126,9 +126,8 @@ new map is discovered like any original one.
 
 In rough build order:
 
-1. **Gen 1/2 map & trainer editing**; Gold/Silver wild anchors; Gen 5
-   full personal layout verification; Gen 4 trainers/encounters
-   (per-version NARCs) and the Gen 4 text codec for names.
+1. **Gen 1/2 map & trainer editing**; Gen 5 full personal layout
+   verification; the Gen 4 text codec for names.
 2. **Deeper decomp editing** — types/abilities/items as dropdowns,
    trainers and encounters from source, project-wide save.
 3. Level-up learnsets, evolutions, type chart, starters, sprite

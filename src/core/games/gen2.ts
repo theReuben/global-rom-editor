@@ -51,8 +51,8 @@ const GRASS_BLOCK = 47 // group, map, 3 rates, 3 × 7 (level, species)
 const WATER_BLOCK = 9 // group, map, rate, 3 × (level, species)
 const TIME_NAMES = ['Grass (morning)', 'Grass (day)', 'Grass (night)']
 
-// Sprout Tower 2F — the first Johto grass block in Crystal, byte-exact
-// from pokecrystal (rates 2% ≈ 5; morning & day all Rattata).
+// Sprout Tower 2F — the first Johto grass block, byte-identical in
+// Gold, Silver and Crystal (verified against pokegold and pokecrystal).
 const SPROUT_RATES_MORN_DAY = [
   5, 5, 5,
   3, 19, 4, 19, 5, 19, 3, 19, 6, 19, 5, 19, 5, 19,
@@ -220,12 +220,12 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     tmFlagLabels.push(label + mv)
   }
 
-  // Wild encounters (Crystal; Gold/Silver anchors to be added).
+  // Wild encounters (Gold / Silver / Crystal share the anchor block).
   const wild = buildGen2Wild(rom)
   if (wild) {
     regions.push({ name: `Wild encounters (${wild.module.entries.length} areas)`, offset: wild.offset, length: wild.count })
   } else {
-    warnings.push("Couldn't locate wild encounter data — wild editing disabled (Crystal only so far).")
+    warnings.push("Couldn't locate wild encounter data — wild editing disabled for this ROM.")
   }
 
   const readName = (dex: number): string =>
