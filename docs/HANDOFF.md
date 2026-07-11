@@ -5,7 +5,8 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-123 tests green. Shipped and validated: Gen 1–3 Pokémon/move editing;
+125 tests green. Gen 4 names (species, moves, trainers, classes)
+now decode from the msg banks — DS editors show real names. Shipped and validated: Gen 1–3 Pokémon/move editing;
 Gen 3 sprite importing (64×64 PNG → 4bpp+LZ77, auto-relocation,
 round-trip pixel-perfect on built Emerald);
 Gen 3 trainers, wild encounters, maps (view/paint/resize/new-map),
@@ -122,8 +123,23 @@ other.
    repeated to preserve the original decompressed size (animated mons
    store two frames). Remaining: back sprites, Gen 1/2 sprites (2bpp +
    Gen 1's custom RLE — different problem), DS sprites.
-4. **Gen 4 text codec** (trainer/species names from the DS text banks)
-   and the Gen 5 full personal layout (verify against DSPRE source).
+4. **Gen 4 text codec: SHIPPED (read-only).** `src/core/nds/msgdata.ts`
+   decodes msg banks: u16 count + u16 key header; per-entry
+   {u32 offset,u32 length} XORed with `key*765*(n+1) & 0xFFFF`
+   replicated to 32 bits; chars XORed with a rolling u16 seed starting
+   `(n+1)*596947`, incremented by 18749; 0xFFFF ends, 0xFFFE starts a
+   {cmd u16, nargs u16, args} control sequence, 0xF100 switches to
+   9-bit codes packed 15 bits per word (name banks), terminator 0x1FF.
+   Charmap generated from pokeheartgold charmap.txt (byte-identical to
+   pokeplatinum's) into gen4-charmap.ts. Bank indices per game are in
+   MSG_BANKS in gen45.ts, each verified in the decomp sources (NOT from
+   memory): D/P 362/588/559/560, Pt 412/647/618/619, HGSS
+   237/750/729/730 (species/moves/trainer names/class names). Species,
+   move, trainer and class names now come from the ROM itself. No DS
+   ROM can be built in this container (the Metrowerks compiler isn't
+   redistributable), so validation = decomp source reading + symmetric
+   encode/decode tests; writing names back (re-encrypt + NARC rebuild)
+   is still open. Remaining here: Gen 5 full personal layout.
 5. **HGSS encounters + trainers: SHIPPED.** EncounterData = 0xC4-byte
    files (pret/pokeheartgold include/wild_encounter.h): 6 rate bytes +
    2 dummy; 12 shared land levels @0x08; 12 u16 species per time of day

@@ -12,6 +12,7 @@
  */
 import { Rom } from '../rom'
 import { isNdsRom, parseNdsHeader, listNdsFiles, findNdsFile, parseNarc, type NarcSubfile } from '../nds/nds'
+import { parseMsgBank } from '../nds/msgdata'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
 import { NATDEX_NAMES, NATDEX_ABILITIES } from './natdex-names'
 import type {
@@ -91,13 +92,16 @@ export function buildGen4Trainers(
   rom: Rom,
   trdata: NarcSubfile[],
   trpoke: NarcSubfile[],
+  names?: { trainers: string[]; classes: string[] },
 ): TrainerModule {
   const bytes = rom.bytes
   const count = Math.min(trdata.length, trpoke.length)
   const entries: EntryHandle[] = []
   for (let i = 0; i < count; i++) {
-    const name = `Trainer #${i}`
-    entries.push({ id: i, label: `#${String(i).padStart(3, '0')} ${name} · class ${bytes[trdata[i].offset + 1]}`, name })
+    const name = names?.trainers[i] || `Trainer #${i}`
+    const cls = bytes[trdata[i].offset + 1]
+    const clsLabel = names?.classes[cls] || `class ${cls}`
+    entries.push({ id: i, label: `#${String(i).padStart(3, '0')} ${name} · ${clsLabel}`, name })
   }
 
   const header = (id: number) => trdata[id].offset
@@ -114,8 +118,14 @@ export function buildGen4Trainers(
 
   return {
     entries,
-    nameLength: 0, // trainer names live in the encrypted text banks
-    classOptions: null,
+    nameLength: 0, // trainer names live in the msg banks (read-only here)
+    nameHint: names?.trainers.length
+      ? 'Read from the message banks — renaming DS trainers is on the roadmap.'
+      : undefined,
+    classOptions:
+      names && names.classes.length > 0
+        ? names.classes.map((label, value) => ({ value, label: label || `Class ${value}` }))
+        : null,
     setName: () => false,
 
     read(id) {
@@ -395,8 +405,41 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
   }
   warnings.push('DS support is new — save a copy of your ROM before editing, and report anything odd.')
 
+  // Human-readable names straight from the game's message banks. Bank
+  // indices verified against the decomps: pokediamond (species 362,
+  // moves 588, trainers 559, classes 560), pokeplatinum text_banks.txt
+  // (412/647/618/619), pokeheartgold msgdata.c + message_format.c
+  // (237/750/729/730). HGSS's msg.narc is name-stripped to /a/0/2/7.
+  const code3 = header.gameCode.slice(0, 3)
+  const MSG_BANKS: Record<string, { path: string; species: number; moves: number; trainers: number; classes: number }> = {
+    ADA: { path: '/msgdata/msg.narc', species: 362, moves: 588, trainers: 559, classes: 560 },
+    APA: { path: '/msgdata/msg.narc', species: 362, moves: 588, trainers: 559, classes: 560 },
+    CPU: { path: '/msgdata/pl_msg.narc', species: 412, moves: 647, trainers: 618, classes: 619 },
+    IPK: { path: '/a/0/2/7', species: 237, moves: 750, trainers: 729, classes: 730 },
+    IPG: { path: '/a/0/2/7', species: 237, moves: 750, trainers: 729, classes: 730 },
+  }
+  let msgSpecies: string[] = []
+  let msgMoves: string[] = []
+  let msgTrainers: string[] = []
+  let msgClasses: string[] = []
+  const msgCfg = MSG_BANKS[code3]
+  if (msgCfg) {
+    const msg = findNdsFile(files, msgCfg.path)
+    const msgSubs = msg ? parseNarc(bytes, msg.start) : null
+    if (msgSubs) {
+      const bank = (index: number) => {
+        const sub = msgSubs.find((s) => s.index === index)
+        return sub ? parseMsgBank(bytes, sub.offset, sub.length) : []
+      }
+      msgSpecies = bank(msgCfg.species)
+      msgMoves = bank(msgCfg.moves)
+      msgTrainers = bank(msgCfg.trainers)
+      msgClasses = bank(msgCfg.classes)
+    }
+  }
+
   const speciesCount = personal.length - 1
-  const speciesName = (id: number) => NATDEX_NAMES[id - 1] ?? `Extra entry #${id}`
+  const speciesName = (id: number) => msgSpecies[id] || NATDEX_NAMES[id - 1] || `Extra entry #${id}`
   const species: EntryHandle[] = []
   for (let id = 1; id <= speciesCount; id++) {
     species.push({
@@ -474,7 +517,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
       const dSubs = parseNarc(bytes, trd.start)
       const pSubs = parseNarc(bytes, trp.start)
       if (dSubs && pSubs && dSubs.length > 50) {
-        trainerModule = buildGen4Trainers(rom, dSubs, pSubs)
+        trainerModule = buildGen4Trainers(rom, dSubs, pSubs, { trainers: msgTrainers, classes: msgClasses })
         regions.push({ name: `Trainers (${trainerModule.entries.length})`, offset: trd.start, length: trd.end - trd.start })
       }
     }
@@ -568,7 +611,11 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
       rom.revertRange(base(id), entrySize)
     },
 
-    moves: [],
+    // Move names feed the party-move dropdowns; move *data* editing for
+    // DS games is still on the roadmap (empty moveFields = no editor).
+    moves: msgMoves
+      .map((name, id) => ({ id, label: `${String(id).padStart(3, '0')} ${name}`, name }))
+      .filter((m) => m.id > 0 && m.name.length > 0),
     moveFields: [],
     moveNameLength: null,
     setMoveName: () => false,

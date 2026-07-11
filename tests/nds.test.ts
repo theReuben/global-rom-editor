@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { parseMsgBank } from '../src/core/nds/msgdata'
 import { Rom } from '../src/core/rom'
 import { buildAdapter } from '../src/core/games'
 import { parseNdsHeader, isNdsRom, listNdsFiles, findNdsFile, parseNarc } from '../src/core/nds/nds'
@@ -99,5 +100,76 @@ describe('NDS container', () => {
     expect(result.reason).toContain('Nintendo DS')
     expect(result.reason).toContain('CPUE')
     expect(result.reason).toContain('2 files')
+  })
+})
+
+describe('Gen 4 message banks', () => {
+  // The scrambling is XOR-symmetric, so encoding == decoding.
+  const encodeBank = (messages: number[][], key: number): Uint8Array => {
+    const total = 4 + messages.length * 8 + messages.reduce((s, m) => s + m.length * 2, 0)
+    const out = new Uint8Array(total)
+    const w16 = (o: number, v: number) => {
+      out[o] = v & 0xff
+      out[o + 1] = (v >> 8) & 0xff
+    }
+    w16(0, messages.length)
+    w16(2, key)
+    let off = 4 + messages.length * 8
+    messages.forEach((msg, n) => {
+      let seed = (key * 765 * (n + 1)) & 0xffff
+      seed = ((seed | (seed << 16)) & 0xffffffff) >>> 0
+      w16(4 + n * 8, (off ^ seed) & 0xffff)
+      w16(6 + n * 8, ((off ^ seed) >>> 16) & 0xffff)
+      w16(8 + n * 8, (msg.length ^ seed) & 0xffff)
+      w16(10 + n * 8, ((msg.length ^ seed) >>> 16) & 0xffff)
+      let charSeed = ((n + 1) * 596947) & 0xffff
+      for (const c of msg) {
+        w16(off, (c ^ charSeed) & 0xffff)
+        charSeed = (charSeed + 18749) & 0xffff
+        off += 2
+      }
+    })
+    return out
+  }
+  // A=0x12B..Z, a=0x145..z per the generated charmap.
+  const chars = (text: string) =>
+    [...text].map((ch) =>
+      ch >= 'A' && ch <= 'Z'
+        ? 0x12b + ch.charCodeAt(0) - 65
+        : ch >= 'a' && ch <= 'z'
+          ? 0x145 + ch.charCodeAt(0) - 97
+          : 0x1de,
+    )
+
+  it('decrypts and decodes plain entries', () => {
+    const bank = encodeBank(
+      [[...chars('Bulbasaur'), 0xffff], [...chars('Ivysaur'), 0xffff], [...chars('Venusaur'), 0xffff]],
+      0x1e39,
+    )
+    expect(parseMsgBank(bank, 0, bank.length)).toEqual(['Bulbasaur', 'Ivysaur', 'Venusaur'])
+  })
+
+  it('skips control sequences and handles the 9-bit trainer-name coding', () => {
+    // "Hi{STRVAR arg}!" — control code 0xFFFE, cmd, 1 arg.
+    const withCtrl = [...chars('Hi'), 0xfffe, 0x0100, 1, 0x1234, ...chars('yo'), 0xffff]
+    // Trainer names: 0xF100 then 9-bit codes packed into 15-bit words.
+    const codes = [...chars('Blue').map((c) => c & 0x1ff), 0x1ff]
+    const packed: number[] = [0xf100]
+    let acc = 0
+    let bits = 0
+    for (const c of codes) {
+      acc |= c << bits
+      bits += 9
+      if (bits >= 15) {
+        packed.push(acc & 0x7fff)
+        acc >>= 15
+        bits -= 15
+      }
+    }
+    if (bits > 0) packed.push(acc & 0x7fff)
+    const bank = encodeBank([withCtrl, packed], 77)
+    const [ctrl, trname] = parseMsgBank(bank, 0, bank.length)
+    expect(ctrl).toBe('Hiyo')
+    expect(trname).toBe('Blue')
   })
 })
