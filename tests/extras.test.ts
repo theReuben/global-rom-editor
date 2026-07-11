@@ -101,6 +101,55 @@ describe('Gen 3 sprites', () => {
     expect(img.height).toBe(64)
     expect([img.pixels[0], img.pixels[1], img.pixels[2], img.pixels[3]]).toEqual([255, 0, 0, 255])
   })
+
+  const testImage = () => {
+    // Transparent border, red left half, green right half.
+    const pixels = new Uint8ClampedArray(64 * 64 * 4)
+    for (let y = 8; y < 56; y++) {
+      for (let x = 8; x < 56; x++) {
+        const o = (y * 64 + x) * 4
+        if (x < 32) pixels[o] = 255
+        else pixels[o + 1] = 255
+        pixels[o + 3] = 255
+      }
+    }
+    return { pixels, width: 64, height: 64 }
+  }
+
+  it('rejects wrong sizes and too many colors', () => {
+    const a = load()
+    expect(a.importSpeciesSprite).not.toBeNull()
+    expect(a.importSpeciesSprite!(1, { pixels: new Uint8ClampedArray(32 * 32 * 4), width: 32, height: 32 }))
+      .toMatch(/64×64/)
+    const noisy = new Uint8ClampedArray(64 * 64 * 4)
+    for (let p = 0; p < 64 * 64; p++) {
+      noisy[p * 4] = (p * 8) & 0xff // ~32 distinct red levels
+      noisy[p * 4 + 3] = 255
+    }
+    expect(a.importSpeciesSprite!(1, { pixels: noisy, width: 64, height: 64 })).toMatch(/colors/)
+  })
+
+  it('imports a sprite, relocating the compressed data when it grows', () => {
+    const a = load()
+    expect(a.importSpeciesSprite!(1, testImage())).toBeNull()
+    const at = (img: { pixels: Uint8ClampedArray }, x: number, y: number) => {
+      const o = (y * 64 + x) * 4
+      return [img.pixels[o], img.pixels[o + 1], img.pixels[o + 2], img.pixels[o + 3]]
+    }
+    const img = a.speciesSprite!(1)!
+    expect(at(img, 0, 0)[3]).toBe(0) // border transparent
+    expect(at(img, 16, 16)).toEqual([255, 0, 0, 255]) // red half
+    expect(at(img, 48, 16)).toEqual([0, 255, 0, 255]) // green half
+    expect(a.rom.changedByteCount).toBeGreaterThan(0)
+
+    // Acid test: a fresh scan of the edited bytes must still find the
+    // sprite tables and decode the imported image.
+    const re = buildAdapter(new Rom('firered.gba', a.rom.bytes)).adapter!
+    expect(re.speciesSprite).not.toBeNull()
+    const reImg = re.speciesSprite!(1)!
+    expect(at(reImg, 16, 16)).toEqual([255, 0, 0, 255])
+    expect(at(reImg, 48, 16)).toEqual([0, 255, 0, 255])
+  })
 })
 
 describe('Gen 3 type chart', () => {

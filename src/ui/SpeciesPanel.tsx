@@ -4,8 +4,11 @@ import { EntryList } from './EntryList'
 import { FieldEditor } from './FieldEditor'
 import { EvolutionCard, LearnsetCard } from './SpeciesExtras'
 
-function SpriteView({ adapter, id }: { adapter: GameAdapter; id: number }) {
+function SpriteView({ adapter, id, onEdit }: { adapter: GameAdapter; id: number; onEdit: () => void }) {
   const ref = useRef<HTMLCanvasElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [version, setVersion] = useState(0)
   useEffect(() => {
     const img = adapter.speciesSprite?.(id)
     const canvas = ref.current
@@ -17,9 +20,57 @@ function SpriteView({ adapter, id }: { adapter: GameAdapter; id: number }) {
     canvas.width = img.width
     canvas.height = img.height
     canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.pixels), img.width, img.height), 0, 0)
-  }, [adapter, id])
+  }, [adapter, id, version])
   if (!adapter.speciesSprite) return null
-  return <canvas ref={ref} className="mon-sprite" />
+
+  const importFile = async (file: File) => {
+    try {
+      const bitmap = await createImageBitmap(file)
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+      const result = adapter.importSpeciesSprite!(id, {
+        pixels: data.data,
+        width: data.width,
+        height: data.height,
+      })
+      setError(result)
+      if (!result) {
+        setVersion((v) => v + 1)
+        onEdit()
+      }
+    } catch {
+      setError("Couldn't read that image file.")
+    }
+  }
+
+  return (
+    <div className="sprite-view">
+      <canvas ref={ref} className="mon-sprite" />
+      {adapter.importSpeciesSprite && (
+        <>
+          <button className="ghost sprite-import" onClick={() => fileRef.current?.click()}>
+            Import sprite…
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) importFile(f)
+              e.target.value = ''
+            }}
+          />
+          {error && <span className="name-hint invalid-hint">{error}</span>}
+        </>
+      )}
+    </div>
+  )
 }
 
 const GROUP_TITLES: Record<string, string> = {
@@ -131,7 +182,7 @@ export function SpeciesPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
       <div className="detail" key={selected}>
         <div className="detail-header">
           <div className="detail-title-row">
-            <SpriteView adapter={adapter} id={selected} />
+            <SpriteView adapter={adapter} id={selected} onEdit={onEdit} />
             <NameEditor adapter={adapter} id={selected} onEdit={onEdit} />
           </div>
           <button className="ghost" onClick={() => { adapter.revertSpecies(selected); onEdit() }}>

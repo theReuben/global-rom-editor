@@ -381,6 +381,7 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     wildModule,
     itemOptions,
     speciesSprite: spriteViewer ? (id) => spriteViewer!.front(id) : null,
+    importSpeciesSprite: spriteViewer ? (id, image) => spriteViewer!.importFront(id, image) : null,
     evolutions: evoResult?.module ?? null,
     learnsets: lsResult?.module ?? null,
     typeChart: chartResult?.module ?? null,

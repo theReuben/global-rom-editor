@@ -209,6 +209,9 @@ button.linkish {
   border: 1px solid var(--border);
   border-radius: 10px;
 }
+.sprite-view { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.sprite-import { font-size: 12px; padding: 2px 8px; }
+.invalid-hint { color: var(--danger, #e5484d); max-width: 200px; }
 
 .detail-header {
   display: flex;

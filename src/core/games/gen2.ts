@@ -589,6 +589,7 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     wildModule: wild?.module ?? null,
     itemOptions: null,
     speciesSprite: null,
+    importSpeciesSprite: null,
     evolutions: null,
     learnsets: null,
     typeChart: null,

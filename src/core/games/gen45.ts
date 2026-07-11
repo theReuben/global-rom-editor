@@ -406,6 +406,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     wildModule,
     itemOptions: null,
     speciesSprite: null,
+    importSpeciesSprite: null,
     evolutions: null,
     learnsets: null,
     typeChart: null,

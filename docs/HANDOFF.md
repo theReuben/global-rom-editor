@@ -5,7 +5,9 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-118 tests green. Shipped and validated: Gen 1–3 Pokémon/move editing;
+120 tests green. Shipped and validated: Gen 1–3 Pokémon/move editing;
+Gen 3 sprite importing (64×64 PNG → 4bpp+LZ77, auto-relocation,
+round-trip pixel-perfect on built Emerald);
 Gen 3 trainers, wild encounters, maps (view/paint/resize/new-map),
 NPC/warp/sign editing, visual script builder, evolutions, learnsets,
 type chart, TM/HM compatibility; Gen 1 (R/B/Y) trainer parties
@@ -112,8 +114,14 @@ other.
 2. **Deeper decomp editing** — parse constant-expression fields
    (`.types = MON_TYPES(...)`, `.abilities = {...}`) into dropdowns;
    enumerate options from `include/constants/*.h` of the opened tree.
-3. **Sprite importing** — viewing shipped (gba/sprites.ts, self-tagged
-   table discovery); import = re-compress + relocate when larger.
+3. **Sprite importing: SHIPPED** for Gen 3 front sprites
+   (`SpriteViewer.importFront`): quantise to ≤15 colors + transparent
+   slot 0 (transparent pixels and the top-left color), encode 4bpp,
+   LZ77-compress, write in place when it fits or relocate to end-of-ROM
+   padding with the pic/palette table pointers retargeted; the frame is
+   repeated to preserve the original decompressed size (animated mons
+   store two frames). Remaining: back sprites, Gen 1/2 sprites (2bpp +
+   Gen 1's custom RLE — different problem), DS sprites.
 4. **Gen 4 text codec** (trainer/species names from the DS text banks)
    and the Gen 5 full personal layout (verify against DSPRE source).
 5. **HGSS encounters** (different file format from D/P/Pt).
