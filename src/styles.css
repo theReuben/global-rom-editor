@@ -200,6 +200,16 @@ button.linkish {
 .empty { color: var(--muted); text-align: center; padding: 24px; }
 
 .detail { overflow-y: auto; padding: 20px 24px 48px; min-height: 0; }
+.detail-title-row { display: flex; align-items: center; gap: 14px; }
+.mon-sprite {
+  width: 96px;
+  height: 96px;
+  image-rendering: pixelated;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
 .detail-header {
   display: flex;
   align-items: flex-start;

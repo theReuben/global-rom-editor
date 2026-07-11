@@ -92,6 +92,17 @@ describe('Gen 3 TM/HM compatibility', () => {
   })
 })
 
+describe('Gen 3 sprites', () => {
+  it('discovers the self-tagged sprite tables and renders', () => {
+    const a = load()
+    expect(a.speciesSprite).not.toBeNull()
+    const img = a.speciesSprite!(1)!
+    expect(img.width).toBe(64)
+    expect(img.height).toBe(64)
+    expect([img.pixels[0], img.pixels[1], img.pixels[2], img.pixels[3]]).toEqual([255, 0, 0, 255])
+  })
+})
+
 describe('Gen 3 type chart', () => {
   it('discovers and reads matchups', () => {
     const chart = load().typeChart!

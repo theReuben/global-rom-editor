@@ -1,8 +1,26 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FieldSpec, GameAdapter } from '../core/games/schema'
 import { EntryList } from './EntryList'
 import { FieldEditor } from './FieldEditor'
 import { EvolutionCard, LearnsetCard } from './SpeciesExtras'
+
+function SpriteView({ adapter, id }: { adapter: GameAdapter; id: number }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const img = adapter.speciesSprite?.(id)
+    const canvas = ref.current
+    if (!canvas) return
+    if (!img) {
+      canvas.width = 0
+      return
+    }
+    canvas.width = img.width
+    canvas.height = img.height
+    canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.pixels), img.width, img.height), 0, 0)
+  }, [adapter, id])
+  if (!adapter.speciesSprite) return null
+  return <canvas ref={ref} className="mon-sprite" />
+}
 
 const GROUP_TITLES: Record<string, string> = {
   stats: 'Base stats',
@@ -112,7 +130,10 @@ export function SpeciesPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
       />
       <div className="detail" key={selected}>
         <div className="detail-header">
-          <NameEditor adapter={adapter} id={selected} onEdit={onEdit} />
+          <div className="detail-title-row">
+            <SpriteView adapter={adapter} id={selected} />
+            <NameEditor adapter={adapter} id={selected} onEdit={onEdit} />
+          </div>
           <button className="ghost" onClick={() => { adapter.revertSpecies(selected); onEdit() }}>
             Revert this Pokémon
           </button>

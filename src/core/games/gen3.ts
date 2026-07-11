@@ -13,6 +13,7 @@ import { buildGen3MapModule } from '../gba/maps'
 import { buildTrainerModule } from '../gba/trainers'
 import { buildWildModule } from '../gba/wild'
 import { buildEvolutions, buildLearnsets, buildTypeChart, buildTmhmCompat, TMHM_BITS } from '../gba/species-extras'
+import { buildSpriteViewer } from '../gba/sprites'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
 import type {
   EntryHandle,
@@ -193,6 +194,13 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
   if (tmhm) {
     regions.push({ name: 'TM/HM compatibility', offset: tmhm.offset, length: (SPECIES_COUNT + 1) * 8 })
   }
+  let spriteViewer: ReturnType<typeof buildSpriteViewer> = null
+  try {
+    spriteViewer = buildSpriteViewer(rom, SPECIES_COUNT)
+  } catch {
+    spriteViewer = null
+  }
+
   const chartResult = buildTypeChart(rom)
   if (chartResult) {
     regions.push({ name: 'Type chart', offset: chartResult.offset, length: chartResult.module.entries().length * 3 + 6 })
@@ -372,6 +380,7 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     trainerModule,
     wildModule,
     itemOptions,
+    speciesSprite: spriteViewer ? (id) => spriteViewer!.front(id) : null,
     evolutions: evoResult?.module ?? null,
     learnsets: lsResult?.module ?? null,
     typeChart: chartResult?.module ?? null,

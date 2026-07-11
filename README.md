@@ -15,6 +15,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | TM/HM compatibility (checkbox grid) | ✅ | ✅ | ✅ | ✅ Gen 4 |
 | Starting moves / level-up learnsets | ✅ | — | ✅ | — |
 | Evolutions & type effectiveness chart | — | — | ✅ | — |
+| Front sprite display | — | — | ✅ | — |
 | Wild held items, gender ratio, egg groups, hatch cycles | — | ✅ | ✅ | ✅ Gen 4 |
 | Abilities (named, read from the ROM) | — | — | ✅ | ✅ Gen 4 |
 | EV yields | — | — | ✅ | ✅ Gen 4 |

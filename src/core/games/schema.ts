@@ -99,6 +99,8 @@ export interface GameAdapter {
   wildModule: WildModule | null
   /** Item id → name options, when item names could be read from the ROM. */
   itemOptions: SelectOption[] | null
+  /** Front sprite renderer, when the sprite tables were found. */
+  speciesSprite: ((id: number) => RenderedImage | null) | null
 }
 
 /* -------------------------------------------------------------- trainers */

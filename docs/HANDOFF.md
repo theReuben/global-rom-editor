@@ -69,8 +69,8 @@ other.
 2. **Deeper decomp editing** — parse constant-expression fields
    (`.types = MON_TYPES(...)`, `.abilities = {...}`) into dropdowns;
    enumerate options from `include/constants/*.h` of the opened tree.
-3. **Sprite viewing/import** — Gen 3 front sprites: LZ77 4bpp + palette;
-   all primitives exist (`lz77.ts`, `tiles.ts`).
+3. **Sprite importing** — viewing shipped (gba/sprites.ts, self-tagged
+   table discovery); import = re-compress + relocate when larger.
 4. **Gen 4 text codec** (trainer/species names from the DS text banks)
    and the Gen 5 full personal layout (verify against DSPRE source).
 5. **HGSS encounters** (different file format from D/P/Pt).

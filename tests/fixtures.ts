@@ -215,6 +215,21 @@ function addSpeciesExtras(rom: Uint8Array): void {
   put(rom, tmhm + 32, [35, 6, 81, 204, 164, 30, 166, 0]) // Charmander
   // TM move list: Focus Punch, Dragon Claw, Water Pulse, Calm Mind…
   put(rom, 0x3d5300, u16s(264, 337, 352, 347, 46))
+
+  // Sprite tables: 210 self-tagged entries sharing one LZ77 gfx/palette.
+  const gfx = 0x3d6000
+  const tiles = new Uint8Array(0x800).fill(0x11) // all pixels = color 1
+  put(rom, gfx, lz77Compress(tiles))
+  const pal = 0x3d7000
+  const palData = new Uint8Array(32)
+  palData[2] = 0x1f // color 1 = red
+  put(rom, pal, lz77Compress(palData))
+  const picTable = 0x3d8000
+  const palTable = 0x3da000
+  for (let i = 0; i < 210; i++) {
+    put(rom, picTable + i * 8, [...ptr(gfx), ...u16s(0x800, i)])
+    put(rom, palTable + i * 8, [...ptr(pal), ...u16s(i, 0)])
+  }
 }
 
 /** Trainer class names: 13-byte entries; run must include the anchors. */
