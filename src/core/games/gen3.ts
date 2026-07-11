@@ -12,7 +12,7 @@ import { gen3Bytes, gen3Codec } from '../text'
 import { buildGen3MapModule } from '../gba/maps'
 import { buildTrainerModule } from '../gba/trainers'
 import { buildWildModule } from '../gba/wild'
-import { buildEvolutions, buildLearnsets, buildTypeChart } from '../gba/species-extras'
+import { buildEvolutions, buildLearnsets, buildTypeChart, buildTmhmCompat, TMHM_BITS } from '../gba/species-extras'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
 import type {
   EntryHandle,
@@ -189,6 +189,10 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
   if (lsResult) {
     regions.push({ name: 'Learnset pointers', offset: lsResult.offset, length: (SPECIES_COUNT + 1) * 4 })
   }
+  const tmhm = buildTmhmCompat(rom)
+  if (tmhm) {
+    regions.push({ name: 'TM/HM compatibility', offset: tmhm.offset, length: (SPECIES_COUNT + 1) * 8 })
+  }
   const chartResult = buildTypeChart(rom)
   if (chartResult) {
     regions.push({ name: 'Type chart', offset: chartResult.offset, length: chartResult.module.entries().length * 3 + 6 })
@@ -298,6 +302,15 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     { key: 'eggGroup2', label: 'Egg group 2', kind: 'select', options: EGG_GROUPS, group: 'breeding' },
   ]
 
+  if (tmhm) {
+    const tmLabel = (i: number) =>
+      i < 50 ? `TM${String(i + 1).padStart(2, '0')}` : `HM${String(i - 49).padStart(2, '0')}`
+    const flagLabels = Array.from({ length: TMHM_BITS }, (_, i) =>
+      tmhm.tmMoves ? `${tmLabel(i)} ${moveName(tmhm.tmMoves[i])}` : tmLabel(i),
+    )
+    speciesFields.push({ key: 'tmhm', label: 'TM / HM compatibility', kind: 'flags', flagLabels, group: 'tmhm' })
+  }
+
   const moveFields: FieldSpec[] = [
     { key: 'power', label: 'Power', kind: 'number', min: 0, max: 255 },
     { key: 'type', label: 'Type', kind: 'type' },
@@ -372,10 +385,15 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
       out.item2 = rom.readU16LE(base + 14)
       const ev = rom.readU16LE(base + 10)
       for (const [key, idx] of EV_STATS) out[key] = (ev >> (idx * 2)) & 3
+      if (tmhm) out.tmhm = tmhm.read(id)
       return out
     },
 
     writeSpeciesField(id, key, value) {
+      if (key === 'tmhm' && Array.isArray(value) && tmhm) {
+        tmhm.write(id, value as boolean[])
+        return
+      }
       if (typeof value !== 'number') return
       const base = statsBase(id)
       if (key === 'item1') return rom.writeU16LE(base + 12, value)
@@ -402,6 +420,7 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
 
     revertSpecies(id) {
       rom.revertRange(statsBase(id), STATS_ENTRY)
+      if (tmhm) tmhm.revert(id)
       if (namesOff !== null) rom.revertRange(namesOff + id * NAME_LEN, NAME_LEN)
       refreshHandle(id)
     },

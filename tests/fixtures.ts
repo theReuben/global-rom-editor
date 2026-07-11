@@ -206,6 +206,15 @@ function addSpeciesExtras(rom: Uint8Array): void {
   // Type chart: two normal rows + separator + one Foresight row + end.
   const chart = 0x3d3000
   put(rom, chart, [0, 5, 5, 0, 8, 5, 10, 10, 5, 10, 12, 20, 0xfe, 0xfe, 0, 0, 7, 0, 0xff, 0xff, 0])
+
+  // TM/HM learnsets: entry 0 dummy, then the four anchor species.
+  const tmhm = 0x3d5000
+  put(rom, tmhm + 8, [32, 7, 53, 132, 8, 30, 228, 0]) // Bulbasaur
+  put(rom, tmhm + 16, [32, 7, 53, 132, 8, 30, 228, 0]) // Ivysaur (same)
+  put(rom, tmhm + 24, [48, 71, 53, 134, 8, 30, 228, 0]) // Venusaur
+  put(rom, tmhm + 32, [35, 6, 81, 204, 164, 30, 166, 0]) // Charmander
+  // TM move list: Focus Punch, Dragon Claw, Water Pulse, Calm Mind…
+  put(rom, 0x3d5300, u16s(264, 337, 352, 347, 46))
 }
 
 /** Trainer class names: 13-byte entries; run must include the anchors. */

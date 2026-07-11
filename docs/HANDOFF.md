@@ -5,13 +5,15 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-86 tests green. Shipped and validated: Gen 1–3 Pokémon/move editing;
+109 tests green. Shipped and validated: Gen 1–3 Pokémon/move editing;
 Gen 3 trainers, wild encounters, maps (view/paint/resize/new-map),
 NPC/warp/sign editing, visual script builder, evolutions, learnsets,
-type chart, item/class/ability names read from the ROM; Gen 1 (R/B/Y)
-wild encounters; IPS export/apply; PWA offline; decomp backend editing
-species stats in pokeemerald / pokefirered / pokeemerald-expansion
-(1,364 species incl. Megas). CI deploys to GitHub Pages from `main`.
+type chart, TM/HM compatibility; Gen 1 (R/B/Y) and Gen 2 (G/S/C,
+time-of-day) wild encounters; Gen 4 (D/P/Pt/HGSS) species editing and
+D/P/Pt trainers + encounters via the NDS/NARC layer; Gen 5 stats-only;
+IPS + UPS patches; PWA offline; decomp backend editing species stats in
+pokeemerald / pokefirered / pokeemerald-expansion (1,364 species incl.
+Megas). CI deploys to GitHub Pages from `main`.
 
 ## Validation methodology (the project's superpower)
 
@@ -46,28 +48,32 @@ built ROMs.
 - Gen 1 wild anchors are byte-exact Route 1 blocks from pokered /
   pokeyellow sources (they differ between R/B and Yellow).
 
+## Known caveat: anchor species self-edits
+
+Discovery anchors on Bulbasaur-line data (stats, learnsets, TM bits,
+evolutions). Editing those exact bytes on the anchor species works fine
+in-session, but a saved ROM where e.g. Bulbasaur's TM flags changed will
+fail re-discovery of that one table on reload (editor shows the usual
+"couldn't locate" warning; nothing corrupts). Fix idea for later: after
+a successful scan, stash discovered offsets in a comment-free sidecar
+(IPS-adjacent JSON) or accept >1 anchor candidates verified against each
+other.
+
 ## Remaining roadmap, with implementation notes
 
-1. **Gen 2 wild encounters** — pokecrystal `data/wild/*.asm`. Johto grass
-   blocks: [group, map, 3 rates, 3×7 (lvl, species) for morn/day/nite],
-   water: [group, map, rate, 3 slots]; tables end 0xFF. Anchor on a
-   byte-exact block (e.g. Route 29) from pokecrystal, exactly like Gen 1.
-   WildModule's group list handles the time-of-day split naturally
-   ("Grass (morning)" etc.).
-2. **Gen 1/2 trainers** — pokered `data/trainers/parties.asm`: per-class
+1. **Gen 1/2 trainers** — pokered `data/trainers/parties.asm`: per-class
    lists, format `[level, mon..., 0]` or `[0xFF, lvl, mon, ..., 0]`.
    Variable length ⇒ same-size in-place edits first. GB has no pointer
    retargeting helper yet — GB banked 2-byte pointers need a GB variant
    of freespace/relocate if lists must grow.
-3. **Gen 3 TM/HM compatibility** — 8 bytes/species table; find via known
-   Bulbasaur bits or adjacency to discovered tables; UI already renders
-   flag grids (see gen1/gen2 tmhm fields).
-4. **Deeper decomp editing** — parse constant-expression fields
+2. **Deeper decomp editing** — parse constant-expression fields
    (`.types = MON_TYPES(...)`, `.abilities = {...}`) into dropdowns;
    enumerate options from `include/constants/*.h` of the opened tree.
-5. **Sprite viewing/import** — Gen 3 front sprites: LZ77 4bpp + palette;
+3. **Sprite viewing/import** — Gen 3 front sprites: LZ77 4bpp + palette;
    all primitives exist (`lz77.ts`, `tiles.ts`).
-6. **UPS/BPS patches** — needed for >16 MiB (DS) and nice for GBA.
+4. **Gen 4 text codec** (trainer/species names from the DS text banks)
+   and the Gen 5 full personal layout (verify against DSPRE source).
+5. **HGSS encounters** (different file format from D/P/Pt).
 
 ## Gen 4+ (DS) plan — feasible, phased
 

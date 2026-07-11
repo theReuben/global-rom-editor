@@ -12,7 +12,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Base stats, types, catch rate, EXP yield | ✅ | ✅ | ✅ | ✅ |
 | Pokémon renaming | ✅ | ✅ | ✅ | — |
 | Level curve (growth rate) | ✅ | ✅ | ✅ | ✅ Gen 4 |
-| TM/HM compatibility (checkbox grid) | ✅ | ✅ | 🔜 | ✅ Gen 4 |
+| TM/HM compatibility (checkbox grid) | ✅ | ✅ | ✅ | ✅ Gen 4 |
 | Starting moves | ✅ | — | 🔜 | — |
 | Wild held items, gender ratio, egg groups, hatch cycles | — | ✅ | ✅ | ✅ Gen 4 |
 | Abilities (named, read from the ROM) | — | — | ✅ | ✅ Gen 4 |

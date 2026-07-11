@@ -64,6 +64,34 @@ describe('Gen 3 learnsets', () => {
   })
 })
 
+describe('Gen 3 TM/HM compatibility', () => {
+  it('discovers the table and reads flags', () => {
+    const a = load()
+    const field = a.speciesFields.find((f) => f.key === 'tmhm')
+    expect(field).toBeDefined()
+    expect(field!.flagLabels![0]).toContain('TM01')
+    const flags = a.readSpecies(1).tmhm as boolean[]
+    expect(flags).toHaveLength(58)
+    expect(flags[5]).toBe(true) // TM06 Toxic
+    expect(flags[0]).toBe(false) // TM01 Focus Punch
+    expect(flags[50]).toBe(true) // HM01 Cut
+    expect(flags[51]).toBe(false) // HM02 Fly
+  })
+
+  it('writes and reverts flags', () => {
+    const a = load()
+    const flags = (a.readSpecies(1).tmhm as boolean[]).slice()
+    flags[0] = true
+    flags[5] = false
+    a.writeSpeciesField(1, 'tmhm', flags)
+    const after = a.readSpecies(1).tmhm as boolean[]
+    expect(after[0]).toBe(true)
+    expect(after[5]).toBe(false)
+    a.revertSpecies(1)
+    expect((a.readSpecies(1).tmhm as boolean[])[5]).toBe(true)
+  })
+})
+
 describe('Gen 3 type chart', () => {
   it('discovers and reads matchups', () => {
     const chart = load().typeChart!

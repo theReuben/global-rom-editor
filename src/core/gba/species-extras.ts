@@ -239,3 +239,66 @@ export function buildTypeChart(rom: Rom): { module: TypeChartModule; offset: num
   }
   return { module, offset }
 }
+
+/* ------------------------------------------------------ TM/HM learnsets */
+
+// gTMHMLearnsets: u64 bitfield per species (8 bytes, bit 0 = TM01 …
+// bit 49 = TM50, bit 50 = HM01 … bit 57 = HM08). Anchor bitfields are
+// computed from the pret decomp learnsets and are identical in Emerald
+// and FireRed. Bulbasaur and Ivysaur share a learnset, so Venusaur and
+// Charmander pin the alignment.
+const TMHM_BULBA = [32, 7, 53, 132, 8, 30, 228, 0]
+const TMHM_VENU = [48, 71, 53, 134, 8, 30, 228, 0]
+const TMHM_CHAR = [35, 6, 81, 204, 164, 30, 166, 0]
+// TM01-04: Focus Punch, Dragon Claw, Water Pulse, Calm Mind (u16 LE).
+const TM_MOVES_SIG = [8, 1, 81, 1, 96, 1, 91, 1]
+export const TMHM_BITS = 58
+
+export interface TmhmCompat {
+  offset: number
+  /** TM01..TM50,HM01..HM08 → move ids, when the list was found. */
+  tmMoves: number[] | null
+  read(id: number): boolean[]
+  write(id: number, flags: boolean[]): void
+  revert(id: number): void
+}
+
+export function buildTmhmCompat(rom: Rom): TmhmCompat | null {
+  const bytes = rom.bytes
+  const anchor = findVerified(bytes, TMHM_BULBA, [
+    { delta: 8, pattern: TMHM_BULBA }, // Ivysaur shares Bulbasaur's set
+    { delta: 16, pattern: TMHM_VENU },
+    { delta: 24, pattern: TMHM_CHAR },
+  ])
+  if (anchor === null) return null
+  const offset = anchor - 8 // entry 0 dummy
+
+  // The TM→move list appears more than once in some ROMs (identical
+  // copies), so take the first hit rather than requiring uniqueness.
+  let tmMoves: number[] | null = null
+  const tmHits = findAll(bytes, TM_MOVES_SIG, 4)
+  if (tmHits.length >= 1) {
+    tmMoves = []
+    for (let i = 0; i < TMHM_BITS; i++) tmMoves.push(rom.readU16LE(tmHits[0] + i * 2))
+  }
+
+  return {
+    offset,
+    tmMoves,
+    read(id) {
+      const o = offset + id * 8
+      return Array.from({ length: TMHM_BITS }, (_, i) => ((bytes[o + (i >> 3)] >> (i & 7)) & 1) === 1)
+    },
+    write(id, flags) {
+      const o = offset + id * 8
+      for (let b = 0; b < 8; b++) {
+        let v = 0
+        for (let bit = 0; bit < 8; bit++) if (flags[b * 8 + bit]) v |= 1 << bit
+        rom.writeU8(o + b, v)
+      }
+    },
+    revert(id) {
+      rom.revertRange(offset + id * 8, 8)
+    },
+  }
+}
