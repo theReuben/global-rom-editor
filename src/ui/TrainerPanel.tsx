@@ -96,6 +96,12 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
       />
       <div className="detail" key={selected}>
         <div className="detail-header">
+          {module.nameLength === 0 ? (
+            <div>
+              <h2 className="entry-title">{data.name}</h2>
+              <span className="name-hint">Trainer #{selected} · names live in the text banks (not editable yet)</span>
+            </div>
+          ) : (
           <div className="name-editor">
             <input
               className={`name-input ${nameError ? 'invalid' : ''}`}
@@ -115,6 +121,7 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
                 : `Trainer #${selected} · click to rename`}
             </span>
           </div>
+          )}
           <button className="ghost" onClick={() => { module.revert(selected); onEdit() }}>
             Revert this trainer
           </button>

@@ -22,8 +22,8 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Map viewer & block painting (scene editing) | 🔜 | 🔜 | ✅ | — |
 | Movement permission (collision) editing | — | — | ✅ | — |
 | NPC / warp / sign editing | 🔜 | 🔜 | ✅ | — |
-| Trainer editing (class, AI, items, full parties) | 🔜 | 🔜 | ✅ | — |
-| Wild encounter editing (time-of-day in Gen 2) | ✅ | ✅ | ✅ | 🔜 |
+| Trainer editing (class, AI, items, full parties) | 🔜 | 🔜 | ✅ | ✅ Gen 4 |
+| Wild encounter editing (time-of-day in Gen 2; grass/surf/rods in Gen 4) | ✅ | ✅ | ✅ | ✅ D/P/Pt |
 | Item names read from the ROM (dropdowns everywhere) | — | — | ✅ | — |
 | Map resizing (relocated into free space) | — | — | ✅ | — |
 | Brand-new maps (duplicate into a fresh bank slot) | — | — | ✅ | — |
@@ -31,8 +31,8 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Visual script builder (messages, Y/N questions, items, Pokémon, trainer battles, flags) | — | — | ✅ | — |
 | Decomp project editing (species stats, experimental) | — | — | ✅ | — |
 | Save edited ROM with fixed checksums | ✅ | ✅ | ✅ | ✅ |
-| Export edits as an IPS patch | ✅ | ✅ | ✅ | — |
-| Apply community IPS patches | ✅ | ✅ | ✅ | — |
+| Export edits as an IPS or UPS patch | ✅ | ✅ | ✅ | ✅ UPS |
+| Apply community IPS / UPS patches | ✅ | ✅ | ✅ | ✅ |
 
 Everything runs **entirely client-side** — ROMs never leave the user's device.
 The editor is an installable PWA: after the first visit it works fully

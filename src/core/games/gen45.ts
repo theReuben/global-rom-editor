@@ -11,10 +11,18 @@
  * editable there until verified further (see docs/HANDOFF.md).
  */
 import { Rom } from '../rom'
-import { isNdsRom, parseNdsHeader, listNdsFiles, findNdsFile, parseNarc } from '../nds/nds'
+import { isNdsRom, parseNdsHeader, listNdsFiles, findNdsFile, parseNarc, type NarcSubfile } from '../nds/nds'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
 import { NATDEX_NAMES, NATDEX_ABILITIES } from './natdex-names'
-import type { EntryHandle, FieldSpec, FieldValue, GameAdapter, SelectOption } from './schema'
+import type {
+  EntryHandle,
+  FieldSpec,
+  FieldValue,
+  GameAdapter,
+  SelectOption,
+  TrainerModule,
+  WildModule,
+} from './schema'
 
 const GEN4_ENTRY = 44
 
@@ -67,6 +75,193 @@ const EV_STATS: [string, number][] = [
   ['evSat', 4],
   ['evSdf', 5],
 ]
+
+
+/* --------------------------------------------------- trainers (Gen 4) */
+
+// TrainerHeader (trdata.narc, one subfile per trainer), verified against
+// pret/pokeplatinum struct_defs/trainer_data.h:
+//   monDataType u8, class u8, sprite u8, partySize u8,
+//   items u16[4], aiMask u32, battleType u32   (20 bytes)
+// Party entries (trpoke.narc): ivScale u16, level u16, species u16
+// [, item u16][, moves u16[4]], cbSeal u16 — 8/10/16/18 bytes by type.
+const TR_ENTRY_SIZES = [8, 16, 10, 18]
+
+export function buildGen4Trainers(
+  rom: Rom,
+  trdata: NarcSubfile[],
+  trpoke: NarcSubfile[],
+): TrainerModule {
+  const bytes = rom.bytes
+  const count = Math.min(trdata.length, trpoke.length)
+  const entries: EntryHandle[] = []
+  for (let i = 0; i < count; i++) {
+    const name = `Trainer #${i}`
+    entries.push({ id: i, label: `#${String(i).padStart(3, '0')} ${name} · class ${bytes[trdata[i].offset + 1]}`, name })
+  }
+
+  const header = (id: number) => trdata[id].offset
+  const partyInfo = (id: number) => {
+    const type = bytes[header(id)] & 3
+    return {
+      type,
+      entSize: TR_ENTRY_SIZES[type],
+      size: bytes[header(id) + 3],
+      off: trpoke[id].offset,
+      capacity: trpoke[id].length,
+    }
+  }
+
+  return {
+    entries,
+    nameLength: 0, // trainer names live in the encrypted text banks
+    classOptions: null,
+    setName: () => false,
+
+    read(id) {
+      const o = header(id)
+      const { size, entSize, capacity } = partyInfo(id)
+      return {
+        name: entries[id].name,
+        trainerClass: bytes[o + 1],
+        pic: bytes[o + 2],
+        music: 0,
+        gender: 0,
+        doubleBattle: rom.readU16LE(o + 16) !== 0 ? 1 : 0,
+        aiFlags: (rom.readU16LE(o + 12) | (rom.readU16LE(o + 14) << 16)) >>> 0,
+        items: [0, 1, 2, 3].map((i) => rom.readU16LE(o + 4 + i * 2)),
+        partySize: size,
+        maxPartySize: Math.min(6, Math.floor(capacity / entSize)),
+      }
+    },
+
+    write(id, field, value) {
+      const o = header(id)
+      if (field === 'trainerClass') rom.writeU8(o + 1, value)
+      else if (field === 'pic') rom.writeU8(o + 2, value)
+      else if (field === 'doubleBattle') {
+        rom.writeU16LE(o + 16, value ? 2 : 0)
+        rom.writeU16LE(o + 18, 0)
+      } else if (field === 'aiFlags') {
+        rom.writeU16LE(o + 12, value & 0xffff)
+        rom.writeU16LE(o + 14, (value >>> 16) & 0xffff)
+      } else if (field === 'partySize') {
+        const max = Math.min(6, Math.floor(partyInfo(id).capacity / partyInfo(id).entSize))
+        rom.writeU8(o + 3, Math.max(1, Math.min(max, value)))
+      }
+    },
+
+    setItem(id, slot, item) {
+      if (slot >= 0 && slot < 4) rom.writeU16LE(header(id) + 4 + slot * 2, item)
+    },
+
+    party(id) {
+      const { type, entSize, size, off } = partyInfo(id)
+      const out = []
+      for (let i = 0; i < size; i++) {
+        const o = off + i * entSize
+        const hasItem = (type & 2) === 2
+        const hasMoves = (type & 1) === 1
+        out.push({
+          iv: rom.readU16LE(o),
+          level: rom.readU16LE(o + 2),
+          species: rom.readU16LE(o + 4) & 0x3ff, // upper bits = form
+          item: hasItem ? rom.readU16LE(o + 6) : null,
+          moves: hasMoves ? [0, 1, 2, 3].map((m) => rom.readU16LE(o + (hasItem ? 8 : 6) + m * 2)) : null,
+        })
+      }
+      return out
+    },
+
+    writePartyField(id, slot, field, value) {
+      const { type, entSize, size, off } = partyInfo(id)
+      if (slot < 0 || slot >= size) return
+      const o = off + slot * entSize
+      if (field === 'iv') rom.writeU16LE(o, Math.min(255, value))
+      else if (field === 'level') rom.writeU16LE(o + 2, value)
+      else if (field === 'species') {
+        const form = rom.readU16LE(o + 4) & 0xfc00
+        rom.writeU16LE(o + 4, form | (value & 0x3ff))
+      } else if (field === 'item' && (type & 2) === 2) rom.writeU16LE(o + 6, value)
+      else if (field.startsWith('move') && (type & 1) === 1) {
+        const m = Number(field.slice(4))
+        if (m >= 0 && m < 4) rom.writeU16LE(o + ((type & 2) === 2 ? 8 : 6) + m * 2, value)
+      }
+    },
+
+    revert(id) {
+      rom.revertRange(header(id), trdata[id].length)
+      rom.revertRange(trpoke[id].offset, trpoke[id].length)
+    },
+  }
+}
+
+/* ---------------------------------------------- wild encounters (Gen 4) */
+
+// WildEncounters (d/p/pl_enc_data.narc, 424 bytes per area), verified
+// against pret/pokeplatinum overlay006/wild_encounters.h. All ints LE.
+const ENC_FILE_SIZE = 424
+const ENC_GROUPS = [
+  { name: 'Grass', rateOff: 0, slotsOff: 4, slots: 12, grass: true },
+  { name: 'Surfing', rateOff: 204, slotsOff: 208, slots: 5, grass: false },
+  { name: 'Old Rod', rateOff: 292, slotsOff: 296, slots: 5, grass: false },
+  { name: 'Good Rod', rateOff: 336, slotsOff: 340, slots: 5, grass: false },
+  { name: 'Super Rod', rateOff: 380, slotsOff: 384, slots: 5, grass: false },
+]
+
+export function buildGen4Wild(rom: Rom, subs: NarcSubfile[]): WildModule | null {
+  const bytes = rom.bytes
+  const areas = subs.filter((s) => s.length === ENC_FILE_SIZE)
+  if (areas.length < 10) return null
+
+  const entries = areas.map((a) => ({ key: String(a.index), label: `Area #${a.index}` }))
+  const byKey = new Map(areas.map((a) => [String(a.index), a]))
+
+  const readI32 = (o: number) => (rom.readU16LE(o) | (rom.readU16LE(o + 2) << 16)) >>> 0
+  const groupList = (key: string) => {
+    const a = byKey.get(key)
+    if (!a) return []
+    return ENC_GROUPS.map((g) => ({ ...g, base: a.offset }))
+  }
+
+  return {
+    entries,
+    groups(key) {
+      return groupList(key).map((g) => ({
+        name: g.name,
+        rate: readI32(g.base + g.rateOff),
+        slots: Array.from({ length: g.slots }, (_, i) => {
+          const o = g.base + g.slotsOff + i * 8
+          return g.grass
+            ? { minLevel: bytes[o], maxLevel: bytes[o], species: readI32(o + 4) & 0xffff }
+            : { minLevel: bytes[o + 1], maxLevel: bytes[o], species: readI32(o + 4) & 0xffff }
+        }),
+      }))
+    },
+    setRate(key, group, rate) {
+      const g = groupList(key)[group]
+      if (!g) return
+      rom.writeU16LE(g.base + g.rateOff, rate & 0xffff)
+      rom.writeU16LE(g.base + g.rateOff + 2, 0)
+    },
+    setSlot(key, group, slot, field, value) {
+      const g = groupList(key)[group]
+      if (!g || slot < 0 || slot >= g.slots) return
+      const o = g.base + g.slotsOff + slot * 8
+      if (field === 'species') {
+        rom.writeU16LE(o + 4, value & 0xffff)
+        rom.writeU16LE(o + 6, 0)
+      } else if (g.grass) {
+        rom.writeU8(o, value) // single level
+      } else if (field === 'minLevel') rom.writeU8(o + 1, value)
+      else if (field === 'maxLevel') rom.writeU8(o, value)
+    },
+    revert(key) {
+      const a = byKey.get(key)
+      if (a) rom.revertRange(a.offset, a.length)
+    },
+  }
+}
 
 export function tryBuildGen45(rom: Rom): GameAdapter | null {
   const bytes = rom.bytes
@@ -160,25 +355,55 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
 
   const base = (id: number) => personal![id].offset
 
+  // Trainers and encounters (Gen 4 only; HGSS encounters differ).
+  let trainerModule: TrainerModule | null = null
+  let wildModule: WildModule | null = null
+  const regions = [
+    {
+      name: `Personal data (${personalPath}, ${speciesCount} species)`,
+      offset: personal[0].offset,
+      length: personal.length * entrySize,
+    },
+  ]
+  if (fullLayout) {
+    const trd = findNdsFile(files, '/poketool/trainer/trdata.narc')
+    const trp = findNdsFile(files, '/poketool/trainer/trpoke.narc')
+    if (trd && trp) {
+      const dSubs = parseNarc(bytes, trd.start)
+      const pSubs = parseNarc(bytes, trp.start)
+      if (dSubs && pSubs && dSubs.length > 50) {
+        trainerModule = buildGen4Trainers(rom, dSubs, pSubs)
+        regions.push({ name: `Trainers (${trainerModule.entries.length})`, offset: trd.start, length: trd.end - trd.start })
+      }
+    }
+    const encPath = { CPU: '/fielddata/encountdata/pl_enc_data.narc', ADA: '/fielddata/encountdata/d_enc_data.narc', APA: '/fielddata/encountdata/p_enc_data.narc' }[header.gameCode.slice(0, 3)]
+    if (encPath) {
+      const enc = findNdsFile(files, encPath)
+      const encSubs = enc ? parseNarc(bytes, enc.start) : null
+      if (encSubs) {
+        wildModule = buildGen4Wild(rom, encSubs)
+        if (wildModule) {
+          regions.push({ name: `Wild encounters (${wildModule.entries.length} areas)`, offset: enc!.start, length: enc!.end - enc!.start })
+        }
+      }
+    }
+  }
+  if (!trainerModule) warnings.push('Trainer editing not available for this DS game yet.')
+  if (!wildModule) warnings.push('Wild encounter editing not available for this DS game yet (D/P/Platinum only so far).')
+
   return {
     gameName,
     platform: 'NDS',
     generation,
     rom,
-    regions: [
-      {
-        name: `Personal data (${personalPath}, ${speciesCount} species)`,
-        offset: personal[0].offset,
-        length: personal.length * entrySize,
-      },
-    ],
+    regions,
     warnings,
     species,
     speciesFields,
     typeOptions: generation === 5 ? GEN5_TYPES : GEN3_TYPES,
     mapModule: null,
-    trainerModule: null,
-    wildModule: null,
+    trainerModule,
+    wildModule,
     itemOptions: null,
     evolutions: null,
     learnsets: null,

@@ -357,7 +357,7 @@ function addMapData(rom: Uint8Array): void {
 
 /* ------------------------------------------------------------ Gen 4/5 */
 
-function buildNarc(subfiles: Uint8Array[]): Uint8Array {
+export function buildNarc(subfiles: Uint8Array[]): Uint8Array {
   const total = subfiles.reduce((s, f) => s + f.length, 0)
   const btafSize = 12 + subfiles.length * 8
   const narc = new Uint8Array(16 + btafSize + 16 + 8 + total)
