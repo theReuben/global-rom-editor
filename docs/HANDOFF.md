@@ -5,11 +5,14 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-109 tests green. Shipped and validated: Gen 1–3 Pokémon/move editing;
+114 tests green. Shipped and validated: Gen 1–3 Pokémon/move editing;
 Gen 3 trainers, wild encounters, maps (view/paint/resize/new-map),
 NPC/warp/sign editing, visual script builder, evolutions, learnsets,
-type chart, TM/HM compatibility; Gen 1 (R/B/Y) and Gen 2 (G/S/C,
-time-of-day) wild encounters; Gen 4 (D/P/Pt/HGSS) species editing and
+type chart, TM/HM compatibility; Gen 1 (R/B/Y) trainer parties
+(validated against Red + Yellow built from pokered/pokeyellow with
+rgbds — 391/396 trainers exact, edit + re-scan clean); Gen 1 and
+Gen 2 (G/S/C, time-of-day) wild encounters; Gen 4 (D/P/Pt/HGSS)
+species editing and
 D/P/Pt trainers + encounters via the NDS/NARC layer; Gen 5 stats-only;
 IPS + UPS patches; PWA offline; decomp backend editing species stats in
 pokeemerald / pokefirered / pokeemerald-expansion (1,364 species incl.
@@ -25,6 +28,18 @@ git clone --depth 1 https://github.com/pret/pokeemerald  <scratch>/pokeemerald
 cd <scratch>/pokeemerald && make -j$(nproc) modern   # ~5-10 min → .gba
 # same for pret/pokefirered
 npx tsx <a script that loads the .gba with buildAdapter and prints tables>
+```
+
+Game Boy (Gen 1/2) works the same way, but needs rgbds built from
+source — GitHub *release downloads* are blocked in this container while
+`git clone` works fine:
+
+```bash
+git clone --depth 1 --branch v1.0.0 https://github.com/gbdev/rgbds
+cd rgbds && make -j$(nproc)          # pokered master needs rgbds ≥ 1.0.0
+export PATH=$PWD:$PATH
+git clone --depth 1 https://github.com/pret/pokered   # and/or pokeyellow
+cd pokered && make -j$(nproc) red    # ~2 min → pokered.gbc (1 MiB)
 ```
 
 Expected on both: zero warnings; Emerald 411 species / 354 moves /
@@ -61,11 +76,26 @@ other.
 
 ## Remaining roadmap, with implementation notes
 
-1. **Gen 1/2 trainers** — pokered `data/trainers/parties.asm`: per-class
-   lists, format `[level, mon..., 0]` or `[0xFF, lvl, mon, ..., 0]`.
+1. **Gen 2 trainers** (Gen 1 shipped) — pokecrystal
+   `data/trainers/parties.asm`: per-class lists with a name + type byte
+   per trainer (formats TRAINERTYPE_NORMAL/MOVES/ITEM/ITEM_MOVES), so
+   unlike Gen 1 the lists carry names, items and custom moves.
    Variable length ⇒ same-size in-place edits first. GB has no pointer
    retargeting helper yet — GB banked 2-byte pointers need a GB variant
    of freespace/relocate if lists must grow.
+
+   Gen 1 facts (validated on built Red + Yellow ROMs): 47 classes,
+   pointer table (bank-local u16 per class) sits immediately before
+   YoungsterData; anchor = Youngster's first 3 lists, byte-identical in
+   R/B/Y. Because that anchor is a *real editable trainer*, discovery
+   has a structural fallback: entry 0 of the table points exactly 94
+   bytes past the table start (self-referencing), all 47 pointers
+   non-decreasing and each targeting 0xFF or a level ≤ 120 — this
+   re-finds the table after any party edit. Unused classes (12 Unused
+   Juggler, 26 Chief) alias the next class's pointer; the later class
+   owns the lists. Fixed-level lists share one level byte for the whole
+   party; level writes clamp to 1..120 so re-discovery never breaks.
+   Rival 1 #1's mon is version proof: Squirtle in Red, Eevee in Yellow.
 2. **Deeper decomp editing** — parse constant-expression fields
    (`.types = MON_TYPES(...)`, `.abilities = {...}`) into dropdowns;
    enumerate options from `include/constants/*.h` of the opened tree.

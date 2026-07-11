@@ -13,8 +13,16 @@ import { Rom } from '../rom'
 import { findAll, findVerified, matchesAt } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { GEN1_TYPES, GEN12_GROWTH, padDex } from './data'
-import { GEN1_MAP_NAMES } from './gen1-constants'
-import type { EntryHandle, FieldSpec, FieldValue, GameAdapter, TableRegion, WildModule } from './schema'
+import { GEN1_MAP_NAMES, GEN1_TRAINER_CLASSES } from './gen1-constants'
+import type {
+  EntryHandle,
+  FieldSpec,
+  FieldValue,
+  GameAdapter,
+  TableRegion,
+  TrainerModule,
+  WildModule,
+} from './schema'
 
 const STATS_ENTRY = 28
 const NAME_LEN = 10
@@ -158,6 +166,219 @@ function buildGen1Wild(
   return { module, offset: tableOff, count }
 }
 
+// The first three Youngster party lists — byte-identical in Red, Blue and
+// Yellow: "db 11, RATTATA, EKANS, 0 / db 14, SPEAROW, 0 /
+// db 10, RATTATA, RATTATA, ZUBAT, 0" (pokered data/trainers/parties.asm).
+const YOUNGSTER_LISTS = [11, 0xa5, 0x6c, 0, 14, 0x05, 0]
+const YOUNGSTER_VERIFY = [10, 0xa5, 0xa5, 0x6b, 0]
+const TRAINER_CLASS_COUNT = 47
+const MAX_LIST_LEVEL = 120
+const MAX_PARTY = 6
+
+interface Gen1TrainerRec {
+  classId: number
+  indexInClass: number
+  off: number
+  len: number
+  /** true = "$FF, level, mon, level, mon, 0"; false = "level, mon.., 0". */
+  special: boolean
+}
+
+/**
+ * Gen 1 trainer parties: 47 class pointers (bank-local u16) each leading
+ * to a run of null-terminated party lists. Scripts identify trainers by
+ * class + list number, so entries are labelled that way and lists are
+ * edited strictly in place.
+ */
+function buildGen1Trainers(
+  rom: Rom,
+  internalToDex: (internal: number) => number,
+  dexToInternalFn: (dex: number) => number,
+): { module: TrainerModule; offset: number; trainerCount: number } | null {
+  const bytes = rom.bytes
+  const toLocal = (off: number) => 0x4000 + (off % 0x4000)
+
+  // All 47 pointers plausible: bank-local, non-decreasing, and each
+  // pointing at a byte that can start a party list.
+  const validTableAt = (start: number): boolean => {
+    const bank = Math.floor(start / 0x4000)
+    let prev = 0x4000
+    for (let c = 0; c < TRAINER_CLASS_COUNT; c++) {
+      const v = rom.readU16LE(start + c * 2)
+      if (v < prev || v >= 0x8000) return false
+      const first = bytes[bank * 0x4000 + (v - 0x4000)]
+      if (first !== 0xff && first > MAX_LIST_LEVEL) return false
+      prev = v
+    }
+    return true
+  }
+
+  // Primary: the byte-exact Youngster anchor, with the pointer table
+  // immediately before it like the original games lay it out.
+  let tableOff: number | null = null
+  const anchor = findVerified(bytes, YOUNGSTER_LISTS, [{ delta: 7, pattern: YOUNGSTER_VERIFY }])
+  if (anchor !== null) {
+    const direct = anchor - TRAINER_CLASS_COUNT * 2
+    if (direct >= 0 && rom.readU16LE(direct) === toLocal(anchor) && validTableAt(direct)) {
+      tableOff = direct
+    } else {
+      // A hack moved the table: scan the anchor's bank for an entry 0
+      // that points at the anchor.
+      const bankStart = Math.floor(anchor / 0x4000) * 0x4000
+      for (let o = bankStart; o < bankStart + 0x4000 - TRAINER_CLASS_COUNT * 2; o++) {
+        if (rom.readU16LE(o) === toLocal(anchor) && validTableAt(o)) {
+          tableOff = o
+          break
+        }
+      }
+    }
+  }
+  // Fallback (survives edits to Youngster #1, which IS the anchor): the
+  // table is self-referencing — entry 0 points at the byte right after
+  // the 47 entries.
+  if (tableOff === null) {
+    for (let o = 0; o + TRAINER_CLASS_COUNT * 2 <= bytes.length; o += 1) {
+      if (rom.readU16LE(o) !== toLocal(o) + TRAINER_CLASS_COUNT * 2) continue
+      if (validTableAt(o)) {
+        tableOff = o
+        break
+      }
+    }
+  }
+  if (tableOff === null) return null
+  const bank = Math.floor(tableOff / 0x4000)
+  const toFile = (local: number) => bank * 0x4000 + (local - 0x4000)
+
+  const ptrs: number[] = []
+  for (let c = 0; c < TRAINER_CLASS_COUNT; c++) ptrs.push(rom.readU16LE(tableOff + c * 2))
+
+  // A class's lists run from its pointer to the next-higher pointer (the
+  // data is contiguous); the last class parses until a list looks wrong.
+  const parseClass = (c: number): Gen1TrainerRec[] => {
+    // Unused classes alias the next class's pointer (e.g. Chief →
+    // Scientist); the later class is the real owner of the lists.
+    for (let d = c + 1; d < TRAINER_CLASS_COUNT; d++) if (ptrs[d] === ptrs[c]) return []
+    let end = (bank + 1) * 0x4000
+    let nextLocal = Infinity
+    for (const p of ptrs) if (p > ptrs[c] && p < nextLocal) nextLocal = p
+    if (nextLocal !== Infinity) end = toFile(nextLocal)
+
+    const out: Gen1TrainerRec[] = []
+    let p = toFile(ptrs[c])
+    while (p < end && out.length < 200) {
+      const special = bytes[p] === 0xff
+      let q = p
+      let mons = 0
+      let ok = true
+      if (special) {
+        q++
+        while (bytes[q] !== 0) {
+          const lvl = bytes[q]
+          const sp = bytes[q + 1]
+          if (lvl < 1 || lvl > MAX_LIST_LEVEL || sp < 1 || sp > INTERNAL_COUNT || mons >= MAX_PARTY) {
+            ok = false
+            break
+          }
+          q += 2
+          mons++
+        }
+      } else {
+        if (bytes[p] < 1 || bytes[p] > MAX_LIST_LEVEL) ok = false
+        q++
+        while (ok && bytes[q] !== 0) {
+          const sp = bytes[q]
+          if (sp < 1 || sp > INTERNAL_COUNT || mons >= MAX_PARTY) {
+            ok = false
+            break
+          }
+          q++
+          mons++
+        }
+      }
+      if (!ok || mons === 0) break
+      out.push({ classId: c, indexInClass: out.length, off: p, len: q + 1 - p, special })
+      p = q + 1
+    }
+    return out
+  }
+
+  const trainers: Gen1TrainerRec[] = []
+  for (let c = 0; c < TRAINER_CLASS_COUNT; c++) trainers.push(...parseClass(c))
+  if (trainers.length === 0) return null
+
+  // Byte offsets for each mon's level and species (levelOff is shared by
+  // the whole party in the fixed-level format).
+  const partyOf = (t: Gen1TrainerRec) => {
+    const out: { level: number; internal: number; levelOff: number; speciesOff: number }[] = []
+    if (t.special) {
+      for (let q = t.off + 1; bytes[q] !== 0; q += 2)
+        out.push({ level: bytes[q], internal: bytes[q + 1], levelOff: q, speciesOff: q + 1 })
+    } else {
+      for (let q = t.off + 1; bytes[q] !== 0; q++)
+        out.push({ level: bytes[t.off], internal: bytes[q], levelOff: t.off, speciesOff: q })
+    }
+    return out
+  }
+
+  const entries: EntryHandle[] = trainers.map((t, i) => {
+    const cls = GEN1_TRAINER_CLASSES[t.classId] ?? `Class ${t.classId}`
+    const name = `${cls} #${t.indexInClass + 1}`
+    return { id: i, label: name, name }
+  })
+
+  const module: TrainerModule = {
+    entries,
+    nameLength: 0,
+    nameHint: 'Gen 1 identifies trainers by class + number — scripts reference this pair, so it can\'t be renamed.',
+    features: { identity: false, ai: false, items: false, partySize: false },
+    classOptions: GEN1_TRAINER_CLASSES.map((label, value) => ({ value, label })),
+    read(id) {
+      const t = trainers[id]
+      const size = partyOf(t).length
+      return {
+        name: entries[id].name,
+        trainerClass: t.classId,
+        pic: 0,
+        music: 0,
+        gender: 0,
+        doubleBattle: 0,
+        aiFlags: 0,
+        items: [],
+        partySize: size,
+        maxPartySize: size,
+      }
+    },
+    write() {},
+    setName: () => false,
+    setItem() {},
+    party(id) {
+      return partyOf(trainers[id]).map((m) => ({
+        species: internalToDex(m.internal),
+        level: m.level,
+        iv: null,
+        item: null,
+        moves: null,
+      }))
+    },
+    writePartyField(id, slot, field, value) {
+      const m = partyOf(trainers[id])[slot]
+      if (!m) return
+      // Level 0 would read as the list terminator, and anything above
+      // MAX_LIST_LEVEL would break re-discovery of the table on reload.
+      if (field === 'level') rom.writeU8(m.levelOff, Math.max(1, Math.min(MAX_LIST_LEVEL, value)))
+      else if (field === 'species') {
+        const internal = dexToInternalFn(value)
+        if (internal > 0) rom.writeU8(m.speciesOff, internal)
+      }
+    },
+    revert(id) {
+      const t = trainers[id]
+      rom.revertRange(t.off, t.len)
+    },
+  }
+  return { module, offset: tableOff, trainerCount: trainers.length }
+}
+
 export function tryBuildGen1(rom: Rom, gameName: string, platform: string): GameAdapter | null {
   const bytes = rom.bytes
   const statsOff = findVerified(bytes, BULBASAUR, [{ delta: STATS_ENTRY, pattern: IVYSAUR }])
@@ -235,6 +456,23 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
     regions.push({ name: `Wild encounters (${wild.module.entries.length} maps)`, offset: wild.offset, length: wild.count * 2 })
   } else {
     warnings.push("Couldn't locate wild encounter data — wild editing disabled for this ROM.")
+  }
+
+  // Trainer parties.
+  const trainers = buildGen1Trainers(
+    rom,
+    (internal) =>
+      mapOff !== null && internal >= 1 && internal <= INTERNAL_COUNT ? bytes[mapOff + internal - 1] : 0,
+    (dex) => dexToInternal.get(dex) ?? 0,
+  )
+  if (trainers) {
+    regions.push({
+      name: `Trainer parties (${trainers.trainerCount} trainers, ${TRAINER_CLASS_COUNT} classes)`,
+      offset: trainers.offset,
+      length: TRAINER_CLASS_COUNT * 2,
+    })
+  } else {
+    warnings.push("Couldn't locate trainer party data — trainer editing disabled for this ROM.")
   }
 
   regions.push({ name: 'Base stats', offset: statsOff, length: 150 * STATS_ENTRY })
@@ -318,8 +556,8 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
     species,
     speciesFields,
     typeOptions: GEN1_TYPES,
-    mapModule: null, // Gen 1 map/trainer editing: on the roadmap
-    trainerModule: null,
+    mapModule: null, // Gen 1 map editing: on the roadmap
+    trainerModule: trainers?.module ?? null,
     wildModule: wild?.module ?? null,
     itemOptions: null,
     speciesSprite: null,

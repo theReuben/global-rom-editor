@@ -108,12 +108,21 @@ export interface GameAdapter {
 export interface PartyMon {
   species: number
   level: number
-  /** IV strength 0-255 (scales all IVs). */
-  iv: number
+  /** IV strength 0-255 (scales all IVs); null when the game has none. */
+  iv: number | null
   /** Held item id; null when this trainer's party has no item slots. */
   item: number | null
   /** Four move ids; null when the party uses default level-up moves. */
   moves: number[] | null
+}
+
+/** Which trainer sections the UI should show; missing keys default to true. */
+export interface TrainerFeatures {
+  /** Class / sprite / gender / music / battle-type fields. */
+  identity?: boolean
+  ai?: boolean
+  items?: boolean
+  partySize?: boolean
 }
 
 export interface TrainerData {
@@ -133,6 +142,10 @@ export interface TrainerData {
 export interface TrainerModule {
   entries: EntryHandle[]
   nameLength: number
+  /** Shown instead of the name editor when nameLength is 0. */
+  nameHint?: string
+  /** Section visibility for the UI; omitted = show everything. */
+  features?: TrainerFeatures
   /** Class id → name, when class names could be read from the ROM. */
   classOptions: SelectOption[] | null
   read(id: number): TrainerData

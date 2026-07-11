@@ -130,6 +130,76 @@ describe('Gen 1 wild encounters', () => {
   })
 })
 
+describe('Gen 1 trainer parties', () => {
+  const loadGen1 = () => buildAdapter(new Rom('red.gb', makeGen1Rom())).adapter!
+
+  it('discovers the class pointer table via the Youngster anchor', () => {
+    const t = loadGen1().trainerModule!
+    expect(t).not.toBeNull()
+    // 3 Youngsters + 1 Bug Catcher + 1 Lass; classes 3+ are empty.
+    expect(t.entries).toHaveLength(5)
+    expect(t.entries[0].name).toBe('Youngster #1')
+    expect(t.entries[3].name).toBe('Bug Catcher #1')
+    expect(t.entries[4].name).toBe('Lass #1')
+    expect(t.classOptions![24].label).toBe('Rival 1')
+    expect(t.features).toMatchObject({ identity: false, items: false })
+  })
+
+  it('reads both party list formats with dex-translated species', () => {
+    const t = loadGen1().trainerModule!
+    // Special format: per-mon levels.
+    const special = t.party(3)
+    expect(special).toHaveLength(2)
+    expect(special[0]).toMatchObject({ species: 1, level: 5, iv: null, item: null, moves: null })
+    expect(special[1]).toMatchObject({ species: 2, level: 7 })
+    // Fixed format: one shared level for the whole party.
+    const fixed = t.party(4)
+    expect(fixed).toHaveLength(2)
+    expect(fixed[0]).toMatchObject({ species: 1, level: 20 })
+    expect(fixed[1]).toMatchObject({ species: 1, level: 20 })
+    expect(t.read(4).partySize).toBe(2)
+    expect(t.read(4).maxPartySize).toBe(2) // lists can't grow in place
+  })
+
+  it('edits species and levels in place and reverts', () => {
+    const a = loadGen1()
+    const t = a.trainerModule!
+    t.writePartyField(3, 1, 'species', 1) // dex 1 -> internal 10
+    t.writePartyField(3, 0, 'level', 9)
+    expect(t.party(3)[1].species).toBe(1)
+    expect(t.party(3)[0].level).toBe(9)
+    // Fixed format: the level byte is shared by every slot.
+    t.writePartyField(4, 1, 'level', 33)
+    expect(t.party(4)[0].level).toBe(33)
+    // Level 0 would terminate the list, so it clamps to 1.
+    t.writePartyField(3, 0, 'level', 0)
+    expect(t.party(3)[0].level).toBe(1)
+    t.revert(3)
+    t.revert(4)
+    expect(t.party(3)[1].species).toBe(2)
+    expect(t.party(3)[0].level).toBe(5)
+    expect(t.party(4)[0].level).toBe(20)
+    expect(a.rom.changedByteCount).toBe(0)
+  })
+
+  it('re-discovers the table after the anchor trainer itself is edited', () => {
+    const a = loadGen1()
+    const t = a.trainerModule!
+    // Youngster #1 IS the discovery anchor — clobber its whole party.
+    t.writePartyField(0, 0, 'species', 1)
+    t.writePartyField(0, 1, 'species', 2)
+    t.writePartyField(0, 0, 'level', 99)
+    // Reload from the edited bytes: the self-referencing pointer-table
+    // fallback must still find everything.
+    const re = buildAdapter(new Rom('red.gb', a.rom.bytes)).adapter!
+    const rt = re.trainerModule!
+    expect(rt).not.toBeNull()
+    expect(rt.entries).toHaveLength(5)
+    expect(rt.party(0)[0]).toMatchObject({ species: 1, level: 99 })
+    expect(rt.party(3)[0]).toMatchObject({ species: 1, level: 5 })
+  })
+})
+
 describe('Gen 3 wild encounters', () => {
   it('discovers encounter tables cross-checked against maps', () => {
     const w = load().wildModule!

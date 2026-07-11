@@ -85,6 +85,24 @@ export function makeGen1Rom(): Uint8Array {
   put(rom, wildTable + 24, [0x10, 0x55]) // Route 1
   put(rom, wildTable + 26, [0x30, 0x55]) // map 13
   // next u16 is 0x0000 → out of pointer range → table ends (count 14)
+
+  // Trainer parties: 47-entry pointer table immediately before the lists,
+  // like the real games.
+  const trTable = 0xe5000
+  const trLocal = (off: number) => 0x4000 + (off % 0x4000)
+  const trPtr = (off: number) => [trLocal(off) & 0xff, trLocal(off) >> 8]
+  const youngster = trTable + 47 * 2
+  // Class 0 (Youngster): the three anchor lists (fixed-level format).
+  put(rom, youngster, [11, 0xa5, 0x6c, 0, 14, 0x05, 0, 10, 0xa5, 0xa5, 0x6b, 0])
+  // Class 1: special format — Bulbasaur (internal 10) lv 5, Ivysaur (internal 9) lv 7.
+  const cls1 = youngster + 12
+  put(rom, cls1, [0xff, 5, 10, 7, 9, 0])
+  // Class 2: fixed format — two Bulbasaur at a shared level 20.
+  const cls2 = cls1 + 6
+  put(rom, cls2, [20, 10, 10, 0])
+  const trEnd = cls2 + 4 // 0x00 here ⇒ classes 3+ have no trainers
+  put(rom, trTable, [...trPtr(youngster), ...trPtr(cls1), ...trPtr(cls2)])
+  for (let c = 3; c < 47; c++) put(rom, trTable + c * 2, trPtr(trEnd))
   return rom
 }
 

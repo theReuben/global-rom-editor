@@ -68,6 +68,7 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
   const [selected, setSelected] = useState(module.entries.find((e) => e.name.trim())?.id ?? 0)
   const [nameError, setNameError] = useState(false)
 
+  const feat = { identity: true, ai: true, items: true, partySize: true, ...module.features }
   const data = module.read(selected)
   const party = module.party(selected)
   const speciesOptions = adapter.species.map((s) => ({ value: s.id, label: s.name }))
@@ -99,7 +100,9 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
           {module.nameLength === 0 ? (
             <div>
               <h2 className="entry-title">{data.name}</h2>
-              <span className="name-hint">Trainer #{selected} · names live in the text banks (not editable yet)</span>
+              <span className="name-hint">
+                {module.nameHint ?? `Trainer #${selected} · names live in the text banks (not editable yet)`}
+              </span>
             </div>
           ) : (
           <div className="name-editor">
@@ -127,8 +130,10 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
           </button>
         </div>
 
+        {(feat.identity || feat.ai || feat.items) && (
         <section className="card">
           <h3>Trainer</h3>
+          {feat.identity && (
           <div className="field-grid">
             {module.classOptions ? (
               <Options label="Class" value={data.trainerClass} options={module.classOptions} onChange={(v) => write('trainerClass', v)} />
@@ -150,6 +155,9 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
               onChange={(v) => write('doubleBattle', v)}
             />
           </div>
+          )}
+          {feat.ai && (
+          <>
           <h4>Battle AI</h4>
           <div className="flags-grid">
             {GEN3_AI_FLAG_LABELS.map((label, bit) => (
@@ -166,6 +174,10 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
               </label>
             ))}
           </div>
+          </>
+          )}
+          {feat.items && (
+          <>
           <h4>Battle items</h4>
           <div className="field-grid">
             {data.items.map((item, i) =>
@@ -178,20 +190,25 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
               ),
             )}
           </div>
+          </>
+          )}
         </section>
+        )}
 
         <section className="card">
           <h3>
             Party
             <span className="bst">
-              {data.partySize} of max {data.maxPartySize} Pokémon
+              {feat.partySize ? `${data.partySize} of max ${data.maxPartySize}` : data.partySize} Pokémon
             </span>
           </h3>
+          {feat.partySize && (
           <div className="field-grid" style={{ marginBottom: 12 }}>
             <Num label="Party size" value={data.partySize} min={1} max={data.maxPartySize}
               onChange={(v) => write('partySize', v)}
               help="Can't grow beyond the space the game originally reserved." />
           </div>
+          )}
           <div className="party-grid">
             {party.map((mon, i) => (
               <div className="event-card" key={i}>
@@ -199,7 +216,9 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
                 <Options label="Pokémon" value={mon.species} options={speciesOptions}
                   onChange={(v) => writeParty(i, 'species', v)} />
                 <Num label="Level" value={mon.level} min={1} max={100} onChange={(v) => writeParty(i, 'level', v)} />
-                <Num label="IV strength" value={mon.iv} min={0} max={255} onChange={(v) => writeParty(i, 'iv', v)} />
+                {mon.iv !== null && (
+                  <Num label="IV strength" value={mon.iv} min={0} max={255} onChange={(v) => writeParty(i, 'iv', v)} />
+                )}
                 {mon.item !== null &&
                   (itemOptions.length > 0 ? (
                     <Options label="Held item" value={mon.item} options={itemOptions} onChange={(v) => writeParty(i, 'item', v)} />
