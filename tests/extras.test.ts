@@ -93,13 +93,35 @@ describe('Gen 3 TM/HM compatibility', () => {
 })
 
 describe('Gen 3 sprites', () => {
-  it('discovers the self-tagged sprite tables and renders', () => {
+  it('discovers the self-tagged sprite tables and renders front + back', () => {
     const a = load()
     expect(a.speciesSprite).not.toBeNull()
     const img = a.speciesSprite!(1)!
     expect(img.width).toBe(64)
     expect(img.height).toBe(64)
     expect([img.pixels[0], img.pixels[1], img.pixels[2], img.pixels[3]]).toEqual([255, 0, 0, 255])
+    // Both tables are single-frame here, so ROM order decides: the
+    // second table is the back (green in the fixture).
+    expect(a.speciesSpriteBack).not.toBeNull()
+    const back = a.speciesSpriteBack!(1)!
+    expect([back.pixels[0], back.pixels[1], back.pixels[2]]).toEqual([0, 255, 0])
+  })
+
+  it('imports a back sprite independently of the front', () => {
+    const a = load()
+    expect(a.importSpeciesSpriteBack).not.toBeNull()
+    const pixels = new Uint8ClampedArray(64 * 64 * 4)
+    for (let p = 0; p < 64 * 64; p++) {
+      pixels[p * 4 + 2] = 255 // solid blue
+      pixels[p * 4 + 3] = 255
+    }
+    // Solid color: every pixel maps to the transparent background slot.
+    expect(a.importSpeciesSpriteBack!(1, { pixels, width: 64, height: 64 })).toBeNull()
+    const back = a.speciesSpriteBack!(1)!
+    expect(back.pixels[3]).toBe(0) // slot 0 renders transparent
+    // A fresh scan still classifies both tables.
+    const re = buildAdapter(new Rom('firered.gba', a.rom.bytes)).adapter!
+    expect(re.speciesSpriteBack).not.toBeNull()
   })
 
   const testImage = () => {

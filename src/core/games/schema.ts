@@ -101,12 +101,16 @@ export interface GameAdapter {
   itemOptions: SelectOption[] | null
   /** Front sprite renderer, when the sprite tables were found. */
   speciesSprite: ((id: number) => RenderedImage | null) | null
+  /** Back sprite renderer (null = table not found for this game). */
+  speciesSpriteBack: ((id: number) => RenderedImage | null) | null
   /**
    * Replace a species' front sprite (64×64, ≤16 colors). Returns an
    * error message or null on success. Null when importing isn't
-   * supported for this game.
+   * supported for this game. Front and back share one palette, so the
+   * most recent import defines the colors for both.
    */
   importSpeciesSprite: ((id: number, image: RenderedImage) => string | null) | null
+  importSpeciesSpriteBack: ((id: number, image: RenderedImage) => string | null) | null
 }
 
 /* -------------------------------------------------------------- trainers */

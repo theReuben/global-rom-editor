@@ -5,7 +5,9 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-128 tests green. Decomp projects now edit types, abilities (incl.
+129 tests green. Back sprites now display and import next to fronts;
+this also fixed Emerald showing BACK pics as front (its back table
+precedes the front table in ROM, unlike R/S/FRLG). Decomp projects now edit types, abilities (incl.
 hidden), egg groups, level curve and wild items as dropdowns —
 options enumerated from the opened tree's own headers (#define and
 expansion enum styles), edits stay one-line diffs; validated against
@@ -133,8 +135,15 @@ other.
    LZ77-compress, write in place when it fits or relocate to end-of-ROM
    padding with the pic/palette table pointers retargeted; the frame is
    repeated to preserve the original decompressed size (animated mons
-   store two frames). Remaining: back sprites, Gen 1/2 sprites (2bpp +
-   Gen 1's custom RLE — different problem), DS sprites.
+   store two frames). Back sprites: SHIPPED (same pipeline). Front/back
+   classification, verified against .map symbols of built Emerald +
+   FireRed and pokeruby's mon_attrs.s: a table whose gfx decompresses
+   to 0x1000 (two frames) is Emerald's FRONT; when both are 0x800
+   (R/S/FRLG) the first table in ROM order is front — Emerald is the
+   only game with back before front. Front and back share one palette
+   (gMonPaletteTable), so whichever sprite was imported last defines
+   the colors of both. Remaining: shiny palettes (second palette
+   table), Gen 1/2 sprites (2bpp + Gen 1's custom RLE), DS sprites.
 4. **Gen 4 text codec: SHIPPED (read-only).** `src/core/nds/msgdata.ts`
    decodes msg banks: u16 count + u16 key header; per-entry
    {u32 offset,u32 length} XORed with `key*765*(n+1) & 0xFFFF`

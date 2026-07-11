@@ -282,17 +282,25 @@ function addSpeciesExtras(rom: Uint8Array): void {
   put(rom, 0x3d5300, u16s(264, 337, 352, 347, 46))
 
   // Sprite tables: 210 self-tagged entries sharing one LZ77 gfx/palette.
+  // Front table first, back second (the FRLG/R-S ordering); back gfx
+  // uses palette color 2 so tests can tell the two apart.
   const gfx = 0x3d6000
   const tiles = new Uint8Array(0x800).fill(0x11) // all pixels = color 1
   put(rom, gfx, lz77Compress(tiles))
+  const backGfx = 0x3d6800
+  put(rom, backGfx, lz77Compress(new Uint8Array(0x800).fill(0x22))) // color 2
   const pal = 0x3d7000
   const palData = new Uint8Array(32)
   palData[2] = 0x1f // color 1 = red
+  palData[4] = 0xe0 // color 2 = pure green (0x03E0 in BGR555)
+  palData[5] = 0x03
   put(rom, pal, lz77Compress(palData))
   const picTable = 0x3d8000
+  const backTable = 0x3d9000
   const palTable = 0x3da000
   for (let i = 0; i < 210; i++) {
     put(rom, picTable + i * 8, [...ptr(gfx), ...u16s(0x800, i)])
+    put(rom, backTable + i * 8, [...ptr(backGfx), ...u16s(0x800, i)])
     put(rom, palTable + i * 8, [...ptr(pal), ...u16s(i, 0)])
   }
 }

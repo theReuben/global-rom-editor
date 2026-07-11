@@ -4,13 +4,23 @@ import { EntryList } from './EntryList'
 import { FieldEditor } from './FieldEditor'
 import { EvolutionCard, LearnsetCard } from './SpeciesExtras'
 
-function SpriteView({ adapter, id, onEdit }: { adapter: GameAdapter; id: number; onEdit: () => void }) {
+function OneSprite({
+  render,
+  importSprite,
+  label,
+  onEdit,
+}: {
+  render: () => ReturnType<NonNullable<GameAdapter['speciesSprite']>>
+  importSprite: ((image: { pixels: Uint8ClampedArray; width: number; height: number }) => string | null) | null
+  label: string
+  onEdit: () => void
+}) {
   const ref = useRef<HTMLCanvasElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
   useEffect(() => {
-    const img = adapter.speciesSprite?.(id)
+    const img = render()
     const canvas = ref.current
     if (!canvas) return
     if (!img) {
@@ -20,8 +30,7 @@ function SpriteView({ adapter, id, onEdit }: { adapter: GameAdapter; id: number;
     canvas.width = img.width
     canvas.height = img.height
     canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.pixels), img.width, img.height), 0, 0)
-  }, [adapter, id, version])
-  if (!adapter.speciesSprite) return null
+  }, [render, version])
 
   const importFile = async (file: File) => {
     try {
@@ -32,11 +41,7 @@ function SpriteView({ adapter, id, onEdit }: { adapter: GameAdapter; id: number;
       const ctx = canvas.getContext('2d')!
       ctx.drawImage(bitmap, 0, 0)
       const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
-      const result = adapter.importSpeciesSprite!(id, {
-        pixels: data.data,
-        width: data.width,
-        height: data.height,
-      })
+      const result = importSprite!({ pixels: data.data, width: data.width, height: data.height })
       setError(result)
       if (!result) {
         setVersion((v) => v + 1)
@@ -49,11 +54,11 @@ function SpriteView({ adapter, id, onEdit }: { adapter: GameAdapter; id: number;
 
   return (
     <div className="sprite-view">
-      <canvas ref={ref} className="mon-sprite" />
-      {adapter.importSpeciesSprite && (
+      <canvas ref={ref} className="mon-sprite" title={label} />
+      {importSprite && (
         <>
           <button className="ghost sprite-import" onClick={() => fileRef.current?.click()}>
-            Import sprite…
+            Import {label}…
           </button>
           <input
             ref={fileRef}
@@ -70,6 +75,32 @@ function SpriteView({ adapter, id, onEdit }: { adapter: GameAdapter; id: number;
         </>
       )}
     </div>
+  )
+}
+
+function SpriteView({ adapter, id, onEdit }: { adapter: GameAdapter; id: number; onEdit: () => void }) {
+  if (!adapter.speciesSprite) return null
+  return (
+    <>
+      <OneSprite
+        key={`f${id}`}
+        label="front"
+        render={() => adapter.speciesSprite!(id)}
+        importSprite={adapter.importSpeciesSprite ? (img) => adapter.importSpeciesSprite!(id, img) : null}
+        onEdit={onEdit}
+      />
+      {adapter.speciesSpriteBack && (
+        <OneSprite
+          key={`b${id}`}
+          label="back"
+          render={() => adapter.speciesSpriteBack!(id)}
+          importSprite={
+            adapter.importSpeciesSpriteBack ? (img) => adapter.importSpeciesSpriteBack!(id, img) : null
+          }
+          onEdit={onEdit}
+        />
+      )}
+    </>
   )
 }
 
