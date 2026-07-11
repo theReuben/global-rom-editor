@@ -5,14 +5,16 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-114 tests green. Shipped and validated: Gen 1–3 Pokémon/move editing;
+118 tests green. Shipped and validated: Gen 1–3 Pokémon/move editing;
 Gen 3 trainers, wild encounters, maps (view/paint/resize/new-map),
 NPC/warp/sign editing, visual script builder, evolutions, learnsets,
 type chart, TM/HM compatibility; Gen 1 (R/B/Y) trainer parties
 (validated against Red + Yellow built from pokered/pokeyellow with
-rgbds — 391/396 trainers exact, edit + re-scan clean); Gen 1 and
-Gen 2 (G/S/C, time-of-day) wild encounters; Gen 4 (D/P/Pt/HGSS)
-species editing and
+rgbds — 391/396 trainers exact, edit + re-scan clean); Gen 2 (G/S/C)
+trainer parties incl. names, held items and custom moves (validated
+against built Gold 495/66-class and Crystal 541/67-class — counts
+derived, never assumed); Gen 1 and Gen 2 (G/S/C, time-of-day) wild
+encounters; Gen 4 (D/P/Pt/HGSS) species editing and
 D/P/Pt trainers + encounters via the NDS/NARC layer; Gen 5 stats-only;
 IPS + UPS patches; PWA offline; decomp backend editing species stats in
 pokeemerald / pokefirered / pokeemerald-expansion (1,364 species incl.
@@ -76,13 +78,24 @@ other.
 
 ## Remaining roadmap, with implementation notes
 
-1. **Gen 2 trainers** (Gen 1 shipped) — pokecrystal
-   `data/trainers/parties.asm`: per-class lists with a name + type byte
-   per trainer (formats TRAINERTYPE_NORMAL/MOVES/ITEM/ITEM_MOVES), so
-   unlike Gen 1 the lists carry names, items and custom moves.
-   Variable length ⇒ same-size in-place edits first. GB has no pointer
-   retargeting helper yet — GB banked 2-byte pointers need a GB variant
-   of freespace/relocate if lists must grow.
+1. **Gen 1/2 trainers: SHIPPED.** Remaining gap for both: parties can't
+   grow (variable-length lists, edits are same-footprint in place). GB
+   banked 2-byte pointers need a GB variant of freespace/relocate to
+   lift that.
+
+   Gen 2 facts (validated on built Gold + Crystal): `TrainerGroups` =
+   one bank-local u16 per class (66 in G/S, 67 in Crystal — the count is
+   *derived* as (ptr[0] − tableStart)/2, never assumed), table directly
+   before FalknerGroup. Trainer = `"NAME@", type, mons…, 0xFF`; type
+   bit 0 = 4 move bytes per mon, bit 1 = item byte per mon (order:
+   level, species, item?, moves?). Anchor = Falkner+Whitney groups,
+   byte-identical G/S/C; fallback = self-referencing table (entry 0
+   lands exactly 2×N past table start) since Falkner is editable data.
+   Renames are same-footprint: shorter names pad with 0x7F spaces
+   before the 0x50 terminator (bytes after it belong to the type
+   field). Class names via the unique "LEADER@RIVAL@" transition
+   (a LEADER-only anchor is ambiguous inside the 8-LEADER run);
+   glyphs 0x4A=PKMN / 0x54=POKé decode-only in gen12Codec.
 
    Gen 1 facts (validated on built Red + Yellow ROMs): 47 classes,
    pointer table (bank-local u16 per class) sits immediately before

@@ -126,6 +126,53 @@ export function makeGen2Rom(): Uint8Array {
   put(rom, names, gbName('BULBASAUR', 10))
   put(rom, names + 10, gbName('IVYSAUR', 10))
 
+  // Trainer parties (bank 0x25): class pointer table + groups, table
+  // immediately before the first group like the real games.
+  const trTable = 0x94000
+  const nClasses = 66
+  const trLocal = (off: number) => 0x4000 + (off % 0x4000)
+  const trPtr = (off: number) => [trLocal(off) & 0xff, trLocal(off) >> 8]
+  const groups: number[] = []
+  let cursor = trTable + nClasses * 2
+  const emit = (bytes: number[]) => {
+    groups.push(cursor)
+    put(rom, cursor, bytes)
+    cursor += bytes.length
+  }
+  // Class 1 (Falkner) — the discovery anchor: TRAINERTYPE_MOVES.
+  emit([...gen12Bytes('FALKNER'), 0x50, 1,
+    7, 16, 33, 189, 0, 0,
+    9, 17, 33, 189, 16, 0,
+    0xff])
+  // Class 2 (Whitney) — the anchor's verifier.
+  emit([...gen12Bytes('WHITNEY'), 0x50, 1,
+    18, 35, 3, 102, 227, 118,
+    20, 241, 205, 213, 23, 208,
+    0xff])
+  // Class 3: two NORMAL trainers in one group.
+  emit([
+    ...gen12Bytes('JOEY'), 0x50, 0, 4, 19, 0xff,
+    ...gen12Bytes('MIKEY'), 0x50, 0, 2, 16, 4, 19, 0xff,
+  ])
+  // Class 4: ITEM_MOVES — level 30 Pikachu holding item 3 with 4 moves.
+  emit([...gen12Bytes('RED'), 0x50, 3, 30, 25, 3, 33, 45, 85, 87, 0xff])
+  // Classes 5..66: one tiny NORMAL trainer each so every pointer is valid.
+  for (let c = 4; c < nClasses; c++) emit([...gen12Bytes('AL'), 0x50, 0, 5, 1, 0xff])
+  for (let c = 0; c < nClasses; c++) put(rom, trTable + c * 2, trPtr(groups[c]))
+
+  // Trainer class names: eight LEADERs then themed names.
+  const classNamesOff = 0x9a000
+  const classNameList = ['LEADER', 'LEADER', 'LEADER', 'LEADER', 'LEADER', 'LEADER', 'LEADER', 'LEADER', 'RIVAL', 'YOUNGSTER']
+  let cnCursor = classNamesOff
+  for (const n of classNameList) {
+    put(rom, cnCursor, [...gen12Bytes(n), 0x50])
+    cnCursor += n.length + 1
+  }
+  for (let c = classNameList.length; c < nClasses; c++) {
+    put(rom, cnCursor, [...gen12Bytes('SAGE'), 0x50])
+    cnCursor += 5
+  }
+
   const moves = 0x41afb
   put(rom, moves, [0x01, 0x00, 40, 0x00, 0xff, 35, 0x00])
   put(rom, moves + 7, [0x02, 0x00, 50, 0x01, 0xff, 25, 0x00])

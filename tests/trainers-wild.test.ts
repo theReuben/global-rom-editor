@@ -234,6 +234,75 @@ describe('Gen 3 wild encounters', () => {
   })
 })
 
+describe('Gen 2 trainer parties', () => {
+  const loadGen2 = async () => {
+    const { makeGen2Rom } = await import('./fixtures')
+    return buildAdapter(new Rom('crystal.gbc', makeGen2Rom())).adapter!
+  }
+
+  it('discovers the class table via the Falkner anchor and derives the count', async () => {
+    const t = (await loadGen2()).trainerModule!
+    expect(t).not.toBeNull()
+    expect(t.entries).toHaveLength(67) // 1+1+2+1 + 62 filler classes
+    expect(t.entries[0].name).toBe('FALKNER')
+    expect(t.entries[0].label).toBe('FALKNER (LEADER #1)')
+    expect(t.entries[2].name).toBe('JOEY')
+    expect(t.entries[2].label).toBe('JOEY (LEADER #1)') // class 3 is a LEADER in the fixture names
+    expect(t.entries[3].name).toBe('MIKEY')
+    expect(t.read(3).partySize).toBe(2)
+  })
+
+  it('reads all party formats: moves, plain, item+moves', async () => {
+    const t = (await loadGen2()).trainerModule!
+    // TRAINERTYPE_MOVES (Falkner): moves array, no item.
+    const falkner = t.party(0)
+    expect(falkner).toHaveLength(2)
+    expect(falkner[0]).toEqual({ species: 16, level: 7, iv: null, item: null, moves: [33, 189, 0, 0] })
+    expect(falkner[1].moves).toEqual([33, 189, 16, 0])
+    // TRAINERTYPE_NORMAL (Mikey): neither.
+    expect(t.party(3)[1]).toEqual({ species: 19, level: 4, iv: null, item: null, moves: null })
+    // TRAINERTYPE_ITEM_MOVES (Red): both.
+    expect(t.party(4)[0]).toEqual({ species: 25, level: 30, iv: null, item: 3, moves: [33, 45, 85, 87] })
+  })
+
+  it('edits levels, species, items, moves and names in place', async () => {
+    const a = await loadGen2()
+    const t = a.trainerModule!
+    t.writePartyField(4, 0, 'species', 250)
+    t.writePartyField(4, 0, 'level', 88)
+    t.writePartyField(4, 0, 'item', 12)
+    t.writePartyField(4, 0, 'move2', 200)
+    expect(t.party(4)[0]).toMatchObject({ species: 250, level: 88, item: 12, moves: [33, 45, 200, 87] })
+    // NORMAL trainers reject item/move writes (no such bytes).
+    t.writePartyField(2, 0, 'item', 5)
+    t.writePartyField(2, 0, 'move0', 5)
+    expect(t.party(2)[0]).toMatchObject({ item: null, moves: null })
+    // Same-footprint rename: shorter name pads with spaces.
+    expect(t.setName(0, 'ZAP')).toBe(true)
+    expect(t.entries[0].name).toBe('ZAP')
+    expect(t.setName(0, 'TOOLONGNAME')).toBe(false) // 11 > FALKNER's 7 bytes
+    t.revert(4)
+    t.revert(0)
+    expect(t.party(4)[0].species).toBe(25)
+    expect(t.entries[0].name).toBe('FALKNER')
+    expect(a.rom.changedByteCount).toBe(0)
+  })
+
+  it('re-discovers the table after the anchor trainer itself is edited', async () => {
+    const a = await loadGen2()
+    const t = a.trainerModule!
+    t.writePartyField(0, 0, 'species', 130)
+    t.writePartyField(0, 0, 'level', 62)
+    t.setName(0, 'MAX')
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    const rt = re.trainerModule!
+    expect(rt).not.toBeNull()
+    expect(rt.entries).toHaveLength(67)
+    expect(rt.entries[0].name).toBe('MAX')
+    expect(rt.party(0)[0]).toMatchObject({ species: 130, level: 62 })
+  })
+})
+
 describe('Gen 2 wild encounters (Crystal)', () => {
   const loadGen2 = async () => {
     const { makeGen2Rom } = await import('./fixtures')
