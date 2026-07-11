@@ -263,6 +263,105 @@ export function buildGen4Wild(rom: Rom, subs: NarcSubfile[]): WildModule | null 
   }
 }
 
+/* -------------------------------------------- wild encounters (HGSS) */
+
+// EncounterData (g_enc_data.narc → /a/0/3/7 in HeartGold, s_enc_data →
+// /a/1/3/6 in SoulSilver; 0xC4 bytes per area), verified against
+// pret/pokeheartgold include/wild_encounter.h. Land species are stored
+// per time of day over one shared level array.
+const HGSS_ENC_SIZE = 0xc4
+const HGSS_LAND_SLOTS = 12
+const HGSS_SLOT_GROUPS = [
+  { name: 'Surfing', rateOff: 1, slotsOff: 0x64, slots: 5 },
+  { name: 'Rock Smash', rateOff: 2, slotsOff: 0x78, slots: 2 },
+  { name: 'Old Rod', rateOff: 3, slotsOff: 0x80, slots: 5 },
+  { name: 'Good Rod', rateOff: 4, slotsOff: 0x94, slots: 5 },
+  { name: 'Super Rod', rateOff: 5, slotsOff: 0xa8, slots: 5 },
+]
+const HGSS_SPECIES_GROUPS = [
+  { name: 'Radio: Hoenn sound', slotsOff: 0x5c, slots: 2 },
+  { name: 'Radio: Sinnoh sound', slotsOff: 0x60, slots: 2 },
+  { name: 'Swarm (land / surf / night fish / fish)', slotsOff: 0xbc, slots: 4 },
+]
+const HGSS_TIMES = ['Grass (morning)', 'Grass (day)', 'Grass (night)']
+
+export function buildHgssWild(rom: Rom, subs: NarcSubfile[]): WildModule | null {
+  const bytes = rom.bytes
+  const areas = subs.filter((s) => s.length === HGSS_ENC_SIZE)
+  if (areas.length < 10) return null
+  const byKey = new Map(areas.map((a) => [String(a.index), a]))
+  const entries = areas.map((a) => ({ key: String(a.index), label: `Area #${a.index}` }))
+
+  // Flatten to the generic group list: 3 land time groups, then the
+  // level+species groups, then the species-only radio/swarm groups.
+  interface HgssGroup {
+    name: string
+    rateOff: number | null
+    slotsOff: number
+    slots: number
+    kind: 'land' | 'ranged' | 'speciesOnly'
+    time?: number
+  }
+  const defs: HgssGroup[] = [
+    ...HGSS_TIMES.map((name, time) => ({
+      name, rateOff: 0, slotsOff: 0x14 + time * HGSS_LAND_SLOTS * 2, slots: HGSS_LAND_SLOTS,
+      kind: 'land' as const, time,
+    })),
+    ...HGSS_SLOT_GROUPS.map((g) => ({ ...g, kind: 'ranged' as const })),
+    ...HGSS_SPECIES_GROUPS.map((g) => ({ ...g, rateOff: null, kind: 'speciesOnly' as const })),
+  ]
+
+  return {
+    entries,
+    groups(key) {
+      const a = byKey.get(key)
+      if (!a) return []
+      return defs.map((g) => ({
+        name: g.name,
+        rate: g.rateOff === null ? 0 : bytes[a.offset + g.rateOff],
+        slots: Array.from({ length: g.slots }, (_, i) => {
+          if (g.kind === 'land') {
+            const level = bytes[a.offset + 8 + i]
+            return { minLevel: level, maxLevel: level, species: rom.readU16LE(a.offset + g.slotsOff + i * 2) }
+          }
+          if (g.kind === 'speciesOnly')
+            return { minLevel: 0, maxLevel: 0, species: rom.readU16LE(a.offset + g.slotsOff + i * 2) }
+          const o = a.offset + g.slotsOff + i * 4
+          return { minLevel: bytes[o], maxLevel: bytes[o + 1], species: rom.readU16LE(o + 2) }
+        }),
+      }))
+    },
+    setRate(key, group, rate) {
+      const a = byKey.get(key)
+      const g = defs[group]
+      if (a && g && g.rateOff !== null) rom.writeU8(a.offset + g.rateOff, rate)
+    },
+    setSlot(key, group, slot, field, value) {
+      const a = byKey.get(key)
+      const g = defs[group]
+      if (!a || !g || slot < 0 || slot >= g.slots) return
+      if (g.kind === 'land') {
+        // One level array shared by morning/day/night.
+        if (field === 'minLevel' || field === 'maxLevel') rom.writeU8(a.offset + 8 + slot, value)
+        else if (field === 'species') rom.writeU16LE(a.offset + g.slotsOff + slot * 2, value & 0xffff)
+        return
+      }
+      if (g.kind === 'speciesOnly') {
+        if (field === 'species') rom.writeU16LE(a.offset + g.slotsOff + slot * 2, value & 0xffff)
+        return
+      }
+      const o = a.offset + g.slotsOff + slot * 4
+      if (field === 'minLevel') rom.writeU8(o, value)
+      else if (field === 'maxLevel') rom.writeU8(o + 1, value)
+      else if (field === 'species') rom.writeU16LE(o + 2, value & 0xffff)
+    },
+    revert(key) {
+      const a = byKey.get(key)
+      if (a) rom.revertRange(a.offset, a.length)
+    },
+  }
+}
+
 export function tryBuildGen45(rom: Rom): GameAdapter | null {
   const bytes = rom.bytes
   if (!isNdsRom(bytes)) return null
@@ -366,8 +465,11 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     },
   ]
   if (fullLayout) {
-    const trd = findNdsFile(files, '/poketool/trainer/trdata.narc')
-    const trp = findNdsFile(files, '/poketool/trainer/trpoke.narc')
+    // HGSS ships the same trainer NARCs with their names stripped
+    // (poketool/trainer/trdata.narc → a/0/5/5 per pokeheartgold's
+    // filesystem.mk); the party entry and header layouts are identical.
+    const trd = findNdsFile(files, '/poketool/trainer/trdata.narc') ?? findNdsFile(files, '/a/0/5/5')
+    const trp = findNdsFile(files, '/poketool/trainer/trpoke.narc') ?? findNdsFile(files, '/a/0/5/6')
     if (trd && trp) {
       const dSubs = parseNarc(bytes, trd.start)
       const pSubs = parseNarc(bytes, trp.start)
@@ -376,12 +478,20 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
         regions.push({ name: `Trainers (${trainerModule.entries.length})`, offset: trd.start, length: trd.end - trd.start })
       }
     }
-    const encPath = { CPU: '/fielddata/encountdata/pl_enc_data.narc', ADA: '/fielddata/encountdata/d_enc_data.narc', APA: '/fielddata/encountdata/p_enc_data.narc' }[header.gameCode.slice(0, 3)]
+    const code = header.gameCode.slice(0, 3)
+    const encPath = {
+      CPU: '/fielddata/encountdata/pl_enc_data.narc',
+      ADA: '/fielddata/encountdata/d_enc_data.narc',
+      APA: '/fielddata/encountdata/p_enc_data.narc',
+      IPK: '/a/0/3/7', // HeartGold g_enc_data.narc, name-stripped
+      IPG: '/a/1/3/6', // SoulSilver s_enc_data.narc
+    }[code]
     if (encPath) {
       const enc = findNdsFile(files, encPath)
       const encSubs = enc ? parseNarc(bytes, enc.start) : null
       if (encSubs) {
-        wildModule = buildGen4Wild(rom, encSubs)
+        wildModule =
+          code === 'IPK' || code === 'IPG' ? buildHgssWild(rom, encSubs) : buildGen4Wild(rom, encSubs)
         if (wildModule) {
           regions.push({ name: `Wild encounters (${wildModule.entries.length} areas)`, offset: enc!.start, length: enc!.end - enc!.start })
         }
@@ -389,7 +499,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     }
   }
   if (!trainerModule) warnings.push('Trainer editing not available for this DS game yet.')
-  if (!wildModule) warnings.push('Wild encounter editing not available for this DS game yet (D/P/Platinum only so far).')
+  if (!wildModule) warnings.push('Wild encounter editing not available for this DS game yet (D/P/Pt/HGSS so far).')
 
   return {
     gameName,

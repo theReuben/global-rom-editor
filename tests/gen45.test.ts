@@ -81,7 +81,7 @@ describe('Gen 5 adapter (minimal until layout verified)', () => {
   })
 })
 
-import { buildGen4Trainers, buildGen4Wild } from '../src/core/games/gen45'
+import { buildGen4Trainers, buildGen4Wild, buildHgssWild } from '../src/core/games/gen45'
 import { parseNarc } from '../src/core/nds/nds'
 import { buildNarc } from './fixtures'
 
@@ -186,5 +186,73 @@ describe('Gen 4 wild encounters (enc_data)', () => {
     expect(w.groups('0')[0].rate).toBe(40)
     w.revert('0')
     expect(w.groups('0')[0].rate).toBe(30)
+  })
+})
+
+describe('HGSS wild encounters (0xC4 EncounterData files)', () => {
+  const makeArea = () => {
+    const f = new Uint8Array(0xc4)
+    f.set([20, 8, 5, 25, 35, 45], 0) // walking/surf/rocksmash/rod rates
+    f[8] = 4 // land level slot 0
+    f[9] = 6 // land level slot 1
+    put16(f, 0x14, 179) // morning slot 0: Mareep
+    put16(f, 0x2c, 19) // day slot 0: Rattata
+    put16(f, 0x44, 163) // night slot 0: Hoothoot
+    put16(f, 0x5c, 333) // Hoenn radio
+    put16(f, 0x60, 433) // Sinnoh radio
+    f.set([10, 20], 0x64) // surf slot 0: lv 10-20
+    put16(f, 0x66, 129) // Magikarp
+    put16(f, 0xbc, 206) // land swarm: Dunsparce
+    return f
+  }
+  const put16 = (b: Uint8Array, o: number, v: number) => {
+    b[o] = v & 0xff
+    b[o + 1] = v >> 8
+  }
+  const make = () => {
+    const narc = buildNarc(Array.from({ length: 12 }, () => makeArea()))
+    const rom = new Rom('hg.nds', narc)
+    return buildHgssWild(rom, parseNarc(rom.bytes, 0)!)!
+  }
+
+  it('exposes time-of-day grass, surf/rods and radio/swarm groups', () => {
+    const w = make()
+    expect(w).not.toBeNull()
+    const groups = w.groups('0')
+    expect(groups.map((g) => g.name)).toEqual([
+      'Grass (morning)', 'Grass (day)', 'Grass (night)',
+      'Surfing', 'Rock Smash', 'Old Rod', 'Good Rod', 'Super Rod',
+      'Radio: Hoenn sound', 'Radio: Sinnoh sound', 'Swarm (land / surf / night fish / fish)',
+    ])
+    expect(groups[0].rate).toBe(20)
+    expect(groups[0].slots[0]).toEqual({ minLevel: 4, maxLevel: 4, species: 179 })
+    expect(groups[1].slots[0].species).toBe(19)
+    expect(groups[2].slots[0].species).toBe(163)
+    expect(groups[3].slots[0]).toEqual({ minLevel: 10, maxLevel: 20, species: 129 })
+    expect(groups[8].slots[0].species).toBe(333)
+    expect(groups[10].slots[0].species).toBe(206)
+  })
+
+  it('shares one level array across the three times of day', () => {
+    const w = make()
+    w.setSlot('0', 0, 1, 'minLevel', 9) // edit via the morning group
+    expect(w.groups('0')[1].slots[1].minLevel).toBe(9) // day sees it
+    expect(w.groups('0')[2].slots[1].maxLevel).toBe(9) // night too
+    w.setSlot('0', 1, 0, 'species', 500) // day species stays per-time
+    expect(w.groups('0')[1].slots[0].species).toBe(500)
+    expect(w.groups('0')[0].slots[0].species).toBe(179)
+  })
+
+  it('edits ranged and species-only groups, and reverts', () => {
+    const w = make()
+    w.setSlot('0', 3, 0, 'maxLevel', 33)
+    w.setSlot('0', 10, 0, 'species', 372)
+    w.setSlot('0', 10, 0, 'minLevel', 50) // no level bytes → ignored
+    w.setRate('0', 10, 77) // no rate byte → ignored
+    expect(w.groups('0')[3].slots[0].maxLevel).toBe(33)
+    expect(w.groups('0')[10].slots[0]).toEqual({ minLevel: 0, maxLevel: 0, species: 372 })
+    w.revert('0')
+    expect(w.groups('0')[3].slots[0].maxLevel).toBe(20)
+    expect(w.groups('0')[10].slots[0].species).toBe(206)
   })
 })

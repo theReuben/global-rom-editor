@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-120 tests green. Shipped and validated: Gen 1–3 Pokémon/move editing;
+123 tests green. Shipped and validated: Gen 1–3 Pokémon/move editing;
 Gen 3 sprite importing (64×64 PNG → 4bpp+LZ77, auto-relocation,
 round-trip pixel-perfect on built Emerald);
 Gen 3 trainers, wild encounters, maps (view/paint/resize/new-map),
@@ -124,7 +124,16 @@ other.
    Gen 1's custom RLE — different problem), DS sprites.
 4. **Gen 4 text codec** (trainer/species names from the DS text banks)
    and the Gen 5 full personal layout (verify against DSPRE source).
-5. **HGSS encounters** (different file format from D/P/Pt).
+5. **HGSS encounters + trainers: SHIPPED.** EncounterData = 0xC4-byte
+   files (pret/pokeheartgold include/wild_encounter.h): 6 rate bytes +
+   2 dummy; 12 shared land levels @0x08; 12 u16 species per time of day
+   @0x14/0x2C/0x44; radio species @0x5C/0x60; surf 5×{min,max,u16}
+   @0x64; rock smash 2 @0x78; rods 5 each @0x80/0x94/0xA8; swarm u16×4
+   @0xBC. NARC paths (name-stripped, from pokeheartgold filesystem.mk):
+   HG enc = /a/0/3/7, SS enc = /a/1/3/6, trdata = /a/0/5/5, trpoke =
+   /a/0/5/6 — trainer structs are byte-identical to D/P/Pt (the trailing
+   u16 is the ball capsule instead of padding), so buildGen4Trainers is
+   reused unchanged.
 
 ## Gen 4+ (DS) plan — feasible, phased
 
