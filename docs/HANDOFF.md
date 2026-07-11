@@ -5,7 +5,9 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-132 tests green. The Gen 3 stats table is now found by anchor
+133 tests green. Anchor voting now also covers evolutions,
+learnsets and TM/HM bits (species-extras.ts voteForBase / learnset
+3-of-5 first-word vote). The Gen 3 stats table is now found by anchor
 MAJORITY VOTE (Bulba/Ivy/Pikachu/Chansey/Mewtwo each vote for a
 table base; two agreeing win), so editing anchor species no longer
 breaks reload for base stats. DS species and trainer names are now editable
@@ -85,15 +87,18 @@ built ROMs.
 
 ## Known caveat: anchor species self-edits (partially fixed)
 
-FIXED for base stats: `findStatsTable` in gen3.ts has five independent
-anchors (dex 1/2/25/113/150) voting on the table base — two agreeing
-anchors win, so any single (or dual) anchor edit still reloads. The
-same voting pattern should be extended to the remaining single-anchor
-tables: learnsets, TM/HM bits, evolutions (species-extras.ts) and the
-Gen 1/2 stat tables. Until then, editing e.g. Bulbasaur's TM flags
-still breaks re-discovery of that one table on reload (warning shown;
-nothing corrupts). Extract new anchor bytes from the built ROMs, never
-from memory — see validate6.ts pattern in the scratch notes.
+FIXED for all Gen 3 species tables: stats (findStatsTable in gen3.ts),
+evolutions + TM/HM bits (voteForBase in species-extras.ts) and
+learnsets (3-of-5 first-word vote) each use 5-6 independent anchors
+spread across the dex (bytes extracted from built Emerald + FireRed,
+identical in both) — a majority of intact anchors re-finds the table
+no matter which anchor species was edited. Validated by wrecking
+Bulbasaur's evo/learnset/TM rows (plus Ivysaur's evo) on both real
+ROMs and reloading with zero warnings. Still single-anchor: the type
+chart (not per-species — editing it can't self-break the same way,
+its signature rows are Normal-type matchups) and the Gen 1/2 tables
+(extend the same pattern there next; extract anchor bytes from built
+ROMs, never from memory).
 
 ## Remaining roadmap, with implementation notes
 

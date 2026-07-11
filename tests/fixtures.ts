@@ -268,8 +268,15 @@ function addSpeciesExtras(rom: Uint8Array): void {
   put(rom, lsVenu, u16s((1 << 9) | 33, (4 << 9) | 45, 0xffff))
   const lsChar = 0x3d2130
   put(rom, lsChar, u16s((1 << 9) | 10, (1 << 9) | 45, 0xffff))
+  // Extra voting anchors: Pikachu (Thundershock@1), Magikarp (Splash@1).
+  const lsPika = 0x3d2140
+  put(rom, lsPika, u16s((1 << 9) | 84, 0xffff))
+  const lsKarp = 0x3d2150
+  put(rom, lsKarp, u16s((1 << 9) | 150, 0xffff))
   const lsTable = 0x3d2200
   put(rom, lsTable, [...ptr(lsDummy), ...ptr(lsBulba), ...ptr(lsIvy), ...ptr(lsVenu), ...ptr(lsChar)])
+  put(rom, lsTable + 25 * 4, ptr(lsPika))
+  put(rom, lsTable + 129 * 4, ptr(lsKarp))
 
   // Type chart: two normal rows + separator + one Foresight row + end.
   const chart = 0x3d3000

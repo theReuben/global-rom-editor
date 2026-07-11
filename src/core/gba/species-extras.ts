@@ -20,7 +20,7 @@ import type {
   TypeChartEntry,
   TypeChartModule,
 } from '../games/schema'
-import { findVerified, findAll } from '../scan'
+import { findAll } from '../scan'
 import { readGbaPointer, relocate } from '../freespace'
 
 // Compiled entries are padded to 8 bytes (verified against a built ROM).
@@ -47,20 +47,42 @@ export const EVO_METHODS: SelectOption[] = [
   { value: 15, label: 'Beauty' },
 ]
 
-// Bulbasaur→Ivysaur lv16, Ivysaur→Venusaur lv32, Charmander→lv16 #5.
-const EVO_BULBA = [4, 0, 16, 0, 2, 0]
-const EVO_IVY = [4, 0, 32, 0, 3, 0]
-const EVO_CHAR = [4, 0, 16, 0, 5, 0]
+// Redundant anchors voting for the table base (bytes verified identical
+// on built Emerald + FireRed): editing any one anchor species can't
+// break re-discovery. Two agreeing anchors win.
+const EVO_ANCHORS: { dex: number; sig: number[] }[] = [
+  { dex: 1, sig: [4, 0, 16, 0, 2, 0] }, // Bulbasaur → Ivysaur lv16
+  { dex: 2, sig: [4, 0, 32, 0, 3, 0] }, // Ivysaur → Venusaur lv32
+  { dex: 4, sig: [4, 0, 16, 0, 5, 0] }, // Charmander → lv16
+  { dex: 25, sig: [7, 0, 96, 0, 26, 0] }, // Pikachu: Thunder Stone
+  { dex: 129, sig: [4, 0, 20, 0, 130, 0] }, // Magikarp → lv20
+  { dex: 133, sig: [7, 0, 96, 0, 135, 0] }, // Eevee: Thunder Stone
+]
+
+/** Majority vote over anchor hits; returns the winner with ≥2 votes. */
+function voteForBase(bytes: Uint8Array, anchors: { dex: number; sig: number[] }[], stride: number): number | null {
+  const votes = new Map<number, number>()
+  for (const a of anchors) {
+    for (const hit of findAll(bytes, a.sig, 8)) {
+      const base = hit - a.dex * stride
+      if (base >= 0) votes.set(base, (votes.get(base) ?? 0) + 1)
+    }
+  }
+  let best: number | null = null
+  let bestVotes = 0
+  for (const [base, v] of votes) {
+    if (v > bestVotes) {
+      best = base
+      bestVotes = v
+    }
+  }
+  return bestVotes >= 2 ? best : null
+}
 
 export function buildEvolutions(rom: Rom, speciesCount: number): { module: EvolutionModule; offset: number } | null {
   const bytes = rom.bytes
-  // Bulbasaur is species 1, Ivysaur 2, Charmander 4 (Venusaur has no evo).
-  const anchor = findVerified(bytes, EVO_BULBA, [
-    { delta: EVO_STRIDE, pattern: EVO_IVY },
-    { delta: 3 * EVO_STRIDE, pattern: EVO_CHAR },
-  ])
-  if (anchor === null) return null
-  const offset = anchor - EVO_STRIDE // entry 0 dummy
+  const offset = voteForBase(bytes, EVO_ANCHORS, EVO_STRIDE) // entry 0 dummy
+  if (offset === null) return null
 
   const entryOff = (id: number, slot: number) => offset + id * EVO_STRIDE + slot * EVO_SIZE
   const module: EvolutionModule = {
@@ -93,12 +115,18 @@ export function buildEvolutions(rom: Rom, speciesCount: number): { module: Evolu
 
 /* ------------------------------------------------------------ learnsets */
 
-// (1<<9)|TACKLE(33) — Bulbasaur's learnset starts Tackle at level 1.
-const BULBA_FIRST = 0x0221
-// (1<<9)|SCRATCH(10) — Charmander's starts Scratch at level 1.
-const CHAR_FIRST = 0x020a
-const TACKLE = 33
 const MAX_MOVES = 64
+
+// First learnset word (level<<9 | move) for anchor species — identical
+// in built Emerald and FireRed: Tackle@1, Scratch@1, Thundershock@1,
+// Splash@1, Confusion@1.
+const LS_ANCHORS: { dex: number; word: number }[] = [
+  { dex: 1, word: 0x0221 }, // Bulbasaur
+  { dex: 4, word: 0x020a }, // Charmander
+  { dex: 25, word: 0x0254 }, // Pikachu
+  { dex: 129, word: 0x0296 }, // Magikarp
+  { dex: 150, word: 0x025d }, // Mewtwo
+]
 
 export function buildLearnsets(rom: Rom, speciesCount: number): { module: LearnsetModule; offset: number } | null {
   const bytes = rom.bytes
@@ -106,20 +134,22 @@ export function buildLearnsets(rom: Rom, speciesCount: number): { module: Learns
     const t = readGbaPointer(bytes, p)
     return t === null || t + 2 > bytes.length ? null : bytes[t] | (bytes[t + 1] << 8)
   }
-  // Entry 1 starts Tackle@1 (Bulbasaur), entries 2-3 start with Tackle at
-  // some level (levels differ between RSE and FRLG), and entry 4 starts
-  // Scratch@1 (Charmander) — that combination pins the table uniquely.
-  const startsWithTackle = (p: number): boolean => {
-    const v = firstMove(p)
-    return v !== null && (v & 0x1ff) === TACKLE && v >> 9 >= 1 && v >> 9 <= 100
-  }
+  // The pointer table is found by anchor vote: at a candidate base,
+  // each anchor species' pointer must lead to its known first word.
+  // Three of five agreeing means editing one or two anchor learnsets
+  // still reloads fine.
   let offset: number | null = null
-  for (let o = 0; o + 20 <= bytes.length; o += 4) {
-    if (firstMove(o) !== BULBA_FIRST) continue
-    if (!startsWithTackle(o + 4) || !startsWithTackle(o + 8)) continue
-    if (firstMove(o + 12) !== CHAR_FIRST) continue
-    offset = o - 4 // entry 0 dummy
-    break
+  for (let o = 0; o + 4 * 151 <= bytes.length; o += 4) {
+    // Cheap pre-filter: entry 0 (dummy) must at least be a ROM pointer.
+    if (bytes[o + 3] !== 0x08) continue
+    let matches = 0
+    for (const a of LS_ANCHORS) {
+      if (firstMove(o + a.dex * 4) === a.word) matches++
+    }
+    if (matches >= 3) {
+      offset = o // entry 0 dummy
+      break
+    }
   }
   if (offset === null) return null
   const table = offset
@@ -247,9 +277,14 @@ export function buildTypeChart(rom: Rom): { module: TypeChartModule; offset: num
 // computed from the pret decomp learnsets and are identical in Emerald
 // and FireRed. Bulbasaur and Ivysaur share a learnset, so Venusaur and
 // Charmander pin the alignment.
-const TMHM_BULBA = [32, 7, 53, 132, 8, 30, 228, 0]
-const TMHM_VENU = [48, 71, 53, 134, 8, 30, 228, 0]
-const TMHM_CHAR = [35, 6, 81, 204, 164, 30, 166, 0]
+const TMHM_ANCHORS: { dex: number; sig: number[] }[] = [
+  { dex: 1, sig: [32, 7, 53, 132, 8, 30, 228, 0] }, // Bulbasaur (Ivysaur shares it)
+  { dex: 3, sig: [48, 71, 53, 134, 8, 30, 228, 0] }, // Venusaur
+  { dex: 4, sig: [35, 6, 81, 204, 164, 30, 166, 0] }, // Charmander
+  { dex: 25, sig: [33, 130, 211, 205, 2, 30, 224, 0] }, // Pikachu
+  { dex: 113, sig: [109, 246, 251, 247, 118, 158, 225, 0] }, // Chansey
+  { dex: 150, sig: [237, 254, 251, 247, 247, 143, 225, 0] }, // Mewtwo
+]
 // TM01-04: Focus Punch, Dragon Claw, Water Pulse, Calm Mind (u16 LE).
 const TM_MOVES_SIG = [8, 1, 81, 1, 96, 1, 91, 1]
 export const TMHM_BITS = 58
@@ -265,13 +300,11 @@ export interface TmhmCompat {
 
 export function buildTmhmCompat(rom: Rom): TmhmCompat | null {
   const bytes = rom.bytes
-  const anchor = findVerified(bytes, TMHM_BULBA, [
-    { delta: 8, pattern: TMHM_BULBA }, // Ivysaur shares Bulbasaur's set
-    { delta: 16, pattern: TMHM_VENU },
-    { delta: 24, pattern: TMHM_CHAR },
-  ])
-  if (anchor === null) return null
-  const offset = anchor - 8 // entry 0 dummy
+  // Bulbasaur and Ivysaur share a bitfield, so the Bulbasaur signature
+  // also hits the Ivysaur row and casts one stray vote — the aligned
+  // base still collects a clear majority from the other anchors.
+  const offset = voteForBase(bytes, TMHM_ANCHORS, 8) // entry 0 dummy
+  if (offset === null) return null
 
   // The TM→move list appears more than once in some ROMs (identical
   // copies), so take the first hit rather than requiring uniqueness.

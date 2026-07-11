@@ -92,6 +92,27 @@ describe('Gen 3 TM/HM compatibility', () => {
   })
 })
 
+describe('anchor self-edit resilience (extras)', () => {
+  it('re-discovers evolutions, learnsets and TM bits after Bulbasaur edits', () => {
+    const a = load()
+    // The documented caveat scenario: change the anchor species' own
+    // evolution, learnset and TM flags, then reload.
+    a.evolutions!.write(1, 0, 'param', 40)
+    a.evolutions!.write(1, 0, 'target', 6)
+    a.learnsets!.write(1, [{ level: 5, move: 20 }])
+    const flags = a.readSpecies(1).tmhm as boolean[]
+    ;(flags as boolean[])[0] = !flags[0]
+    a.writeSpeciesField(1, 'tmhm', flags)
+
+    const re = buildAdapter(new Rom('firered.gba', a.rom.bytes)).adapter!
+    expect(re.evolutions).not.toBeNull()
+    expect(re.learnsets).not.toBeNull()
+    expect(re.evolutions!.read(1)[0]).toMatchObject({ param: 40, target: 6 })
+    expect(re.learnsets!.read(1)).toEqual([{ level: 5, move: 20 }])
+    expect(re.readSpecies(1).tmhm).toBeDefined()
+  })
+})
+
 describe('Gen 3 sprites', () => {
   it('discovers the self-tagged sprite tables and renders front + back', () => {
     const a = load()
