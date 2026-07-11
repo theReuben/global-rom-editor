@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import type { GameAdapter } from '../core/games/schema'
 import { fixChecksums } from '../core/checksum'
 import { applyIps, createIps } from '../core/ips'
+import { applyUps, createUps, isUps } from '../core/ups'
 import { downloadBytes, splitName } from './download'
 
 interface Props {
@@ -41,12 +42,21 @@ export function PatchPanel({ adapter, onEdit, onRomRebuilt }: Props) {
     }
   }
 
+  const exportUps = () => {
+    fixChecksums(rom)
+    onEdit()
+    const patch = createUps(rom.original, rom.bytes)
+    downloadBytes(patch, `${base}.ups`)
+    setError(null)
+    setStatus(`UPS patch exported (${patch.length.toLocaleString()} bytes). Share the patch — never the ROM.`)
+  }
+
   const applyPatchFile = async (file: File) => {
     setError(null)
     setStatus(null)
     try {
       const patch = new Uint8Array(await file.arrayBuffer())
-      const patched = applyIps(rom.bytes, patch)
+      const patched = isUps(patch) ? applyUps(rom.bytes, patch) : applyIps(rom.bytes, patch)
       if (patched.length === rom.length) {
         rom.writeBytes(0, patched)
         onEdit()
@@ -78,22 +88,30 @@ export function PatchPanel({ adapter, onEdit, onRomRebuilt }: Props) {
           the standard, legal way to share a ROM hack. Players apply it to their own copy of the
           game (they can do that right here, too).
         </p>
-        <button className="primary" onClick={exportIps} disabled={rom.changedByteCount === 0}>
-          Export .ips patch
-        </button>
+        <div className="button-row">
+          <button className="primary" onClick={exportIps} disabled={rom.changedByteCount === 0 || rom.length > 0x1000000}>
+            Export .ips patch
+          </button>
+          <button className="primary" onClick={exportUps} disabled={rom.changedByteCount === 0}>
+            Export .ups patch
+          </button>
+        </div>
+        {rom.length > 0x1000000 && (
+          <p className="muted">This ROM is larger than 16 MiB, so use UPS (IPS can't address it).</p>
+        )}
       </section>
 
       <section className="card">
-        <h3>🩹 Apply an IPS patch</h3>
+        <h3>🩹 Apply an IPS / UPS patch</h3>
         <p>
           Apply a community patch (or someone else's hack) to the loaded ROM. The editor re-scans
           the game data afterwards so you can keep editing on top of it.
         </p>
-        <button onClick={() => fileRef.current?.click()}>Choose .ips file…</button>
+        <button onClick={() => fileRef.current?.click()}>Choose .ips / .ups file…</button>
         <input
           ref={fileRef}
           type="file"
-          accept=".ips"
+          accept=".ips,.ups"
           hidden
           onChange={(e) => {
             const f = e.target.files?.[0]
