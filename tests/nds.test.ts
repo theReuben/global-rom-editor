@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseMsgBank } from '../src/core/nds/msgdata'
+import { parseMsgBank, writeMsgEntry } from '../src/core/nds/msgdata'
 import { Rom } from '../src/core/rom'
 import { buildAdapter } from '../src/core/games'
 import { parseNdsHeader, isNdsRom, listNdsFiles, findNdsFile, parseNarc } from '../src/core/nds/nds'
@@ -171,5 +171,81 @@ describe('Gen 4 message banks', () => {
     const [ctrl, trname] = parseMsgBank(bank, 0, bank.length)
     expect(ctrl).toBe('Hiyo')
     expect(trname).toBe('Blue')
+  })
+})
+
+describe('Gen 4 message bank writing', () => {
+  const chars = (text: string) =>
+    [...text].map((ch) =>
+      ch >= 'A' && ch <= 'Z'
+        ? 0x12b + ch.charCodeAt(0) - 65
+        : ch >= 'a' && ch <= 'z'
+          ? 0x145 + ch.charCodeAt(0) - 97
+          : 0x1de,
+    )
+  const encodeBank = (messages: number[][], key: number): Uint8Array => {
+    const total = 4 + messages.length * 8 + messages.reduce((s, m) => s + m.length * 2, 0)
+    const out = new Uint8Array(total)
+    const w16 = (o: number, v: number) => {
+      out[o] = v & 0xff
+      out[o + 1] = (v >> 8) & 0xff
+    }
+    w16(0, messages.length)
+    w16(2, key)
+    let off = 4 + messages.length * 8
+    messages.forEach((msg, n) => {
+      let seed = (key * 765 * (n + 1)) & 0xffff
+      seed = ((seed | (seed << 16)) & 0xffffffff) >>> 0
+      w16(4 + n * 8, (off ^ seed) & 0xffff)
+      w16(6 + n * 8, ((off ^ seed) >>> 16) & 0xffff)
+      w16(8 + n * 8, (msg.length ^ seed) & 0xffff)
+      w16(10 + n * 8, ((msg.length ^ seed) >>> 16) & 0xffff)
+      let charSeed = ((n + 1) * 596947) & 0xffff
+      for (const c of msg) {
+        w16(off, (c ^ charSeed) & 0xffff)
+        charSeed = (charSeed + 18749) & 0xffff
+        off += 2
+      }
+    })
+    return out
+  }
+  const pack = (codes: number[]) => {
+    const packed: number[] = [0xf100]
+    let acc = 0
+    let bits = 0
+    for (const c of [...codes, 0x1ff]) {
+      acc |= c << bits
+      bits += 9
+      if (bits >= 15) {
+        packed.push(acc & 0x7fff)
+        acc >>= 15
+        bits -= 15
+      }
+    }
+    if (bits > 0) packed.push(acc & 0x7fff)
+    return packed
+  }
+
+  it('rewrites plain entries in place (same or shorter only)', () => {
+    const bank = encodeBank(
+      [[...chars('Bulbasaur'), 0xffff], [...chars('Ivysaur'), 0xffff]],
+      0x77aa,
+    )
+    const rom = new Rom('x.nds', bank)
+    expect(writeMsgEntry(rom, 0, bank.length, 0, 'Chikorita')).toBe(true) // same length
+    expect(parseMsgBank(rom.bytes, 0, bank.length)).toEqual(['Chikorita', 'Ivysaur'])
+    expect(writeMsgEntry(rom, 0, bank.length, 0, 'Mew')).toBe(true) // shorter
+    expect(parseMsgBank(rom.bytes, 0, bank.length)).toEqual(['Mew', 'Ivysaur'])
+    expect(writeMsgEntry(rom, 0, bank.length, 0, 'Bulbasaur42')).toBe(false) // longer
+    expect(writeMsgEntry(rom, 0, bank.length, 1, 'Bad§char')).toBe(false) // unmappable
+    expect(parseMsgBank(rom.bytes, 0, bank.length)[1]).toBe('Ivysaur')
+  })
+
+  it('rewrites 9-bit packed name entries', () => {
+    const bank = encodeBank([pack(chars('Lance')), pack(chars('Clair'))], 3)
+    const rom = new Rom('x.nds', bank)
+    expect(writeMsgEntry(rom, 0, bank.length, 0, 'Steve')).toBe(true)
+    expect(parseMsgBank(rom.bytes, 0, bank.length)).toEqual(['Steve', 'Clair'])
+    expect(writeMsgEntry(rom, 0, bank.length, 0, 'MuchLongerName')).toBe(false)
   })
 })

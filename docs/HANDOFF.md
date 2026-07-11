@@ -5,7 +5,10 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-129 tests green. Back sprites now display and import next to fronts;
+131 tests green. DS species and trainer names are now editable
+in place (msg-bank rewrite, same-or-shorter encoded length — the
+XOR scrambling is symmetric and each entry has a fixed allocation,
+so nothing moves; longer names would need a NARC rebuild). Back sprites now display and import next to fronts;
 this also fixed Emerald showing BACK pics as front (its back table
 precedes the front table in ROM, unlike R/S/FRLG). Decomp projects now edit types, abilities (incl.
 hidden), egg groups, level curve and wild items as dropdowns —
@@ -156,11 +159,16 @@ other.
    MSG_BANKS in gen45.ts, each verified in the decomp sources (NOT from
    memory): D/P 362/588/559/560, Pt 412/647/618/619, HGSS
    237/750/729/730 (species/moves/trainer names/class names). Species,
-   move, trainer and class names now come from the ROM itself. No DS
+   move, trainer and class names now come from the ROM itself, and
+   species/trainer names WRITE back in place via writeMsgEntry
+   (same-or-shorter encoded length; keeps the alloc table untouched by
+   padding with encrypted terminators; 9-bit packed name banks are
+   re-packed). No DS
    ROM can be built in this container (the Metrowerks compiler isn't
    redistributable), so validation = decomp source reading + symmetric
    encode/decode tests; writing names back (re-encrypt + NARC rebuild)
-   is still open. Gen 5 full personal layout: SHIPPED (PKHeX-verified).
+   beyond same-length is still open (needs NARC+FAT rebuild). Gen 5
+   full personal layout: SHIPPED (PKHeX-verified).
 5. **HGSS encounters + trainers: SHIPPED.** EncounterData = 0xC4-byte
    files (pret/pokeheartgold include/wild_encounter.h): 6 rate bytes +
    2 dummy; 12 shared land levels @0x08; 12 u16 species per time of day

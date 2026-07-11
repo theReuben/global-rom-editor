@@ -9,6 +9,17 @@
  * scheme and character map).
  */
 import { GEN4_CHARMAP } from '../games/gen4-charmap'
+import type { Rom } from '../rom'
+
+// Reverse map for encoding; first code wins where glyphs repeat.
+let reverseMap: Map<string, number> | null = null
+function charToCode(ch: string): number | undefined {
+  if (!reverseMap) {
+    reverseMap = new Map()
+    for (const [code, c] of GEN4_CHARMAP) if (!reverseMap.has(c)) reverseMap.set(c, code)
+  }
+  return reverseMap.get(ch)
+}
 
 /** Decode one bank subfile into plain strings (control codes dropped). */
 export function parseMsgBank(bytes: Uint8Array, start: number, length: number): string[] {
@@ -40,6 +51,78 @@ export function parseMsgBank(bytes: Uint8Array, start: number, length: number): 
     out.push(decodeChars(chars))
   }
   return out
+}
+
+/**
+ * Rewrite one entry's text in place. The scrambling is XOR-symmetric
+ * and every entry has a fixed allocation, so any text that fits the
+ * original slot (in encoded u16s) can be written without moving a
+ * byte — longer text is rejected. Handles both plain entries and the
+ * 9-bit packed name coding (detected from the original first word).
+ * Returns true on success.
+ */
+export function writeMsgEntry(
+  rom: Rom,
+  bankStart: number,
+  bankLength: number,
+  index: number,
+  text: string,
+): boolean {
+  const bytes = rom.bytes
+  const u16 = (o: number) => bytes[bankStart + o] | (bytes[bankStart + o + 1] << 8)
+  if (bankLength < 4) return false
+  const count = u16(0)
+  const key = u16(2)
+  if (index < 0 || index >= count) return false
+  let seed = (key * 765 * (index + 1)) & 0xffff
+  seed = ((seed | (seed << 16)) & 0xffffffff) >>> 0
+  const off = ((u16(4 + index * 8) | (u16(6 + index * 8) << 16)) ^ seed) >>> 0
+  const len = ((u16(8 + index * 8) | (u16(10 + index * 8) << 16)) ^ seed) >>> 0
+  if (off + len * 2 > bankLength || len < 1 || len > 0x2000) return false
+
+  const codes: number[] = []
+  for (const ch of text) {
+    const c = charToCode(ch)
+    if (c === undefined) return false
+    codes.push(c)
+  }
+  if (codes.length === 0) return false
+
+  const seed0 = ((index + 1) * 596947) & 0xffff
+  const packed = (u16(off) ^ seed0) === 0xf100
+
+  // Build the plain (pre-scramble) u16 stream, padded to the exact
+  // original length so nothing else in the bank moves.
+  const words = new Uint16Array(len)
+  if (packed) {
+    for (const c of codes) if (c > 0x1ff) return false
+    if (9 * (codes.length + 1) > 15 * (len - 1)) return false
+    words[0] = 0xf100
+    let acc = 0
+    let bits = 0
+    let w = 1
+    for (const c of [...codes, 0x1ff]) {
+      acc |= c << bits
+      bits += 9
+      if (bits >= 15) {
+        words[w++] = acc & 0x7fff
+        acc >>= 15
+        bits -= 15
+      }
+    }
+    if (bits > 0) words[w++] = acc & 0x7fff
+  } else {
+    if (codes.length + 1 > len) return false
+    codes.forEach((c, i) => (words[i] = c))
+    for (let i = codes.length; i < len; i++) words[i] = 0xffff
+  }
+
+  let charSeed = seed0
+  for (let j = 0; j < len; j++) {
+    rom.writeU16LE(bankStart + off + j * 2, (words[j] ^ charSeed) & 0xffff)
+    charSeed = (charSeed + 18749) & 0xffff
+  }
+  return true
 }
 
 function decodeChars(chars: Uint16Array): string {

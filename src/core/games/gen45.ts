@@ -12,7 +12,7 @@
  */
 import { Rom } from '../rom'
 import { isNdsRom, parseNdsHeader, listNdsFiles, findNdsFile, parseNarc, type NarcSubfile } from '../nds/nds'
-import { parseMsgBank } from '../nds/msgdata'
+import { parseMsgBank, writeMsgEntry } from '../nds/msgdata'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
 import { NATDEX_NAMES, NATDEX_ABILITIES } from './natdex-names'
 import type {
@@ -120,7 +120,12 @@ export function buildGen4Trainers(
   rom: Rom,
   trdata: NarcSubfile[],
   trpoke: NarcSubfile[],
-  names?: { trainers: string[]; classes: string[] },
+  names?: {
+    trainers: string[]
+    classes: string[]
+    /** In-place msg-bank rename; null = read-only names. */
+    rename?: ((id: number, name: string) => boolean) | null
+  },
 ): TrainerModule {
   const bytes = rom.bytes
   const count = Math.min(trdata.length, trpoke.length)
@@ -146,15 +151,22 @@ export function buildGen4Trainers(
 
   return {
     entries,
-    nameLength: 0, // trainer names live in the msg banks (read-only here)
+    nameLength: names?.rename ? 10 : 0,
     nameHint: names?.trainers.length
-      ? 'Read from the message banks — renaming DS trainers is on the roadmap.'
+      ? 'Read from the message banks — names are not editable in this ROM.'
       : undefined,
     classOptions:
       names && names.classes.length > 0
         ? names.classes.map((label, value) => ({ value, label: label || `Class ${value}` }))
         : null,
-    setName: () => false,
+    setName(id, name) {
+      if (!names?.rename || name.length === 0) return false
+      if (!names.rename(id, name)) return false
+      entries[id].name = name
+      const cls = bytes[trdata[id].offset + 1]
+      entries[id].label = `#${String(id).padStart(3, '0')} ${name} · ${names.classes[cls] || `class ${cls}`}`
+      return true
+    },
 
     read(id) {
       const o = header(id)
@@ -451,15 +463,20 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
   let msgMoves: string[] = []
   let msgTrainers: string[] = []
   let msgClasses: string[] = []
+  let speciesBank: NarcSubfile | null = null
+  let trainerBank: NarcSubfile | null = null
   const msgCfg = MSG_BANKS[code3]
   if (msgCfg) {
     const msg = findNdsFile(files, msgCfg.path)
     const msgSubs = msg ? parseNarc(bytes, msg.start) : null
     if (msgSubs) {
+      const sub = (index: number) => msgSubs.find((s) => s.index === index) ?? null
       const bank = (index: number) => {
-        const sub = msgSubs.find((s) => s.index === index)
-        return sub ? parseMsgBank(bytes, sub.offset, sub.length) : []
+        const s = sub(index)
+        return s ? parseMsgBank(bytes, s.offset, s.length) : []
       }
+      speciesBank = sub(msgCfg.species)
+      trainerBank = sub(msgCfg.trainers)
       msgSpecies = bank(msgCfg.species)
       msgMoves = bank(msgCfg.moves)
       msgTrainers = bank(msgCfg.trainers)
@@ -579,7 +596,13 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
       const dSubs = parseNarc(bytes, trd.start)
       const pSubs = parseNarc(bytes, trp.start)
       if (dSubs && pSubs && dSubs.length > 50) {
-        trainerModule = buildGen4Trainers(rom, dSubs, pSubs, { trainers: msgTrainers, classes: msgClasses })
+        trainerModule = buildGen4Trainers(rom, dSubs, pSubs, {
+          trainers: msgTrainers,
+          classes: msgClasses,
+          rename: trainerBank
+            ? (id, name) => writeMsgEntry(rom, trainerBank!.offset, trainerBank!.length, id, name)
+            : null,
+        })
         regions.push({ name: `Trainers (${trainerModule.entries.length})`, offset: trd.start, length: trd.end - trd.start })
       }
     }
@@ -627,8 +650,20 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     evolutions: null,
     learnsets: null,
     typeChart: null,
-    speciesNameLength: null,
-    setSpeciesName: () => false,
+    // In-place msg-bank rename: any name that fits the entry's original
+    // encoded allocation works; longer names are rejected.
+    speciesNameLength: speciesBank ? 12 : null,
+    setSpeciesName(id, name) {
+      if (!speciesBank || name.length === 0) return false
+      if (!writeMsgEntry(rom, speciesBank.offset, speciesBank.length, id, name)) return false
+      msgSpecies[id] = name
+      const handle = species[id - 1]
+      if (handle) {
+        handle.name = name
+        handle.label = `#${String(id).padStart(3, '0')} ${name}`
+      }
+      return true
+    },
 
     readSpecies(id) {
       const o = base(id)
