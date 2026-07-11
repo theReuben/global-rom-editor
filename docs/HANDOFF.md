@@ -5,7 +5,10 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-131 tests green. DS species and trainer names are now editable
+132 tests green. The Gen 3 stats table is now found by anchor
+MAJORITY VOTE (Bulba/Ivy/Pikachu/Chansey/Mewtwo each vote for a
+table base; two agreeing win), so editing anchor species no longer
+breaks reload for base stats. DS species and trainer names are now editable
 in place (msg-bank rewrite, same-or-shorter encoded length — the
 XOR scrambling is symmetric and each entry has a fixed allocation,
 so nothing moves; longer names would need a NARC rebuild). Back sprites now display and import next to fronts;
@@ -80,16 +83,17 @@ built ROMs.
 - Gen 1 wild anchors are byte-exact Route 1 blocks from pokered /
   pokeyellow sources (they differ between R/B and Yellow).
 
-## Known caveat: anchor species self-edits
+## Known caveat: anchor species self-edits (partially fixed)
 
-Discovery anchors on Bulbasaur-line data (stats, learnsets, TM bits,
-evolutions). Editing those exact bytes on the anchor species works fine
-in-session, but a saved ROM where e.g. Bulbasaur's TM flags changed will
-fail re-discovery of that one table on reload (editor shows the usual
-"couldn't locate" warning; nothing corrupts). Fix idea for later: after
-a successful scan, stash discovered offsets in a comment-free sidecar
-(IPS-adjacent JSON) or accept >1 anchor candidates verified against each
-other.
+FIXED for base stats: `findStatsTable` in gen3.ts has five independent
+anchors (dex 1/2/25/113/150) voting on the table base — two agreeing
+anchors win, so any single (or dual) anchor edit still reloads. The
+same voting pattern should be extended to the remaining single-anchor
+tables: learnsets, TM/HM bits, evolutions (species-extras.ts) and the
+Gen 1/2 stat tables. Until then, editing e.g. Bulbasaur's TM flags
+still breaks re-discovery of that one table on reload (warning shown;
+nothing corrupts). Extract new anchor bytes from the built ROMs, never
+from memory — see validate6.ts pattern in the scratch notes.
 
 ## Remaining roadmap, with implementation notes
 

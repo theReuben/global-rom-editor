@@ -7,7 +7,7 @@
  * index space (1–411; 252–276 are unused placeholders).
  */
 import { Rom } from '../rom'
-import { findVerified } from '../scan'
+import { findAll, findVerified } from '../scan'
 import { gen3Bytes, gen3Codec } from '../text'
 import { buildGen3MapModule } from '../gba/maps'
 import { buildTrainerModule } from '../gba/trainers'
@@ -60,6 +60,37 @@ function countNames(bytes: Uint8Array, off: number, entryLen: number, cap: numbe
 // HP,ATK,DEF,SPD,SAT,SDF, Grass(12), Poison(3), catch, base EXP — Bulbasaur.
 const BULBASAUR = [45, 49, 49, 45, 65, 65, 12, 3, 45, 64]
 const IVYSAUR = [60, 62, 63, 60, 80, 80, 12, 3, 45, 141]
+// Redundant stats anchors spread across the dex (bytes verified
+// identical on built Emerald and FireRed). Each hit votes for a table
+// base; two agreeing anchors win, so editing any one anchor species --
+// even Bulbasaur -- can no longer break re-discovery on reload.
+const STATS_ANCHORS: { dex: number; sig: number[] }[] = [
+  { dex: 1, sig: BULBASAUR },
+  { dex: 2, sig: IVYSAUR },
+  { dex: 25, sig: [35, 55, 30, 90, 50, 40, 13, 13, 190, 82] }, // Pikachu
+  { dex: 113, sig: [250, 5, 5, 50, 35, 105, 0, 0, 30, 255] }, // Chansey
+  { dex: 150, sig: [106, 110, 90, 130, 154, 90, 14, 14, 3, 220] }, // Mewtwo
+]
+
+/** Locate the stats table (entry 0 = dummy) by anchor majority vote. */
+function findStatsTable(bytes: Uint8Array): number | null {
+  const votes = new Map<number, number>()
+  for (const a of STATS_ANCHORS) {
+    for (const hit of findAll(bytes, a.sig, 8)) {
+      const base = hit - a.dex * STATS_ENTRY
+      if (base >= 0) votes.set(base, (votes.get(base) ?? 0) + 1)
+    }
+  }
+  let best: number | null = null
+  let bestVotes = 0
+  for (const [base, v] of votes) {
+    if (v > bestVotes) {
+      best = base
+      bestVotes = v
+    }
+  }
+  return bestVotes >= 2 ? best : null
+}
 // effect, power, type, accuracy, pp, effect chance, target, priority — Pound.
 const POUND = [0, 40, 0, 100, 35, 0, 0, 0]
 const KARATE_CHOP = [-1, 50, 1, 100, 25] // effect id varies; rest is fixed
@@ -95,9 +126,8 @@ const EV_STATS: [string, number][] = [
 
 export function tryBuildGen3(rom: Rom, gameName: string, platform: string): GameAdapter | null {
   const bytes = rom.bytes
-  const bulbaOff = findVerified(bytes, BULBASAUR, [{ delta: STATS_ENTRY, pattern: IVYSAUR }])
-  if (bulbaOff === null) return null
-  const statsOff = bulbaOff - STATS_ENTRY // entry 0 is a dummy
+  const statsOff = findStatsTable(bytes) // entry 0 is a dummy
+  if (statsOff === null) return null
 
   const warnings: string[] = []
   const regions: TableRegion[] = []

@@ -115,6 +115,22 @@ describe('Gen 2 adapter', () => {
 describe('Gen 3 adapter', () => {
   const load = () => buildAdapter(new Rom('firered.gba', makeGen3Rom())).adapter!
 
+  it('re-discovers the stats table after every primary anchor is edited', () => {
+    const a = load()
+    // Clobber Bulbasaur AND Ivysaur — the old single-anchor discovery
+    // would fail on reload; Pikachu + Chansey votes must still agree.
+    for (const dex of [1, 2]) {
+      a.writeSpeciesField(dex, 'hp', 200)
+      a.writeSpeciesField(dex, 'atk', 201)
+      a.writeSpeciesField(dex, 'def', 202)
+      a.writeSpeciesField(dex, 'spd', 203)
+    }
+    const re = buildAdapter(new Rom('firered.gba', a.rom.bytes)).adapter!
+    expect(re).not.toBeNull()
+    expect(re.readSpecies(1).hp).toBe(200)
+    expect(re.readSpecies(25).hp).toBe(35) // Pikachu anchor intact
+  })
+
   it('detects the game and reads Bulbasaur', () => {
     const a = load()
     expect(a.generation).toBe(3)

@@ -217,6 +217,9 @@ export function makeGen3Rom(): Uint8Array {
   put(rom, bulba + 12, [0, 0, 0, 0]) // held items
   put(rom, bulba + 16, [31, 20, 70, 3, 1, 7, 65, 0]) // gender..abilities (65 = Overgrow)
   put(rom, stats + 56, [60, 62, 63, 60, 80, 80, 12, 3, 45, 141])
+  // Extra anchor species so discovery survives anchor self-edits.
+  put(rom, stats + 25 * 28, [35, 55, 30, 90, 50, 40, 13, 13, 190, 82]) // Pikachu
+  put(rom, stats + 113 * 28, [250, 5, 5, 50, 35, 105, 0, 0, 30, 255]) // Chansey
 
   const names = 0x245ee0
   put(rom, names, gen3Name('??????????', 11)) // entry 0 dummy
