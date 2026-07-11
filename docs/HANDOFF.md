@@ -5,7 +5,10 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-125 tests green. Gen 4 names (species, moves, trainers, classes)
+126 tests green. Gen 5 (B/W, B2W2) now edits the full personal
+entry (items ×3, hidden ability, u16 base EXP, 101 TM/HM flags) —
+layout verified against PKHeX PersonalInfo5BW/B2W2 since no Gen 5
+decomp or buildable ROM exists. Gen 4 names (species, moves, trainers, classes)
 now decode from the msg banks — DS editors show real names. Shipped and validated: Gen 1–3 Pokémon/move editing;
 Gen 3 sprite importing (64×64 PNG → 4bpp+LZ77, auto-relocation,
 round-trip pixel-perfect on built Emerald);
@@ -18,7 +21,7 @@ trainer parties incl. names, held items and custom moves (validated
 against built Gold 495/66-class and Crystal 541/67-class — counts
 derived, never assumed); Gen 1 and Gen 2 (G/S/C, time-of-day) wild
 encounters; Gen 4 (D/P/Pt/HGSS) species editing and
-D/P/Pt trainers + encounters via the NDS/NARC layer; Gen 5 stats-only;
+D/P/Pt trainers + encounters via the NDS/NARC layer; Gen 5 full personal editing;
 IPS + UPS patches; PWA offline; decomp backend editing species stats in
 pokeemerald / pokefirered / pokeemerald-expansion (1,364 species incl.
 Megas). CI deploys to GitHub Pages from `main`.
@@ -139,7 +142,7 @@ other.
    ROM can be built in this container (the Metrowerks compiler isn't
    redistributable), so validation = decomp source reading + symmetric
    encode/decode tests; writing names back (re-encrypt + NARC rebuild)
-   is still open. Remaining here: Gen 5 full personal layout.
+   is still open. Gen 5 full personal layout: SHIPPED (PKHeX-verified).
 5. **HGSS encounters + trainers: SHIPPED.** EncounterData = 0xC4-byte
    files (pret/pokeheartgold include/wild_encounter.h): 6 rate bytes +
    2 dummy; 12 shared land levels @0x08; 12 u16 species per time of day

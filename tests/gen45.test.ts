@@ -63,21 +63,54 @@ describe('Gen 4 adapter (Platinum-style)', () => {
   })
 })
 
-describe('Gen 5 adapter (minimal until layout verified)', () => {
-  it('loads with stats/types/catch only and says so', () => {
-    const a = buildAdapter(new Rom('black.nds', makeGen5Rom())).adapter!
+describe('Gen 5 adapter (full 0x3C layout per PKHeX)', () => {
+  const load = () => buildAdapter(new Rom('black.nds', makeGen5Rom())).adapter!
+
+  it('reads the full personal entry', () => {
+    const a = load()
     expect(a.gameName).toContain('Black')
     expect(a.generation).toBe(5)
-    expect(a.warnings.some((w) => w.includes('partially supported'))).toBe(true)
-    expect(a.speciesFields.map((f) => f.key)).toEqual([
-      'hp', 'atk', 'def', 'spd', 'sat', 'sdf', 'type1', 'type2', 'catchRate',
-    ])
+    expect(a.warnings.some((w) => w.includes('partially') || w.includes('Unrecognised'))).toBe(false)
     const b = a.readSpecies(1)
     expect(b.hp).toBe(45)
     expect(b.type1).toBe(11) // Grass in Gen 5 numbering
     expect(a.typeOptions.find((t) => t.value === 11)!.label).toBe('Grass')
-    a.writeSpeciesField(1, 'catchRate', 3)
-    expect(a.readSpecies(1).catchRate).toBe(3)
+    expect(b.evSat).toBe(1)
+    expect(b.item1).toBe(17)
+    expect(b.item3).toBe(44)
+    expect(b.gender).toBe(31)
+    expect(b.friendship).toBe(70)
+    expect(b.growthRate).toBe(3)
+    expect(b.ability1).toBe(65)
+    expect(b.abilityH).toBe(34) // hidden abilities are new in Gen 5
+    expect(b.baseExp).toBe(300) // u16 — can exceed 255
+    const flags = b.tmhm as boolean[]
+    expect(flags).toHaveLength(101)
+    expect(flags[0]).toBe(true) // TM01
+    expect(flags[2]).toBe(true) // TM03
+    expect(flags[95]).toBe(true) // HM01
+  })
+
+  it('writes items, hidden ability, u16 base EXP and TM flags', () => {
+    const a = load()
+    a.writeSpeciesField(1, 'item3', 999)
+    a.writeSpeciesField(1, 'abilityH', 151)
+    a.writeSpeciesField(1, 'baseExp', 608)
+    a.writeSpeciesField(1, 'evHp', 3)
+    const flags = (a.readSpecies(1).tmhm as boolean[]).slice()
+    flags[94] = true // TM95
+    flags[100] = true // HM06
+    a.writeSpeciesField(1, 'tmhm', flags)
+    const b = a.readSpecies(1)
+    expect(b.item3).toBe(999)
+    expect(b.abilityH).toBe(151)
+    expect(b.baseExp).toBe(608)
+    expect(b.evHp).toBe(3)
+    expect(b.evSat).toBe(1) // untouched
+    expect((b.tmhm as boolean[])[94]).toBe(true)
+    expect((b.tmhm as boolean[])[100]).toBe(true)
+    a.revertSpecies(1)
+    expect(a.readSpecies(1).baseExp).toBe(300)
   })
 })
 

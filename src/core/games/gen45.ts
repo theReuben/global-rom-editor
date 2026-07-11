@@ -77,6 +77,34 @@ const EV_STATS: [string, number][] = [
   ['evSdf', 5],
 ]
 
+// Gen 5 personal entries — B/W are 0x3C bytes, B2W2 0x4C. No Gen 5
+// decomp or buildable ROM exists, so this layout is verified against
+// PKHeX's PersonalInfo5BW/B2W2 (field-by-field, not from memory).
+// Stats/types/catch match Gen 4; gender block shifts +2 for item3 and
+// abilities gain a hidden slot.
+const GEN5_STAT_BYTES: Record<string, number> = {
+  hp: 0,
+  atk: 1,
+  def: 2,
+  spd: 3,
+  sat: 4,
+  sdf: 5,
+  type1: 6,
+  type2: 7,
+  catchRate: 8,
+  gender: 0x12,
+  eggCycles: 0x13,
+  friendship: 0x14,
+  growthRate: 0x15,
+  eggGroup1: 0x16,
+  eggGroup2: 0x17,
+  ability1: 0x18,
+  ability2: 0x19,
+  abilityH: 0x1a,
+}
+const GEN5_TMHM = 0x28
+const GEN5_TM_FLAGS = 101 // TM01-95 then HM01-06
+
 
 /* --------------------------------------------------- trainers (Gen 4) */
 
@@ -395,12 +423,13 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
 
   const entrySize = personal[1]?.length ?? 0
   const fullLayout = entrySize === GEN4_ENTRY
+  const gen5Layout = !fullLayout && (entrySize === 0x3c || entrySize === 0x4c)
   const generation = game?.gen ?? (fullLayout ? 4 : 5)
   const gameName = `${game?.name ?? 'Pokémon (DS)'} (${header.gameCode})`
   const warnings: string[] = []
-  if (!fullLayout) {
+  if (!fullLayout && !gen5Layout) {
     warnings.push(
-      `Gen 5 personal entries (${entrySize} bytes) are partially supported: stats, types and catch rate only until the full layout is verified.`,
+      `Unrecognised personal entry size (${entrySize} bytes): stats, types and catch rate only.`,
     )
   }
   warnings.push('DS support is new — save a copy of your ROM before editing, and report anything odd.')
@@ -492,8 +521,41 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
         { key: 'eggGroup2', label: 'Egg group 2', kind: 'select', options: EGG_GROUPS, group: 'breeding' },
         { key: 'tmhm', label: 'TM / HM compatibility', kind: 'flags', flagLabels: tmLabels, group: 'tmhm' },
       ]
-    : minimalFields
-  const editableStatKeys = new Set(speciesFields.filter((f) => f.key in STAT_BYTES).map((f) => f.key))
+    : gen5Layout
+      ? [
+          ...minimalFields,
+          { key: 'baseExp', label: 'Base EXP yield', kind: 'number' as const, min: 0, max: 65535, group: 'battle' },
+          { key: 'growthRate', label: 'Level curve', kind: 'select' as const, options: GEN3_GROWTH, group: 'battle' },
+          { key: 'item1', label: 'Wild held item (50%)', kind: 'number' as const, min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none).' },
+          { key: 'item2', label: 'Wild held item (5%)', kind: 'number' as const, min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none).' },
+          { key: 'item3', label: 'Wild held item (1%)', kind: 'number' as const, min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none).' },
+          { key: 'ability1', label: 'Ability 1', kind: 'select' as const, options: abilityOptions, group: 'typing' },
+          { key: 'ability2', label: 'Ability 2', kind: 'select' as const, options: abilityOptions, group: 'typing' },
+          { key: 'abilityH', label: 'Hidden ability', kind: 'select' as const, options: abilityOptions, group: 'typing' },
+          { key: 'evHp', label: 'EV yield: HP', kind: 'select' as const, options: evOptions, group: 'evs' },
+          { key: 'evAtk', label: 'EV yield: Attack', kind: 'select' as const, options: evOptions, group: 'evs' },
+          { key: 'evDef', label: 'EV yield: Defense', kind: 'select' as const, options: evOptions, group: 'evs' },
+          { key: 'evSpd', label: 'EV yield: Speed', kind: 'select' as const, options: evOptions, group: 'evs' },
+          { key: 'evSat', label: 'EV yield: Sp. Atk', kind: 'select' as const, options: evOptions, group: 'evs' },
+          { key: 'evSdf', label: 'EV yield: Sp. Def', kind: 'select' as const, options: evOptions, group: 'evs' },
+          { key: 'gender', label: 'Gender ratio', kind: 'select' as const, options: GENDER_RATIOS, group: 'breeding' },
+          { key: 'eggCycles', label: 'Egg cycles', kind: 'number' as const, min: 1, max: 255, group: 'breeding' },
+          { key: 'friendship', label: 'Base friendship', kind: 'number' as const, min: 0, max: 255, group: 'breeding' },
+          { key: 'eggGroup1', label: 'Egg group 1', kind: 'select' as const, options: EGG_GROUPS, group: 'breeding' },
+          { key: 'eggGroup2', label: 'Egg group 2', kind: 'select' as const, options: EGG_GROUPS, group: 'breeding' },
+          {
+            key: 'tmhm',
+            label: 'TM / HM compatibility',
+            kind: 'flags' as const,
+            flagLabels: Array.from({ length: GEN5_TM_FLAGS }, (_, i) =>
+              i < 95 ? `TM${String(i + 1).padStart(2, '0')}` : `HM${String(i - 94).padStart(2, '0')}`,
+            ),
+            group: 'tmhm',
+          },
+        ]
+      : minimalFields
+  const statBytes = gen5Layout ? GEN5_STAT_BYTES : STAT_BYTES
+  const editableStatKeys = new Set(speciesFields.filter((f) => f.key in statBytes).map((f) => f.key))
 
   const base = (id: number) => personal![id].offset
 
@@ -569,15 +631,23 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     readSpecies(id) {
       const o = base(id)
       const out: Record<string, FieldValue> = {}
-      for (const key of editableStatKeys) out[key] = bytes[o + STAT_BYTES[key]]
-      if (fullLayout) {
-        out.item1 = rom.readU16LE(o + 12)
-        out.item2 = rom.readU16LE(o + 14)
+      for (const key of editableStatKeys) out[key] = bytes[o + statBytes[key]]
+      if (fullLayout || gen5Layout) {
+        // EV bitfield and TM flags share their layout between Gen 4 and
+        // Gen 5; item and TM offsets differ.
+        out.item1 = rom.readU16LE(o + (gen5Layout ? 0x0c : 12))
+        out.item2 = rom.readU16LE(o + (gen5Layout ? 0x0e : 14))
+        if (gen5Layout) {
+          out.item3 = rom.readU16LE(o + 0x10)
+          out.baseExp = rom.readU16LE(o + 0x22)
+        }
         const ev = rom.readU16LE(o + 10)
         for (const [key, idx] of EV_STATS) out[key] = (ev >> (idx * 2)) & 3
+        const tmOff = gen5Layout ? GEN5_TMHM : 28
+        const tmCount = gen5Layout ? GEN5_TM_FLAGS : 128
         const flags: boolean[] = []
-        for (let i = 0; i < 128; i++) {
-          flags.push(((bytes[o + 28 + (i >> 3)] >> (i & 7)) & 1) === 1)
+        for (let i = 0; i < tmCount; i++) {
+          flags.push(((bytes[o + tmOff + (i >> 3)] >> (i & 7)) & 1) === 1)
         }
         out.tmhm = flags
       }
@@ -586,25 +656,29 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
 
     writeSpeciesField(id, key, value) {
       const o = base(id)
-      if (key === 'tmhm' && Array.isArray(value) && fullLayout) {
+      if (key === 'tmhm' && Array.isArray(value) && (fullLayout || gen5Layout)) {
         const flags = value as boolean[]
-        for (let b = 0; b < 16; b++) {
+        const tmOff = gen5Layout ? GEN5_TMHM : 28
+        const byteCount = gen5Layout ? Math.ceil(GEN5_TM_FLAGS / 8) : 16
+        for (let b = 0; b < byteCount; b++) {
           let v = 0
           for (let bit = 0; bit < 8; bit++) if (flags[b * 8 + bit]) v |= 1 << bit
-          rom.writeU8(o + 28 + b, v)
+          rom.writeU8(o + tmOff + b, v)
         }
         return
       }
       if (typeof value !== 'number') return
-      if (fullLayout && key === 'item1') return rom.writeU16LE(o + 12, value)
-      if (fullLayout && key === 'item2') return rom.writeU16LE(o + 14, value)
+      if ((fullLayout || gen5Layout) && key === 'item1') return rom.writeU16LE(o + (gen5Layout ? 0x0c : 12), value)
+      if ((fullLayout || gen5Layout) && key === 'item2') return rom.writeU16LE(o + (gen5Layout ? 0x0e : 14), value)
+      if (gen5Layout && key === 'item3') return rom.writeU16LE(o + 0x10, value)
+      if (gen5Layout && key === 'baseExp') return rom.writeU16LE(o + 0x22, value)
       const ev = EV_STATS.find(([k]) => k === key)
-      if (ev && fullLayout) {
+      if (ev && (fullLayout || gen5Layout)) {
         const cur = rom.readU16LE(o + 10)
         rom.writeU16LE(o + 10, (cur & ~(3 << (ev[1] * 2))) | ((value & 3) << (ev[1] * 2)))
         return
       }
-      if (editableStatKeys.has(key)) rom.writeU8(o + STAT_BYTES[key], value)
+      if (editableStatKeys.has(key)) rom.writeU8(o + statBytes[key], value)
     },
 
     revertSpecies(id) {

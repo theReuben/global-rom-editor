@@ -539,10 +539,17 @@ export function makeGen4Rom(): Uint8Array {
   return makeNdsRomWithFile('CPUE', ['poketool', 'personal'], 'pl_personal.narc', buildNarc(entries))
 }
 
-/** Black-style ROM: 60-byte entries → minimal Gen 5 support. */
+/** Black-style ROM: 60-byte entries (layout per PKHeX PersonalInfo5BW). */
 export function makeGen5Rom(): Uint8Array {
   const entries: Uint8Array[] = []
   for (let i = 0; i < 160; i++) entries.push(new Uint8Array(60))
-  put(entries[1], 0, [45, 49, 49, 45, 65, 65, 11, 3, 45]) // grass = 11 in Gen 5
+  const b = entries[1]
+  put(b, 0, [45, 49, 49, 45, 65, 65, 11, 3, 45]) // grass = 11 in Gen 5
+  put(b, 0x0a, u16s(0x0100)) // 1 Sp. Atk EV
+  put(b, 0x0c, u16s(17, 0, 44)) // items 1-3
+  put(b, 0x12, [31, 20, 70, 3, 1, 7, 65, 0, 34]) // gender…abilities+hidden
+  put(b, 0x22, u16s(300)) // base EXP is u16 in Gen 5
+  b[0x28] = 0b0000_0101 // TM01 + TM03
+  b[0x28 + 11] = 0x80 // flag index 95 = HM01
   return makeNdsRomWithFile('IRBO', ['a', '0', '1'], '6', buildNarc(entries))
 }

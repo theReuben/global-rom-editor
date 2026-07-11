@@ -11,15 +11,15 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | --- | :-: | :-: | :-: | :-: |
 | Base stats, types, catch rate, EXP yield | ✅ | ✅ | ✅ | ✅ |
 | Pokémon renaming | ✅ | ✅ | ✅ | — |
-| Level curve (growth rate) | ✅ | ✅ | ✅ | ✅ Gen 4 |
-| TM/HM compatibility (checkbox grid) | ✅ | ✅ | ✅ | ✅ Gen 4 |
+| Level curve (growth rate) | ✅ | ✅ | ✅ | ✅ |
+| TM/HM compatibility (checkbox grid) | ✅ | ✅ | ✅ | ✅ |
 | Starting moves / level-up learnsets | ✅ | — | ✅ | — |
 | Evolutions & type effectiveness chart | — | — | ✅ | — |
 | Front sprite display | — | — | ✅ | — |
 | Custom sprite importing (64×64 PNG, auto-relocation) | — | — | ✅ | — |
-| Wild held items, gender ratio, egg groups, hatch cycles | — | ✅ | ✅ | ✅ Gen 4 |
-| Abilities (named, read from the ROM) | — | — | ✅ | ✅ Gen 4 |
-| EV yields | — | — | ✅ | ✅ Gen 4 |
+| Wild held items, gender ratio, egg groups, hatch cycles | — | ✅ | ✅ | ✅ |
+| Abilities (named, read from the ROM) | — | — | ✅ | ✅ (+hidden in Gen 5) |
+| EV yields | — | — | ✅ | ✅ |
 | Move power / accuracy / PP / type / effect / priority / flags | ✅ | ✅ | ✅ | — |
 | Move renaming | 🔜 | 🔜 | ✅ | — |
 | Map viewer & block painting (scene editing) | 🔜 | 🔜 | ✅ | — |
