@@ -7,6 +7,10 @@ import {
   parseSpeciesInfo,
   numericValue,
   setNumericField,
+  setConstantField,
+  constantsIn,
+  parseConstants,
+  prettyConstant,
   prettySpeciesName,
 } from '../src/decomp/speciesInfo'
 import { makeGen3Rom } from './fixtures'
@@ -249,5 +253,50 @@ const struct SpeciesInfo gSpeciesInfo[] =
     const edited = setNumericField(EXPANSION, entries[0], 'baseAttack', 150)!
     expect(numericValue(parseSpeciesInfo(edited)[0], 'baseAttack')).toBe(150)
     expect(numericValue(parseSpeciesInfo(edited)[1], 'baseHP')).toBe(100)
+  })
+
+  it('edits constant fields in both brace and macro styles', () => {
+    const entries = parseSpeciesInfo(SAMPLE)
+    const b = entries[0]
+    expect(constantsIn(b.fields.get('types')!, 'TYPE_')).toEqual(['TYPE_GRASS', 'TYPE_POISON'])
+    // Slot edit keeps braces/spacing exactly as they were.
+    const t1 = setConstantField(SAMPLE, b, 'types', 'TYPE_', 1, 'TYPE_DRAGON')!
+    expect(t1).toContain('.types = { TYPE_GRASS, TYPE_DRAGON}')
+    const t2 = setConstantField(SAMPLE, b, 'abilities', 'ABILITY_', 0, 'ABILITY_SOLAR_POWER')!
+    expect(t2).toContain('.abilities = {ABILITY_SOLAR_POWER, ABILITY_NONE}')
+    const t3 = setConstantField(SAMPLE, b, 'growthRate', 'GROWTH_', 0, 'GROWTH_FAST')!
+    expect(t3).toContain('.growthRate = GROWTH_FAST,')
+    // MON_TYPES(...) macro style (expansion).
+    const MACRO = `[SPECIES_X] =\n{\n  .baseHP = 1,\n  .types = MON_TYPES(TYPE_GRASS, TYPE_POISON),\n},`
+    const e = parseSpeciesInfo(MACRO)[0]
+    const t4 = setConstantField(MACRO, e, 'types', 'TYPE_', 0, 'TYPE_FIRE')!
+    expect(t4).toContain('MON_TYPES(TYPE_FIRE, TYPE_POISON)')
+    // Bad inputs are rejected.
+    expect(setConstantField(SAMPLE, b, 'types', 'TYPE_', 5, 'TYPE_FIRE')).toBeNull()
+    expect(setConstantField(SAMPLE, b, 'types', 'TYPE_', 0, 'lowercase')).toBeNull()
+  })
+
+  it('enumerates constants from headers in definition order', () => {
+    const HEADER = `
+#define TYPE_NONE 255
+#define TYPE_NORMAL 0
+#define TYPE_FIGHTING 1
+#define NUMBER_OF_MON_TYPES 18
+#define TYPE_COUNT NUMBER_OF_MON_TYPES
+#define TYPE_NORMAL 0 // duplicate guard
+`
+    expect(parseConstants(HEADER, 'TYPE_')).toEqual(['TYPE_NONE', 'TYPE_NORMAL', 'TYPE_FIGHTING'])
+    // pokeemerald-expansion declares them as enum members instead.
+    const ENUM = `
+enum PokemonType
+{
+    TYPE_NONE = 0,
+    TYPE_NORMAL = 1,
+    TYPE_FAIRY, // no explicit value
+    NUMBER_OF_MON_TYPES,
+};
+`
+    expect(parseConstants(ENUM, 'TYPE_')).toEqual(['TYPE_NONE', 'TYPE_NORMAL', 'TYPE_FAIRY'])
+    expect(prettyConstant('ABILITY_SOLAR_POWER', 'ABILITY_')).toBe('Solar Power')
   })
 })

@@ -5,7 +5,11 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-126 tests green. Gen 5 (B/W, B2W2) now edits the full personal
+128 tests green. Decomp projects now edit types, abilities (incl.
+hidden), egg groups, level curve and wild items as dropdowns —
+options enumerated from the opened tree's own headers (#define and
+expansion enum styles), edits stay one-line diffs; validated against
+the real pokeemerald and pokeemerald-expansion trees. Gen 5 (B/W, B2W2) now edits the full personal
 entry (items ×3, hidden ability, u16 base EXP, 101 TM/HM flags) —
 layout verified against PKHeX PersonalInfo5BW/B2W2 since no Gen 5
 decomp or buildable ROM exists. Gen 4 names (species, moves, trainers, classes)
@@ -115,9 +119,14 @@ other.
    owns the lists. Fixed-level lists share one level byte for the whole
    party; level writes clamp to 1..120 so re-discovery never breaks.
    Rival 1 #1's mon is version proof: Squirtle in Red, Eevee in Yellow.
-2. **Deeper decomp editing** — parse constant-expression fields
-   (`.types = MON_TYPES(...)`, `.abilities = {...}`) into dropdowns;
-   enumerate options from `include/constants/*.h` of the opened tree.
+2. **Deeper decomp editing: SHIPPED.** Constant-expression fields
+   (`.types`, `.abilities`, `.eggGroups`, `.growthRate`, `.itemCommon`,
+   `.itemRare`) are dropdowns; options enumerated from the opened
+   tree's `include/constants/{pokemon,abilities,items}.h`, handling
+   both `#define` (vanilla) and enum-member (expansion) styles.
+   `setConstantField` replaces exactly the slot's identifier, keeping
+   one-line diffs in both `{ ... }` and `MON_TYPES(...)` styles.
+   Still read-only: genderRatio (PERCENT_FEMALE(x) macro), bodyColor.
 3. **Sprite importing: SHIPPED** for Gen 3 front sprites
    (`SpriteViewer.importFront`): quantise to ≤15 colors + transparent
    slot 0 (transparent pixels and the top-left color), encode 4bpp,

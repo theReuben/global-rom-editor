@@ -32,7 +32,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Brand-new maps (duplicate into a fresh bank slot) | — | — | ✅ | — |
 | Add / remove NPCs, warps and signs | — | — | ✅ | — |
 | Visual script builder (messages, Y/N questions, items, Pokémon, trainer battles, flags) | — | — | ✅ | — |
-| Decomp project editing (species stats, experimental) | — | — | ✅ | — |
+| Decomp project editing (stats + types/abilities/egg groups dropdowns) | — | — | ✅ | — |
 | Save edited ROM with fixed checksums | ✅ | ✅ | ✅ | ✅ |
 | Export edits as an IPS or UPS patch | ✅ | ✅ | ✅ | ✅ UPS |
 | Apply community IPS / UPS patches | ✅ | ✅ | ✅ | ✅ |
