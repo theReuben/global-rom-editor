@@ -558,6 +558,91 @@ export function buildNarc(subfiles: Uint8Array[]): Uint8Array {
 }
 
 /** NDS ROM with one file at /dir0/dir1/.../fileName. */
+/** Build an NDS ROM with an arbitrary file tree (FNT + FAT). */
+export function makeNdsRom(
+  gameCode: string,
+  entries: { path: string; content: Uint8Array }[],
+): Uint8Array {
+  const rom = new Uint8Array(0x200000)
+  put(rom, 0x00, Array.from('POKEMON').map((c) => c.charCodeAt(0)))
+  put(rom, 0x0c, Array.from(gameCode).map((c) => c.charCodeAt(0)))
+
+  // Directory tree from the paths.
+  interface Dir { id: number; name: string; parent: number; dirs: Dir[]; files: { name: string; index: number }[] }
+  const root: Dir = { id: 0xf000, name: '', parent: 0xf000, dirs: [], files: [] }
+  const allDirs: Dir[] = [root]
+  const dirFor = (parts: string[]): Dir => {
+    let d = root
+    for (const part of parts) {
+      let next = d.dirs.find((x) => x.name === part)
+      if (!next) {
+        next = { id: 0xf000 + allDirs.length, name: part, parent: d.id, dirs: [], files: [] }
+        d.dirs.push(next)
+        allDirs.push(next)
+      }
+      d = next
+    }
+    return d
+  }
+  entries.forEach((e, index) => {
+    const parts = e.path.replace(/^\//, '').split('/')
+    dirFor(parts.slice(0, -1)).files.push({ name: parts[parts.length - 1], index })
+  })
+
+  // File ids in subtable emission order (= allDirs order).
+  const fileIds = new Map<number, number>() // entry index -> file id
+  let nextFile = 0
+  const firstFileId = new Map<number, number>()
+  for (const d of allDirs) {
+    firstFileId.set(d.id, nextFile)
+    for (const f of d.files) fileIds.set(f.index, nextFile++)
+  }
+
+  const fnt = 0x1000
+  const fat = 0x3000
+  put(rom, 0x40, [fnt & 0xff, fnt >> 8, 0, 0])
+  put(rom, 0x44, [0, 0x10, 0, 0])
+  put(rom, 0x48, [fat & 0xff, fat >> 8, 0, 0])
+  put(rom, 0x4c, [entries.length * 8, 0, 0, 0])
+
+  // Main table (8 bytes per dir) then subtables.
+  let subOff = allDirs.length * 8
+  for (const d of allDirs) {
+    const parentOrCount = d === root ? allDirs.length : d.parent
+    const first = firstFileId.get(d.id)!
+    put(rom, fnt + (d.id - 0xf000) * 8, [
+      subOff & 0xff, (subOff >> 8) & 0xff, 0, 0,
+      first & 0xff, first >> 8,
+      parentOrCount & 0xff, parentOrCount >> 8,
+    ])
+    let p = fnt + subOff
+    for (const f of d.files) {
+      rom[p++] = f.name.length
+      for (const ch of f.name) rom[p++] = ch.charCodeAt(0)
+    }
+    for (const sub of d.dirs) {
+      rom[p++] = 0x80 | sub.name.length
+      for (const ch of sub.name) rom[p++] = ch.charCodeAt(0)
+      rom[p++] = sub.id & 0xff
+      rom[p++] = sub.id >> 8
+    }
+    rom[p++] = 0
+    subOff = p - fnt
+  }
+
+  // FAT + contents.
+  let dataOff = 0x8000
+  entries.forEach((e, index) => {
+    const id = fileIds.get(index)!
+    put(rom, fat + id * 8, [dataOff & 0xff, (dataOff >> 8) & 0xff, (dataOff >> 16) & 0xff, 0])
+    const end = dataOff + e.content.length
+    put(rom, fat + id * 8 + 4, [end & 0xff, (end >> 8) & 0xff, (end >> 16) & 0xff, 0])
+    put(rom, dataOff, e.content)
+    dataOff = (end + 0xff) & ~0xff
+  })
+  return rom
+}
+
 export function makeNdsRomWithFile(
   gameCode: string,
   dirs: string[],
@@ -607,7 +692,16 @@ export function makeGen4Rom(): Uint8Array {
   put(b, 16, [31, 20, 70, 3, 1, 7, 65, 0])
   b[28] = 0b0000_0101 // TMs 1 and 3
   put(entries[2], 0, [60, 62, 63, 60, 80, 80, 12, 3, 45, 141])
-  return makeNdsRomWithFile('CPUE', ['poketool', 'personal'], 'pl_personal.narc', buildNarc(entries))
+  const moves: Uint8Array[] = []
+  for (let i = 0; i < 470; i++) moves.push(new Uint8Array(16))
+  // Pound: effect 0, physical, power 40, Normal, 100%, 35 PP.
+  put(moves[1], 0, [0, 0, 0, 40, 0, 100, 35, 0, 0, 0, 0, 0])
+  // Quick Attack-ish: priority +1 at offset 10.
+  put(moves[98], 0, [0, 0, 0, 40, 0, 100, 30, 0, 0, 0, 1, 0])
+  return makeNdsRom('CPUE', [
+    { path: 'poketool/personal/pl_personal.narc', content: buildNarc(entries) },
+    { path: 'poketool/waza/pl_waza_tbl.narc', content: buildNarc(moves) },
+  ])
 }
 
 /** Black-style ROM: 60-byte entries (layout per PKHeX PersonalInfo5BW). */

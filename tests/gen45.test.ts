@@ -63,6 +63,28 @@ describe('Gen 4 adapter (Platinum-style)', () => {
   })
 })
 
+describe('Gen 4 move data (waza_tbl)', () => {
+  const load = () => buildAdapter(new Rom('platinum.nds', makeGen4Rom())).adapter!
+
+  it('reads and edits 16-byte move entries', () => {
+    const a = load()
+    expect(a.moveFields.length).toBeGreaterThan(0)
+    const pound = a.readMove(1)
+    expect(pound.power).toBe(40)
+    expect(pound.accuracy).toBe(100)
+    expect(pound.pp).toBe(35)
+    expect(pound.category).toBe(0)
+    expect(a.readMove(98).priority).toBe(1)
+
+    a.writeMoveField(1, 'power', 90)
+    a.writeMoveField(1, 'category', 1)
+    a.writeMoveField(1, 'priority', -3)
+    expect(a.readMove(1)).toMatchObject({ power: 90, category: 1, priority: -3 })
+    a.revertMove(1)
+    expect(a.readMove(1)).toMatchObject({ power: 40, category: 0, priority: 0 })
+  })
+})
+
 describe('Gen 5 adapter (full 0x3C layout per PKHeX)', () => {
   const load = () => buildAdapter(new Rom('black.nds', makeGen5Rom())).adapter!
 

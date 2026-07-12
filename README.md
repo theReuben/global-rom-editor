@@ -20,7 +20,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Wild held items, gender ratio, egg groups, hatch cycles | — | ✅ | ✅ | ✅ |
 | Abilities (named, read from the ROM) | — | — | ✅ | ✅ (+hidden in Gen 5) |
 | EV yields | — | — | ✅ | ✅ |
-| Move power / accuracy / PP / type / effect / priority / flags | ✅ | ✅ | ✅ | — |
+| Move power / accuracy / PP / type / effect / priority / flags | ✅ | ✅ | ✅ | ✅ Gen 4 |
 | Move renaming | ✅ | ✅ | ✅ | — |
 | Map viewer & block painting (scene editing) | ✅ | ✅ | ✅ | — |
 | Movement permission (collision) editing | — | — | ✅ | — |

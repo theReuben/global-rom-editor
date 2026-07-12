@@ -484,6 +484,24 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     }
   }
 
+  // Move data (MoveTbl, 16 bytes/move — verified against pokeplatinum
+  // move_table.h and pokeheartgold move.h, identical layouts): effect
+  // u16, category u8, power u8, type u8, accuracy u8 (percent), pp u8,
+  // effectChance u8, range u16, priority s8, flags u8, contest x4.
+  const WAZA_PATHS: Record<string, string> = {
+    ADA: '/poketool/waza/waza_tbl.narc',
+    APA: '/poketool/waza/waza_tbl.narc',
+    CPU: '/poketool/waza/pl_waza_tbl.narc',
+    IPK: '/a/0/1/1', // waza_tbl.narc, name-stripped
+    IPG: '/a/0/1/1',
+  }
+  let waza: NarcSubfile[] | null = null
+  if (WAZA_PATHS[code3]) {
+    const file = findNdsFile(files, WAZA_PATHS[code3])
+    const subs = file ? parseNarc(bytes, file.start) : null
+    if (subs && subs.length > 400 && subs[1]?.length === 16) waza = subs
+  }
+
   const speciesCount = personal.length - 1
   const speciesName = (id: number) => msgSpecies[id] || NATDEX_NAMES[id - 1] || `Extra entry #${id}`
   const species: EntryHandle[] = []
@@ -723,16 +741,62 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
       rom.revertRange(base(id), entrySize)
     },
 
-    // Move names feed the party-move dropdowns; move *data* editing for
-    // DS games is still on the roadmap (empty moveFields = no editor).
+    // Move names feed the party-move dropdowns and the Moves editor.
     moves: msgMoves
       .map((name, id) => ({ id, label: `${String(id).padStart(3, '0')} ${name}`, name }))
       .filter((m) => m.id > 0 && m.name.length > 0),
-    moveFields: [],
+    moveFields: waza
+      ? [
+          { key: 'power', label: 'Power', kind: 'number', min: 0, max: 255 },
+          { key: 'type', label: 'Type', kind: 'type' },
+          {
+            key: 'category',
+            label: 'Category',
+            kind: 'select',
+            options: [
+              { value: 0, label: 'Physical' },
+              { value: 1, label: 'Special' },
+              { value: 2, label: 'Status' },
+            ],
+          },
+          { key: 'accuracy', label: 'Accuracy %', kind: 'number', min: 0, max: 100 },
+          { key: 'pp', label: 'PP', kind: 'number', min: 0, max: 63 },
+          { key: 'effect', label: 'Effect ID', kind: 'number', min: 0, max: 65535 },
+          { key: 'effectChance', label: 'Effect chance %', kind: 'number', min: 0, max: 100 },
+          { key: 'priority', label: 'Priority', kind: 'number', min: -7, max: 7 },
+        ]
+      : [],
     moveNameLength: null,
     setMoveName: () => false,
-    readMove: () => ({}),
-    writeMoveField: () => {},
-    revertMove: () => {},
+    readMove(id) {
+      const out: Record<string, FieldValue> = {}
+      if (!waza?.[id]) return out
+      const o = waza[id].offset
+      const prio = bytes[o + 10]
+      out.effect = rom.readU16LE(o)
+      out.category = bytes[o + 2]
+      out.power = bytes[o + 3]
+      out.type = bytes[o + 4]
+      out.accuracy = bytes[o + 5]
+      out.pp = bytes[o + 6]
+      out.effectChance = bytes[o + 7]
+      out.priority = prio >= 128 ? prio - 256 : prio
+      return out
+    },
+    writeMoveField(id, key, value) {
+      if (!waza?.[id] || typeof value !== 'number') return
+      const o = waza[id].offset
+      if (key === 'effect') rom.writeU16LE(o, value)
+      else if (key === 'category') rom.writeU8(o + 2, value)
+      else if (key === 'power') rom.writeU8(o + 3, value)
+      else if (key === 'type') rom.writeU8(o + 4, value)
+      else if (key === 'accuracy') rom.writeU8(o + 5, value)
+      else if (key === 'pp') rom.writeU8(o + 6, value)
+      else if (key === 'effectChance') rom.writeU8(o + 7, value)
+      else if (key === 'priority') rom.writeU8(o + 10, value < 0 ? value + 256 : value)
+    },
+    revertMove(id) {
+      if (waza?.[id]) rom.revertRange(waza[id].offset, 16)
+    },
   }
 }

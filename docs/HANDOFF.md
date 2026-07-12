@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-139 tests green; `npm test` and `npm run build` must stay that way.
+140 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -28,7 +28,11 @@ so editing anchor species can't break reload.
 
 **Gen 4 (D/P/Pt/HGSS):** full personal editing, trainers, encounters
 (incl. HGSS time-of-day/radio/swarms), real names from the msg banks,
-species/trainer renaming in place (same-or-shorter encoded length).
+species/trainer renaming in place (same-or-shorter encoded length),
+move data editing (16-byte waza_tbl entries — effect, category,
+power, type, accuracy %, PP, effect chance, priority; struct from
+pokeplatinum move_table.h == pokeheartgold move.h; paths
+waza_tbl / pl_waza_tbl / a-0-1-1).
 
 **Gen 5 (B/W/B2W2):** full personal editing (PKHeX-verified layout —
 no Gen 5 decomp exists).
