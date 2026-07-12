@@ -5,7 +5,16 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-133 tests green. Shiny palettes render (front + back toggle; the
+135 tests green. Gen 1/2 trainer parties can now GROW to 6: the
+whole class block/group is rebuilt (in place when it fits, else
+relocated to the bank's trailing padding via findGbBankFreeSpace,
+with the class pointer + alias pointers retargeted and the abandoned
+block zeroed). Discovery fallbacks were rebuilt for this: a class
+relocation breaks both the content anchor and the old entry-0
+self-reference, so the fallback is now "a maximal run of valid class
+pointers bounded by non-pointers" (party/name bytes never read as
+bank-local pointers) and the table validators tolerate up to 8
+pointer descents. Shiny palettes render (front + back toggle; the
 shiny table is told from the normal one by its tag base — 500 =
 SPECIES_SHINY_TAG — not ROM order; imports copy their palette to the
 shiny slot too). Anchor voting now covers ALL generations:
@@ -111,10 +120,14 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
 
 ## Remaining roadmap, with implementation notes
 
-1. **Gen 1/2 trainers: SHIPPED.** Remaining gap for both: parties can't
-   grow (variable-length lists, edits are same-footprint in place). GB
-   banked 2-byte pointers need a GB variant of freespace/relocate to
-   lift that.
+1. **Gen 1/2 trainers: SHIPPED, including party growth.** Growing or
+   shrinking a party rebuilds the whole class block (lists are back to
+   back); growth relocates to bank-end padding (findGbBankFreeSpace),
+   retargets the class + alias pointers, and zeroes the abandoned
+   block so the previous class can't parse it as extra trainers.
+   Validated on all four built GB ROMs by growing trainer #0 (the
+   discovery anchor itself) to six mons: reload keeps exact trainer
+   counts and revert is byte-perfect.
 
    Gen 2 facts (validated on built Gold + Crystal): `TrainerGroups` =
    one bank-local u16 per class (66 in G/S, 67 in Crystal — the count is

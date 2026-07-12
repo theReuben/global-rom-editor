@@ -10,6 +10,7 @@
  *  - In Red/Blue, Mew's stats live outside the main table.
  */
 import { Rom } from '../rom'
+import { findGbBankFreeSpace } from '../freespace'
 import { findAll, findByVote, findVerified, matchesAt } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { GEN1_TYPES, GEN12_GROWTH, padDex } from './data'
@@ -198,14 +199,18 @@ function buildGen1Trainers(
   const bytes = rom.bytes
   const toLocal = (off: number) => 0x4000 + (off % 0x4000)
 
-  // All 47 pointers plausible: bank-local, non-decreasing, and each
-  // pointing at a byte that can start a party list.
+  // All 47 pointers plausible: bank-local, mostly non-decreasing (a
+  // few descents are allowed — growing a party relocates its class to
+  // bank-end padding, which reorders pointers), and each pointing at a
+  // byte that can start a party list.
   const validTableAt = (start: number): boolean => {
     const bank = Math.floor(start / 0x4000)
     let prev = 0x4000
+    let descents = 0
     for (let c = 0; c < TRAINER_CLASS_COUNT; c++) {
       const v = rom.readU16LE(start + c * 2)
-      if (v < prev || v >= 0x8000) return false
+      if (v < 0x4000 || v >= 0x8000) return false
+      if (v < prev && ++descents > 8) return false
       const first = bytes[bank * 0x4000 + (v - 0x4000)]
       if (first !== 0xff && first > MAX_LIST_LEVEL) return false
       prev = v
@@ -233,16 +238,25 @@ function buildGen1Trainers(
       }
     }
   }
-  // Fallback (survives edits to Youngster #1, which IS the anchor): the
-  // table is self-referencing — entry 0 points at the byte right after
-  // the 47 entries.
+  // Fallback (survives edits to Youngster #1, which IS the anchor, and
+  // class relocations from party growth): an exact run of 47 valid
+  // pointers whose neighbours on both sides are NOT valid pointers —
+  // party-list bytes (name/level data or zeroed blocks) never qualify,
+  // which pins the table's start and end.
   if (tableOff === null) {
+    const validEntry = (o: number): boolean => {
+      if (o < 0 || o + 2 > bytes.length) return false
+      const v = rom.readU16LE(o)
+      if (v < 0x4000 || v >= 0x8000) return false
+      const first = bytes[Math.floor(o / 0x4000) * 0x4000 + (v - 0x4000)]
+      return first === 0xff || (first >= 1 && first <= MAX_LIST_LEVEL) || first === 0
+    }
     for (let o = 0; o + TRAINER_CLASS_COUNT * 2 <= bytes.length; o += 1) {
-      if (rom.readU16LE(o) !== toLocal(o) + TRAINER_CLASS_COUNT * 2) continue
-      if (validTableAt(o)) {
-        tableOff = o
-        break
-      }
+      if (validEntry(o - 2)) continue // must be the run's start
+      if (!validTableAt(o)) continue
+      if (validEntry(o + TRAINER_CLASS_COUNT * 2)) continue // must be its end
+      tableOff = o
+      break
     }
   }
   if (tableOff === null) return null
@@ -326,11 +340,107 @@ function buildGen1Trainers(
     return { id: i, label: name, name }
   })
 
+  // Original span of each class block, for revert after relocation.
+  const origSpan = new Map<number, { start: number; len: number }>()
+  for (let c = 0; c < TRAINER_CLASS_COUNT; c++) {
+    const recs = trainers.filter((t) => t.classId === c)
+    if (recs.length === 0) continue
+    const start = toFile(ptrs[c])
+    origSpan.set(c, { start, len: recs[recs.length - 1].off + recs[recs.length - 1].len - start })
+  }
+
+  const serialize = (t: Gen1TrainerRec, mons: { level: number; internal: number }[]): number[] =>
+    t.special
+      ? [0xff, ...mons.flatMap((m) => [m.level, m.internal]), 0]
+      : [mons[0]?.level ?? 5, ...mons.map((m) => m.internal), 0]
+
+  const setPointer = (c: number, dest: number) => {
+    rom.writeU8(tableOff + c * 2, toLocal(dest) & 0xff)
+    rom.writeU8(tableOff + c * 2 + 1, toLocal(dest) >> 8)
+    ptrs[c] = toLocal(dest)
+  }
+
+  /**
+   * Change one trainer's party size. Lists are back to back, so the
+   * whole class block is rebuilt: in place when it still fits, else
+   * relocated to the bank's trailing padding with the class pointer
+   * (and any alias classes) retargeted.
+   */
+  const resizeParty = (id: number, newSize: number): boolean => {
+    const t = trainers[id]
+    newSize = Math.max(1, Math.min(MAX_PARTY, newSize))
+    const recs = trainers.filter((r) => r.classId === t.classId)
+    const start = toFile(ptrs[t.classId])
+    const end = recs[recs.length - 1].off + recs[recs.length - 1].len
+    const blocks = recs.map((r) => {
+      const mons = partyOf(r).map((m) => ({ level: m.level, internal: m.internal }))
+      if (r === t) {
+        while (mons.length > newSize) mons.pop()
+        while (mons.length < newSize) mons.push({ ...mons[mons.length - 1] })
+      }
+      return serialize(r, mons)
+    })
+    const data = blocks.flat()
+    const oldLen = end - start
+    let dest = start
+    if (data.length > oldLen) {
+      const free = findGbBankFreeSpace(bytes, bank, data.length)
+      if (free === null) return false
+      dest = free
+      // Alias classes (duplicate pointers) must follow the relocation.
+      for (let d = 0; d < TRAINER_CLASS_COUNT; d++) {
+        if (d !== t.classId && ptrs[d] === ptrs[t.classId]) setPointer(d, dest)
+      }
+      setPointer(t.classId, dest)
+      // Zero the abandoned block so the previous class's parser can't
+      // pick it up as extra trainers.
+      for (let i = 0; i < oldLen; i++) rom.writeU8(start + i, 0)
+    }
+    rom.writeBytes(dest, data)
+    // Zero the leftover tail so nothing parses as an extra list.
+    if (dest === start) for (let i = data.length; i < oldLen; i++) rom.writeU8(start + i, 0)
+    let p = dest
+    recs.forEach((r, i) => {
+      r.off = p
+      r.len = blocks[i].length
+      p += blocks[i].length
+    })
+    return true
+  }
+
+  const revertClass = (c: number) => {
+    const span = origSpan.get(c)
+    if (!span) return
+    const recs = trainers.filter((r) => r.classId === c)
+    const curStart = toFile(ptrs[c])
+    const curLen = recs[recs.length - 1].off + recs[recs.length - 1].len - curStart
+    rom.revertRange(span.start, span.len)
+    if (curStart !== span.start) {
+      rom.revertRange(curStart, curLen) // restore the padding it used
+      for (let d = 0; d < TRAINER_CLASS_COUNT; d++) {
+        if (ptrs[d] === ptrs[c] && d !== c) {
+          rom.revertRange(tableOff + d * 2, 2)
+          ptrs[d] = rom.readU16LE(tableOff + d * 2)
+        }
+      }
+      rom.revertRange(tableOff + c * 2, 2)
+      ptrs[c] = rom.readU16LE(tableOff + c * 2)
+    }
+    const fresh = parseClass(c)
+    recs.forEach((r, i) => {
+      if (fresh[i]) {
+        r.off = fresh[i].off
+        r.len = fresh[i].len
+        r.special = fresh[i].special
+      }
+    })
+  }
+
   const module: TrainerModule = {
     entries,
     nameLength: 0,
     nameHint: 'Gen 1 identifies trainers by class + number — scripts reference this pair, so it can\'t be renamed.',
-    features: { identity: false, ai: false, items: false, partySize: false },
+    features: { identity: false, ai: false, items: false },
     classOptions: GEN1_TRAINER_CLASSES.map((label, value) => ({ value, label })),
     read(id) {
       const t = trainers[id]
@@ -345,10 +455,12 @@ function buildGen1Trainers(
         aiFlags: 0,
         items: [],
         partySize: size,
-        maxPartySize: size,
+        maxPartySize: MAX_PARTY,
       }
     },
-    write() {},
+    write(id, field, value) {
+      if (field === 'partySize') resizeParty(id, value)
+    },
     setName: () => false,
     setItem() {},
     party(id) {
@@ -372,8 +484,7 @@ function buildGen1Trainers(
       }
     },
     revert(id) {
-      const t = trainers[id]
-      rom.revertRange(t.off, t.len)
+      revertClass(trainers[id].classId)
     },
   }
   return { module, offset: tableOff, trainerCount: trainers.length }

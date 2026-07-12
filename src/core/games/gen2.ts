@@ -5,6 +5,7 @@
  * which makes life easier than Gen 1. Base stat entries are 32 bytes.
  */
 import { Rom } from '../rom'
+import { findGbBankFreeSpace } from '../freespace'
 import { findByVote, findVerified } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { EGG_GROUPS, GEN2_TYPES, GEN12_GROWTH, GENDER_RATIOS, padDex } from './data'
@@ -224,12 +225,16 @@ function buildGen2Trainers(rom: Rom): { module: TrainerModule; offset: number; c
     return type <= 3 && level >= 1 && level <= GEN2_MAX_LEVEL && species >= 1 && species <= COUNT
   }
 
+  // Mostly non-decreasing: a few descents are allowed because growing
+  // a party relocates its class group to bank-end padding.
   const validTableAt = (start: number, classes: number): boolean => {
     const bank = Math.floor(start / 0x4000)
     let prev = 0x4000
+    let descents = 0
     for (let c = 0; c < classes; c++) {
       const v = rom.readU16LE(start + c * 2)
-      if (v < prev || v >= 0x8000) return false
+      if (v < 0x4000 || v >= 0x8000) return false
+      if (v < prev && ++descents > 8) return false
       if (!validTrainerStart(bank * 0x4000 + (v - 0x4000))) return false
       prev = v
     }
@@ -255,20 +260,28 @@ function buildGen2Trainers(rom: Rom): { module: TrainerModule; offset: number; c
       break
     }
   }
-  // Fallback (survives edits to Falkner, who is a real editable
-  // trainer): the table is self-referencing — entry 0 points exactly
-  // 2 × classCount bytes past the table start.
+  // Fallback (survives edits to Falkner — a real editable trainer —
+  // and class relocations from party growth): a maximal run of valid
+  // class pointers bounded by non-pointers on both sides. Group bytes
+  // can't qualify: names start with two characters >= 0x80, which read
+  // as a u16 above the pointer range, and zeroed blocks read 0x0000.
   if (tableOff === null) {
-    for (let o = 0; o + MIN_CLASSES * 2 <= bytes.length; o++) {
-      const span = rom.readU16LE(o) - toLocal(o)
-      if (span % 2 !== 0) continue
-      const k = span / 2
-      if (k < MIN_CLASSES || k > MAX_CLASSES) continue
-      if (validTableAt(o, k)) {
+    const validEntry = (o: number): boolean => {
+      if (o < 0 || o + 2 > bytes.length) return false
+      const v = rom.readU16LE(o)
+      if (v < 0x4000 || v >= 0x8000) return false
+      return validTrainerStart(Math.floor(o / 0x4000) * 0x4000 + (v - 0x4000))
+    }
+    for (let o = 0; o + MIN_CLASSES * 2 <= bytes.length; o += 1) {
+      if (validEntry(o - 2) || !validEntry(o)) continue
+      let k = 0
+      while (k <= MAX_CLASSES && validEntry(o + k * 2)) k++
+      if (k >= MIN_CLASSES && k <= MAX_CLASSES) {
         tableOff = o
         classCount = k
         break
       }
+      o += Math.max(0, k * 2 - 1) // skip past the rejected run
     }
   }
   if (tableOff === null) return null
@@ -365,10 +378,105 @@ function buildGen2Trainers(rom: Rom): { module: TrainerModule; offset: number; c
     return out
   }
 
+  // Original span of each class group, for revert after relocation.
+  const origSpan = new Map<number, { start: number; len: number }>()
+  for (let c = 0; c < classCount; c++) {
+    const recs = trainers.filter((t) => t.classId === c)
+    if (recs.length === 0) continue
+    const start = toFile(ptrs[c])
+    origSpan.set(c, { start, len: recs[recs.length - 1].off + recs[recs.length - 1].len - start })
+  }
+
+  const serializeTrainer = (t: Gen2TrainerRec, monCount: number): number[] => {
+    const size = monSize(t.type)
+    const offs = monOffsets(t)
+    const out = [...bytes.subarray(t.off, t.off + t.nameLen), 0x50, t.type]
+    for (let i = 0; i < monCount; i++) {
+      // Duplicate the last mon when growing past the current party.
+      const q = offs[Math.min(i, offs.length - 1)]
+      for (let b = 0; b < size; b++) out.push(bytes[q + b])
+    }
+    out.push(0xff)
+    return out
+  }
+
+  const setPointer = (c: number, dest: number) => {
+    rom.writeU8(tableOff + c * 2, toLocal(dest) & 0xff)
+    rom.writeU8(tableOff + c * 2 + 1, toLocal(dest) >> 8)
+    ptrs[c] = toLocal(dest)
+  }
+
+  /**
+   * Change one trainer's party size by rebuilding the whole class
+   * group: in place when it still fits, else relocated to the bank's
+   * trailing padding with the class pointer (and aliases) retargeted.
+   */
+  const resizeParty = (id: number, newSize: number): boolean => {
+    const t = trainers[id]
+    newSize = Math.max(1, Math.min(6, newSize))
+    const recs = trainers.filter((r) => r.classId === t.classId)
+    const start = toFile(ptrs[t.classId])
+    const end = recs[recs.length - 1].off + recs[recs.length - 1].len
+    const blocks = recs.map((r) => serializeTrainer(r, r === t ? newSize : monOffsets(r).length))
+    const data = blocks.flat()
+    const oldLen = end - start
+    let dest = start
+    if (data.length > oldLen) {
+      const free = findGbBankFreeSpace(bytes, bank, data.length)
+      if (free === null) return false
+      dest = free
+      for (let d = 0; d < classCount; d++) {
+        if (d !== t.classId && ptrs[d] === ptrs[t.classId]) setPointer(d, dest)
+      }
+      setPointer(t.classId, dest)
+      // Zero the abandoned block so the previous class can't parse it.
+      for (let i = 0; i < oldLen; i++) rom.writeU8(start + i, 0)
+    }
+    rom.writeBytes(dest, data)
+    if (dest === start) for (let i = data.length; i < oldLen; i++) rom.writeU8(start + i, 0)
+    let p = dest
+    recs.forEach((r, i) => {
+      r.off = p
+      r.len = blocks[i].length
+      p += blocks[i].length
+    })
+    return true
+  }
+
+  const revertClass = (c: number) => {
+    const span = origSpan.get(c)
+    if (!span) return
+    const recs = trainers.filter((r) => r.classId === c)
+    const curStart = toFile(ptrs[c])
+    const curLen = recs[recs.length - 1].off + recs[recs.length - 1].len - curStart
+    rom.revertRange(span.start, span.len)
+    if (curStart !== span.start) {
+      rom.revertRange(curStart, curLen)
+      for (let d = 0; d < classCount; d++) {
+        if (ptrs[d] === ptrs[c] && d !== c) {
+          rom.revertRange(tableOff + d * 2, 2)
+          ptrs[d] = rom.readU16LE(tableOff + d * 2)
+        }
+      }
+      rom.revertRange(tableOff + c * 2, 2)
+      ptrs[c] = rom.readU16LE(tableOff + c * 2)
+    }
+    const fresh = parseClass(c)
+    recs.forEach((r, i) => {
+      if (fresh[i]) {
+        r.off = fresh[i].off
+        r.len = fresh[i].len
+        r.type = fresh[i].type
+        r.nameLen = fresh[i].nameLen
+      }
+    })
+    recs.forEach((r) => refreshEntry(trainers.indexOf(r)))
+  }
+
   const module: TrainerModule = {
     entries,
     nameLength: 10,
-    features: { identity: false, ai: false, items: false, partySize: false },
+    features: { identity: false, ai: false, items: false },
     classOptions:
       classNames.length > 0 ? classNames.map((label, i) => ({ value: i, label: `${label} (#${i + 1})` })) : null,
     read(id) {
@@ -384,10 +492,12 @@ function buildGen2Trainers(rom: Rom): { module: TrainerModule; offset: number; c
         aiFlags: 0,
         items: [],
         partySize: size,
-        maxPartySize: size,
+        maxPartySize: 6,
       }
     },
-    write() {},
+    write(id, field, value) {
+      if (field === 'partySize') resizeParty(id, value)
+    },
     setName(id, name) {
       const t = trainers[id]
       // Same-footprint rename: shorter names pad with spaces before the
@@ -426,9 +536,7 @@ function buildGen2Trainers(rom: Rom): { module: TrainerModule; offset: number; c
       }
     },
     revert(id) {
-      const t = trainers[id]
-      rom.revertRange(t.off, t.len)
-      refreshEntry(id)
+      revertClass(trainers[id].classId)
     },
   }
   return { module, offset: tableOff, classCount, trainerCount: trainers.length }

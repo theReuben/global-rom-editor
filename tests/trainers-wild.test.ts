@@ -158,7 +158,35 @@ describe('Gen 1 trainer parties', () => {
     expect(fixed[0]).toMatchObject({ species: 1, level: 20 })
     expect(fixed[1]).toMatchObject({ species: 1, level: 20 })
     expect(t.read(4).partySize).toBe(2)
-    expect(t.read(4).maxPartySize).toBe(2) // lists can't grow in place
+    expect(t.read(4).maxPartySize).toBe(6) // growth relocates the class block
+  })
+
+  it('grows a party by relocating the class block to bank padding', () => {
+    const a = loadGen1()
+    const t = a.trainerModule!
+    t.write(4, 'partySize', 4) // Lass #1: 2 -> 4 (block must relocate)
+    const party = t.party(4)
+    expect(party).toHaveLength(4)
+    expect(party[2]).toMatchObject({ species: 1, level: 20 }) // duplicated last mon
+    expect(party[3]).toMatchObject({ species: 1, level: 20 })
+    // Edits still land after the move.
+    t.writePartyField(4, 3, 'species', 2)
+    expect(t.party(4)[3].species).toBe(2)
+
+    // A fresh scan of the edited bytes must find the relocated class.
+    const re = buildAdapter(new Rom('red.gb', a.rom.bytes)).adapter!
+    const rt = re.trainerModule!
+    expect(rt.entries).toHaveLength(5)
+    expect(rt.party(4)).toHaveLength(4)
+    expect(rt.party(4)[3].species).toBe(2)
+    expect(rt.party(3)).toHaveLength(2) // other classes untouched
+
+    // Shrink back in place and revert fully.
+    t.write(4, 'partySize', 1)
+    expect(t.party(4)).toHaveLength(1)
+    t.revert(4)
+    expect(t.party(4)).toHaveLength(2)
+    expect(a.rom.changedByteCount).toBe(0)
   })
 
   it('edits species and levels in place and reverts', () => {
@@ -285,6 +313,31 @@ describe('Gen 2 trainer parties', () => {
     t.revert(0)
     expect(t.party(4)[0].species).toBe(25)
     expect(t.entries[0].name).toBe('FALKNER')
+    expect(a.rom.changedByteCount).toBe(0)
+  })
+
+  it('grows and shrinks parties by rebuilding the class group', async () => {
+    const a = await loadGen2()
+    const t = a.trainerModule!
+    expect(t.read(0).maxPartySize).toBe(6)
+    t.write(0, 'partySize', 5) // Falkner 2 -> 5: group must relocate
+    const party = t.party(0)
+    expect(party).toHaveLength(5)
+    expect(party[4].species).toBe(17) // duplicated Pidgeotto
+    expect(party[4].moves).toEqual([33, 189, 16, 0])
+    t.writePartyField(0, 4, 'species', 251)
+    expect(t.party(0)[4].species).toBe(251)
+    expect(t.entries[0].name).toBe('FALKNER') // name survived the rebuild
+
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    expect(re.trainerModule!.entries).toHaveLength(67)
+    expect(re.trainerModule!.party(0)).toHaveLength(5)
+    expect(re.trainerModule!.party(1)).toHaveLength(2) // Whitney untouched
+
+    t.write(0, 'partySize', 1)
+    expect(t.party(0)).toHaveLength(1)
+    t.revert(0)
+    expect(t.party(0)).toHaveLength(2)
     expect(a.rom.changedByteCount).toBe(0)
   })
 

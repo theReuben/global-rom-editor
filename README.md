@@ -25,7 +25,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Map viewer & block painting (scene editing) | 🔜 | 🔜 | ✅ | — |
 | Movement permission (collision) editing | — | — | ✅ | — |
 | NPC / warp / sign editing | 🔜 | 🔜 | ✅ | — |
-| Trainer editing (class, AI, items, full parties) | ✅ parties | ✅ parties+names | ✅ | ✅ Gen 4 (named) |
+| Trainer editing (class, AI, items, full parties) | ✅ parties (grow to 6) | ✅ parties+names (grow to 6) | ✅ | ✅ Gen 4 (named) |
 | Wild encounter editing (time-of-day in Gen 2/HGSS; grass/surf/rods/radio/swarms in Gen 4) | ✅ | ✅ | ✅ | ✅ D/P/Pt/HGSS |
 | Item names read from the ROM (dropdowns everywhere) | — | — | ✅ | — |
 | Map resizing (relocated into free space) | — | — | ✅ | — |
