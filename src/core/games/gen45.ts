@@ -452,17 +452,20 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
   // (412/647/618/619), pokeheartgold msgdata.c + message_format.c
   // (237/750/729/730). HGSS's msg.narc is name-stripped to /a/0/2/7.
   const code3 = header.gameCode.slice(0, 3)
-  const MSG_BANKS: Record<string, { path: string; species: number; moves: number; trainers: number; classes: number }> = {
-    ADA: { path: '/msgdata/msg.narc', species: 362, moves: 588, trainers: 559, classes: 560 },
-    APA: { path: '/msgdata/msg.narc', species: 362, moves: 588, trainers: 559, classes: 560 },
-    CPU: { path: '/msgdata/pl_msg.narc', species: 412, moves: 647, trainers: 618, classes: 619 },
-    IPK: { path: '/a/0/2/7', species: 237, moves: 750, trainers: 729, classes: 730 },
-    IPG: { path: '/a/0/2/7', species: 237, moves: 750, trainers: 729, classes: 730 },
+  // Item banks: D/P 344 (pokediamond message_format.c), Pt 392
+  // (text_banks.txt line 393), HGSS 222 (pokeheartgold BufferItemName).
+  const MSG_BANKS: Record<string, { path: string; species: number; moves: number; trainers: number; classes: number; items: number }> = {
+    ADA: { path: '/msgdata/msg.narc', species: 362, moves: 588, trainers: 559, classes: 560, items: 344 },
+    APA: { path: '/msgdata/msg.narc', species: 362, moves: 588, trainers: 559, classes: 560, items: 344 },
+    CPU: { path: '/msgdata/pl_msg.narc', species: 412, moves: 647, trainers: 618, classes: 619, items: 392 },
+    IPK: { path: '/a/0/2/7', species: 237, moves: 750, trainers: 729, classes: 730, items: 222 },
+    IPG: { path: '/a/0/2/7', species: 237, moves: 750, trainers: 729, classes: 730, items: 222 },
   }
   let msgSpecies: string[] = []
   let msgMoves: string[] = []
   let msgTrainers: string[] = []
   let msgClasses: string[] = []
+  let msgItems: string[] = []
   let speciesBank: NarcSubfile | null = null
   let trainerBank: NarcSubfile | null = null
   const msgCfg = MSG_BANKS[code3]
@@ -481,6 +484,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
       msgMoves = bank(msgCfg.moves)
       msgTrainers = bank(msgCfg.trainers)
       msgClasses = bank(msgCfg.classes)
+      msgItems = bank(msgCfg.items)
     }
   }
 
@@ -518,6 +522,10 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     ...NATDEX_ABILITIES.map((label, i) => ({ value: i + 1, label })),
   ]
   const evOptions = [0, 1, 2, 3].map((v) => ({ value: v, label: String(v) }))
+  const itemField = (key: string, label: string): FieldSpec =>
+    msgItems.length > 1
+      ? { key, label, kind: 'select', options: msgItems.map((l, value) => ({ value, label: value === 0 ? '— none —' : l || `Item #${value}` })), group: 'battle' }
+      : { key, label, kind: 'number', min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none).' }
   const tmLabels: string[] = []
   for (let i = 0; i < 128; i++) {
     tmLabels.push(i < 92 ? `TM${String(i + 1).padStart(2, '0')}` : i < 100 ? `HM${String(i - 91).padStart(2, '0')}` : '(unused)')
@@ -539,8 +547,8 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
         ...minimalFields,
         { key: 'baseExp', label: 'Base EXP yield', kind: 'number', min: 0, max: 255, group: 'battle' },
         { key: 'growthRate', label: 'Level curve', kind: 'select', options: GEN3_GROWTH, group: 'battle' },
-        { key: 'item1', label: 'Wild held item (common)', kind: 'number', min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none).' },
-        { key: 'item2', label: 'Wild held item (rare)', kind: 'number', min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none).' },
+        itemField('item1', 'Wild held item (common)'),
+        itemField('item2', 'Wild held item (rare)'),
         { key: 'ability1', label: 'Ability 1', kind: 'select', options: abilityOptions, group: 'typing' },
         { key: 'ability2', label: 'Ability 2', kind: 'select', options: abilityOptions, group: 'typing' },
         { key: 'evHp', label: 'EV yield: HP', kind: 'select', options: evOptions, group: 'evs' },
@@ -561,9 +569,9 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
           ...minimalFields,
           { key: 'baseExp', label: 'Base EXP yield', kind: 'number' as const, min: 0, max: 65535, group: 'battle' },
           { key: 'growthRate', label: 'Level curve', kind: 'select' as const, options: GEN3_GROWTH, group: 'battle' },
-          { key: 'item1', label: 'Wild held item (50%)', kind: 'number' as const, min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none).' },
-          { key: 'item2', label: 'Wild held item (5%)', kind: 'number' as const, min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none).' },
-          { key: 'item3', label: 'Wild held item (1%)', kind: 'number' as const, min: 0, max: 65535, group: 'battle', help: 'Item ID (0 = none).' },
+          itemField('item1', 'Wild held item (50%)'),
+          itemField('item2', 'Wild held item (5%)'),
+          itemField('item3', 'Wild held item (1%)'),
           { key: 'ability1', label: 'Ability 1', kind: 'select' as const, options: abilityOptions, group: 'typing' },
           { key: 'ability2', label: 'Ability 2', kind: 'select' as const, options: abilityOptions, group: 'typing' },
           { key: 'abilityH', label: 'Hidden ability', kind: 'select' as const, options: abilityOptions, group: 'typing' },
@@ -660,7 +668,10 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     mapModule: null,
     trainerModule,
     wildModule,
-    itemOptions: null,
+    itemOptions:
+      msgItems.length > 1
+        ? msgItems.map((label, value) => ({ value, label: value === 0 ? '— none —' : label || `Item #${value}` }))
+        : null,
     speciesSprite: null,
     speciesSpriteBack: null,
     hasShinySprites: false,

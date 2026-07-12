@@ -32,7 +32,9 @@ so editing anchor species can't break reload.
 **Gen 4 (D/P/Pt/HGSS):** full personal editing, trainers, encounters
 (incl. HGSS time-of-day/radio/swarms), real names from the msg banks,
 species/trainer renaming in place (same-or-shorter encoded length),
-move data editing (16-byte waza_tbl entries — effect, category,
+item names from the msg banks (D/P bank
+344, Pt 392, HGSS 222) feeding held-item dropdowns, move data
+editing (16-byte waza_tbl entries — effect, category,
 power, type, accuracy %, PP, effect chance, priority; struct from
 pokeplatinum move_table.h == pokeheartgold move.h; paths
 waza_tbl / pl_waza_tbl / a-0-1-1).

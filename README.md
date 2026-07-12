@@ -27,7 +27,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | NPC / warp / sign editing | 🔜 | 🔜 | ✅ | — |
 | Trainer editing (class, AI, items, full parties) | ✅ parties (grow to 6) | ✅ parties+names (grow to 6) | ✅ | ✅ Gen 4 (named) |
 | Wild encounter editing (time-of-day in Gen 2/HGSS; grass/surf/rods/radio/swarms in Gen 4) | ✅ | ✅ | ✅ | ✅ D/P/Pt/HGSS |
-| Item names read from the ROM (dropdowns everywhere) | — | ✅ | ✅ | — |
+| Item names read from the ROM (dropdowns everywhere) | — | ✅ | ✅ | ✅ Gen 4 |
 | Map resizing (relocated into free space) | — | — | ✅ | — |
 | Brand-new maps (duplicate into a fresh bank slot) | — | — | ✅ | — |
 | Add / remove NPCs, warps and signs | — | — | ✅ | — |
