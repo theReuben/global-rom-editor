@@ -21,7 +21,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Abilities (named, read from the ROM) | — | — | ✅ | ✅ (+hidden in Gen 5) |
 | EV yields | — | — | ✅ | ✅ |
 | Move power / accuracy / PP / type / effect / priority / flags | ✅ | ✅ | ✅ | — |
-| Move renaming | 🔜 | 🔜 | ✅ | — |
+| Move renaming | ✅ | ✅ | ✅ | — |
 | Map viewer & block painting (scene editing) | ✅ | 🔜 | ✅ | — |
 | Movement permission (collision) editing | — | — | ✅ | — |
 | NPC / warp / sign editing | 🔜 | 🔜 | ✅ | — |

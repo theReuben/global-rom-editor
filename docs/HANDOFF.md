@@ -5,7 +5,11 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-136 tests green. Gen 1 (R/B/Y) maps now render with block painting:
+137 tests green. Gen 1/2 move renaming shipped (same-or-shorter,
+space-padded in the variable-length 0x50-terminated list). Move-NAME
+discovery is now voting-based too: adjacent-pair anchors at moves
+1/33/85/94 walk BACKWARD (id-1) validated segments to the list start
+and vote - renaming an anchor move only silences one vote. Gen 1 (R/B/Y) maps now render with block painting:
 src/core/gb/gen1maps.ts discovers MapHeaderPointers (any maximal run
 of 150-256 bank-local u16s anywhere in the ROM - Red keeps it in
 ROM0, Yellow in a switchable bank), confirms it by finding the

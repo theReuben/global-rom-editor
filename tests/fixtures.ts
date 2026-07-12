@@ -62,13 +62,15 @@ export function makeGen1Rom(): Uint8Array {
   put(rom, moves + 6, [0x02, 0x00, 50, 0x00, 0xff, 25])
   put(rom, moves + 12, [0x03, 0x1d, 15, 0x00, 0xd8, 10])
 
-  // Move names (variable length, 0x50-terminated).
+  // Move names (variable length, 0x50-terminated), through move 34 so
+  // the TACKLE/BODY SLAM anchor pair exists for voting discovery.
   const moveNames = 0xb0000
-  put(rom, moveNames, [
-    ...gen12Bytes('POUND'), 0x50,
-    ...gen12Bytes('KARATE CHOP'), 0x50,
-    ...gen12Bytes('DOUBLESLAP'), 0x50,
-  ])
+  const nameList = ['POUND', 'KARATE CHOP', 'DOUBLESLAP']
+  for (let mv = 4; mv <= 32; mv++) nameList.push('MOVE' + String(mv))
+  nameList.push('TACKLE', 'BODY SLAM')
+  for (let mv = 35; mv <= 84; mv++) nameList.push('MOVE' + String(mv))
+  nameList.push('THUNDERBOLT', 'THUNDER WAVE')
+  put(rom, moveNames, nameList.flatMap((n) => [...gen12Bytes(n), 0x50]))
 
   // TM/HM move list.
   put(rom, 0x13773, [5, 13, 14, 18, 25, 92, 32, 34])
@@ -195,7 +197,12 @@ export function makeGen2Rom(): Uint8Array {
   put(rom, moves + 7, [0x02, 0x00, 50, 0x01, 0xff, 25, 0x00])
 
   const moveNames = 0x1c9f29
-  put(rom, moveNames, [...gen12Bytes('POUND'), 0x50, ...gen12Bytes('KARATE CHOP'), 0x50])
+  const g2names = ['POUND', 'KARATE CHOP']
+  for (let mv = 3; mv <= 32; mv++) g2names.push('MOVE' + String(mv))
+  g2names.push('TACKLE', 'BODY SLAM')
+  for (let mv = 35; mv <= 84; mv++) g2names.push('MOVE' + String(mv))
+  g2names.push('THUNDERBOLT', 'THUNDER WAVE')
+  put(rom, moveNames, g2names.flatMap((n) => [...gen12Bytes(n), 0x50]))
 
   put(rom, 0x1167a, [223, 29, 174, 205, 46, 92, 192, 249])
 

@@ -67,6 +67,20 @@ describe('Gen 1 adapter', () => {
     expect(a.readMove(1).power).toBe(40)
   })
 
+  it('renames moves within the original footprint', () => {
+    const a = load()
+    expect(a.moveNameLength).toBe(12)
+    expect(a.setMoveName(1, 'BONK')).toBe(true) // "POUND" -> shorter
+    expect(a.moves[0].name).toBe('BONK')
+    expect(a.setMoveName(1, 'SUPERLONGNAME')).toBe(false) // > 5 chars
+    expect(a.moves[0].name).toBe('BONK')
+    // The next name is untouched and a fresh scan still parses the list.
+    expect(a.moves[1].name).toBe('KARATE CHOP')
+    const re = buildAdapter(new Rom('red.gb', a.rom.bytes)).adapter!
+    expect(re.moves[0].name).toBe('BONK')
+    expect(re.moves[1].name).toBe('KARATE CHOP')
+  })
+
   it('labels TM flags with move names', () => {
     const a = load()
     const tmhm = a.speciesFields.find((f) => f.key === 'tmhm')!

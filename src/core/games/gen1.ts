@@ -558,21 +558,76 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
 
   // Move names: variable-length 0x50-terminated strings, so read-only.
   const moveNames: string[] = []
-  const moveNamesOff = findVerified(
-    bytes,
-    [...gen12Bytes('POUND'), 0x50, ...gen12Bytes('KARATE CHOP'), 0x50],
-    [],
-  )
+  // The names list is found by voting: each known adjacent name pair
+  // anchors at its move id, and walking backwards (id-1) 0x50-terminated
+  // segments of 1-12 displayable characters recovers the list start.
+  // Renaming any anchor move only silences that one vote.
+  const MOVE_NAME_ANCHORS: { id: number; pair: string[] }[] = [
+    { id: 1, pair: ['POUND', 'KARATE CHOP'] },
+    { id: 33, pair: ['TACKLE', 'BODY SLAM'] },
+    { id: 85, pair: ['THUNDERBOLT', 'THUNDER WAVE'] },
+    { id: 94, pair: ['PSYCHIC', 'HYPNOSIS'] },
+  ]
+  const walkBackNames = (from: number, segments: number): number | null => {
+    let p = from
+    for (let s = 0; s < segments; s++) {
+      if (p < 2 || bytes[p - 1] !== 0x50) return null
+      let q = p - 2
+      let len = 0
+      while (q >= 0 && bytes[q] !== 0x50 && bytes[q] >= 0x60 && len <= 12) {
+        q--
+        len++
+      }
+      if (len < 1 || len > 12) return null
+      p = q + 1
+    }
+    return p
+  }
+  const nameVotes = new Map<number, number>()
+  for (const a of MOVE_NAME_ANCHORS) {
+    const pattern = [...gen12Bytes(a.pair[0]), 0x50, ...gen12Bytes(a.pair[1]), 0x50]
+    for (const hit of findAll(bytes, pattern, 8)) {
+      const start = a.id === 1 ? hit : walkBackNames(hit, a.id - 1)
+      if (start !== null) nameVotes.set(start, (nameVotes.get(start) ?? 0) + 1)
+    }
+  }
+  let moveNamesOff: number | null = null
+  let bestNameVotes = 0
+  for (const [start, v] of nameVotes) {
+    if (v > bestNameVotes) {
+      moveNamesOff = start
+      bestNameVotes = v
+    }
+  }
+  if (bestNameVotes < 2) moveNamesOff = null
+  const moveNameSlots: { off: number; len: number }[] = []
   if (moveNamesOff !== null) {
     let p = moveNamesOff
     for (let i = 0; i < MOVE_COUNT && p < bytes.length; i++) {
       let end = p
       while (end < bytes.length && bytes[end] !== 0x50) end++
-      const name = gen12Codec.decode(bytes.subarray(p, end))
+      const name = gen12Codec.decode(bytes.subarray(p, end)).trimEnd() // renames space-pad
       // Real move names are 1-12 chars; anything else means we ran off the table.
       moveNames.push(name.length >= 1 && name.length <= 12 ? name : `Move #${i + 1}`)
+      moveNameSlots.push({ off: p, len: end - p })
       p = end + 1
     }
+  }
+  // Same-footprint renames: shorter names space-pad up to the original
+  // terminator so the list never shifts.
+  const renameMove = (id: number, name: string): boolean => {
+    const slot = moveNameSlots[id - 1]
+    if (!slot || name.length === 0) return false
+    const encoded = gen12Codec.encode(name.toUpperCase(), slot.len)
+    if (!encoded) return false
+    rom.writeBytes(slot.off, encoded.map((b) => (b === 0x50 ? 0x7f : b)))
+    moveNames[id - 1] = gen12Codec.decode(bytes.subarray(slot.off, slot.off + slot.len)).trimEnd()
+    const handle = moves[id - 1]
+    if (handle) {
+      handle.name = moveNames[id - 1]
+      handle.label = `${String(id).padStart(3, '0')} ${moveNames[id - 1]}`
+    }
+    return true
   }
   const moveName = (id: number) => moveNames[id - 1] ?? `Move #${id}`
 
@@ -774,8 +829,8 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
 
     moves,
     moveFields,
-    moveNameLength: null,
-    setMoveName: () => false,
+    moveNameLength: moveNamesOff !== null ? 12 : null,
+    setMoveName: renameMove,
 
     readMove(id) {
       const base = moveOff! + (id - 1) * MOVE_ENTRY
