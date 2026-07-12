@@ -24,9 +24,10 @@
  *    gfx/tilesets/bg_tiles.pal + data/maps/environment_colors.asm.
  */
 import type { Rom } from '../rom'
-import type { MapModule, RenderedImage } from '../games/schema'
+import type { EventKind, MapModule, RenderedImage } from '../games/schema'
 import { decodeTile2bpp } from '../tiles'
 import { lz3Decompress } from './lz3'
+import { findGbBankFreeSpace } from '../freespace'
 
 const MAP_ENTRY = 9
 const TILESET_ENTRY = 15
@@ -260,7 +261,9 @@ export function buildGen2Maps(
       warps.push(p)
       p += 5
     }
+    const coordsOff = p
     p += 1 + Math.min(bytes[p], 32) * 8 // coord events: not exposed
+    const coordsEnd = p
     const nBg = bytes[p++]
     for (let i = 0; i < Math.min(nBg, 48); i++) {
       signs.push(p)
@@ -271,7 +274,52 @@ export function buildGen2Maps(
       npcs.push(p)
       p += 13
     }
-    return { warps, signs, npcs }
+    return { evOff, bank, warps, coordsOff, coordsEnd, signs, npcs, end: p }
+  }
+
+  /**
+   * Rebuild a map's MapEvents blob with one event added (copying the
+   * last entry of its kind, whose script pointers and ids are all valid
+   * for this map) or removed. Growth relocates the blob into trailing
+   * free space of the scripts bank (the pointer's bank) and retargets
+   * the attributes' events pointer; the old blob stays untouched.
+   */
+  const editEvents = (m: Gen2MapRec, kind: EventKind, removeIndex: number | null): boolean => {
+    const parsed = parseEvents(m)
+    const raw = (off: number, len: number) => [...bytes.subarray(off, off + len)]
+    const warps = parsed.warps.map((w) => raw(w, 5))
+    const signs = parsed.signs.map((s) => raw(s, 5))
+    const npcs = parsed.npcs.map((n) => raw(n, 13))
+    const lists = { warp: warps, sign: signs, npc: npcs } as const
+    const list = lists[kind]
+    if (removeIndex !== null) {
+      if (removeIndex < 0 || removeIndex >= list.length) return false
+      list.splice(removeIndex, 1)
+    } else {
+      const last = list[list.length - 1]
+      if (!last || list.length >= 48) return false
+      list.push([...last])
+    }
+    const blob = [
+      bytes[parsed.evOff],
+      bytes[parsed.evOff + 1], // filler word
+      warps.length,
+      ...warps.flat(),
+      ...raw(parsed.coordsOff, parsed.coordsEnd - parsed.coordsOff),
+      signs.length,
+      ...signs.flat(),
+      npcs.length,
+      ...npcs.flat(),
+    ]
+    if (blob.length <= parsed.end - parsed.evOff) {
+      rom.writeBytes(parsed.evOff, blob)
+      return true
+    }
+    const dest = findGbBankFreeSpace(bytes, parsed.bank, blob.length)
+    if (dest === null) return false
+    rom.writeBytes(dest, blob)
+    rom.writeU16LE(m.attrOff + 9, (dest % 0x4000) + 0x4000)
+    return true
   }
 
   const gfxCache = new Map<number, Uint8Array>()
@@ -415,8 +463,12 @@ export function buildGen2Maps(
     },
     resize: () => false,
     duplicateMap: () => null,
-    addEvent: () => false,
-    removeEvent() {},
+    addEvent(key, kind) {
+      return editEvents(byKey.get(key)!, kind, null)
+    },
+    removeEvent(key, kind, index) {
+      editEvents(byKey.get(key)!, kind, index)
+    },
     attachScript: () => false,
     revertBlocks(key) {
       const m = byKey.get(key)!

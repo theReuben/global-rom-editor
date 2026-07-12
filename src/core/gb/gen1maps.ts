@@ -19,8 +19,9 @@
  * against the headers they must produce. No per-version offsets.
  */
 import type { Rom } from '../rom'
-import type { MapModule, RenderedImage } from '../games/schema'
+import type { EventKind, MapModule, RenderedImage } from '../games/schema'
 import { decodeTile2bpp } from '../tiles'
+import { findGbBankFreeSpace } from '../freespace'
 
 const HEADER_PTRS_MIN = 150
 const TILESET_ENTRY = 12
@@ -51,7 +52,7 @@ function toFile(bank: number, local: number): number {
 export function buildGen1Maps(
   rom: Rom,
   mapNames: Record<number, string> | string[],
-): { module: MapModule; headerPtrs: number; banks: number; tilesets: number; count: number } | null {
+): { module: MapModule; headerPtrs: number; banks: number; tilesets: number; count: number; viewBase: number } | null {
   const bytes = rom.bytes
   const romBanks = Math.max(2, Math.floor(bytes.length / 0x4000))
 
@@ -175,11 +176,17 @@ export function buildGen1Maps(
   }
 
   // Offsets of each warp/sign/object entry inside a map's object data.
+  // After the objects the blob carries one 4-byte "warp_to" entry per
+  // warp {viewPtr u16, y, x}: the arrival scroll position, consumed by
+  // LoadTilesetHeader on dungeon maps (pokered home/overworld.asm
+  // LoadDestinationWarpPosition). viewPtr = wOverworldMap + 7 + width
+  // + (width+6)*(y>>1) + (x>>1) per macros/coords.asm.
   const parseObjects = (m: Gen1Map) => {
     const conn = bytes[m.headerOff + 9]
     let nConn = 0
     for (let b = 0; b < 4; b++) if (conn & (1 << b)) nConn++
-    const objOff = toFile(m.bank, rom.readU16LE(m.headerOff + 10 + nConn * 11))
+    const ptrSlot = m.headerOff + 10 + nConn * 11
+    const objOff = toFile(m.bank, rom.readU16LE(ptrSlot))
     const warps: number[] = []
     const signs: number[] = []
     const npcs: number[] = []
@@ -200,7 +207,102 @@ export function buildGen1Maps(
       const textId = bytes[p + 5]
       p += 6 + (textId & 0x40 ? 2 : textId & 0x80 ? 1 : 0)
     }
-    return { warps, signs, npcs }
+    return { objOff, ptrSlot, warps, signs, npcs, warpsTo: p, end: p + warps.length * 4 }
+  }
+
+  // Derive the WRAM view-pointer base (wOverworldMap) from existing
+  // warp_to entries — every entry across the whole ROM must agree.
+  let viewBase = -1
+  {
+    const votes = new Map<number, number>()
+    for (const m of maps) {
+      const parsed = parseObjects(m)
+      for (let i = 0; i < parsed.warps.length; i++) {
+        const e = parsed.warpsTo + i * 4
+        const y = bytes[e + 2]
+        const x = bytes[e + 3]
+        const base =
+          rom.readU16LE(e) - (7 + m.width + (m.width + 6) * (y >> 1) + (x >> 1))
+        if (base > 0 && base <= 0xffff) votes.set(base, (votes.get(base) ?? 0) + 1)
+      }
+    }
+    let best = 0
+    for (const [base, n] of votes) {
+      if (n > best) {
+        best = n
+        viewBase = base
+      }
+    }
+    // Demand a clear majority — mixed votes mean we misparsed something.
+    const total = [...votes.values()].reduce((a, b) => a + b, 0)
+    if (total === 0 || best < total * 0.9) viewBase = -1
+  }
+  const viewPtrFor = (m: Gen1Map, y: number, x: number) =>
+    (viewBase + 7 + m.width + (m.width + 6) * (y >> 1) + (x >> 1)) & 0xffff
+
+  /**
+   * Rebuild a map's object data with one event added (copying the last
+   * entry of its kind as the template) or removed. Growth relocates the
+   * blob into trailing free space of the same bank and retargets the
+   * header's object-data pointer; the old blob is left untouched since
+   * other headers may alias it.
+   */
+  const editEvents = (m: Gen1Map, kind: EventKind, removeIndex: number | null): boolean => {
+    const parsed = parseObjects(m)
+    const raw = (off: number, len: number) => [...bytes.subarray(off, off + len)]
+    const npcSize = (off: number) =>
+      6 + (bytes[off + 5] & 0x40 ? 2 : bytes[off + 5] & 0x80 ? 1 : 0)
+
+    let warps = parsed.warps.map((w) => raw(w, 4))
+    let warpsTo = parsed.warps.map((_, i) => raw(parsed.warpsTo + i * 4, 4))
+    let signs = parsed.signs.map((s) => raw(s, 3))
+    let npcs = parsed.npcs.map((n) => raw(n, npcSize(n)))
+    if (removeIndex !== null) {
+      if (kind === 'warp' && removeIndex < warps.length) {
+        warps.splice(removeIndex, 1)
+        warpsTo.splice(removeIndex, 1)
+      } else if (kind === 'sign' && removeIndex < signs.length) signs.splice(removeIndex, 1)
+      else if (kind === 'npc' && removeIndex < npcs.length) npcs.splice(removeIndex, 1)
+      else return false
+    } else {
+      // Append a copy of the last entry: its sprite/text/destination ids
+      // are all known-valid for this map, unlike blank defaults.
+      if (kind === 'warp') {
+        const last = warps[warps.length - 1]
+        if (!last || warps.length >= 32 || viewBase < 0) return false
+        warps.push([...last])
+        const v = viewPtrFor(m, last[0], last[1])
+        warpsTo.push([v & 0xff, v >> 8, last[0], last[1]])
+      } else if (kind === 'sign') {
+        const last = signs[signs.length - 1]
+        if (!last || signs.length >= 32) return false
+        signs.push([...last])
+      } else {
+        const last = npcs[npcs.length - 1]
+        if (!last || npcs.length >= 15) return false
+        npcs.push([...last])
+      }
+    }
+
+    const blob = [
+      bytes[parsed.objOff], // border block
+      warps.length,
+      ...warps.flat(),
+      signs.length,
+      ...signs.flat(),
+      npcs.length,
+      ...npcs.flat(),
+      ...warpsTo.flat(),
+    ]
+    if (blob.length <= parsed.end - parsed.objOff) {
+      rom.writeBytes(parsed.objOff, blob)
+      return true
+    }
+    const dest = findGbBankFreeSpace(bytes, m.bank, blob.length)
+    if (dest === null) return false
+    rom.writeBytes(dest, blob)
+    rom.writeU16LE(parsed.ptrSlot, (dest % 0x4000) + 0x4000)
+    return true
   }
 
   const tileCache = new Map<string, Uint8Array>()
@@ -314,7 +416,8 @@ export function buildGen1Maps(
       }
     },
     updateEvent(key, kind, index, field, value) {
-      const parsed = parseObjects(byKey.get(key)!)
+      const m = byKey.get(key)!
+      const parsed = parseObjects(m)
       if (kind === 'warp') {
         const w = parsed.warps[index]
         if (w === undefined) return
@@ -322,6 +425,15 @@ export function buildGen1Maps(
         else if (field === 'y') rom.writeU8(w, value)
         else if (field === 'warpId') rom.writeU8(w + 2, value)
         else if (field === 'targetMap') rom.writeU8(w + 3, value)
+        // Keep the arrival (warp_to) entry in sync with the position.
+        if ((field === 'x' || field === 'y') && viewBase >= 0) {
+          const e = parsed.warpsTo + index * 4
+          const y = bytes[w]
+          const x = bytes[w + 1]
+          rom.writeU16LE(e, viewPtrFor(m, y, x))
+          rom.writeU8(e + 2, y)
+          rom.writeU8(e + 3, x)
+        }
       } else if (kind === 'sign') {
         const sg = parsed.signs[index]
         if (sg === undefined) return
@@ -339,13 +451,17 @@ export function buildGen1Maps(
     },
     resize: () => false,
     duplicateMap: () => null,
-    addEvent: () => false,
-    removeEvent() {},
+    addEvent(key, kind) {
+      return editEvents(byKey.get(key)!, kind, null)
+    },
+    removeEvent(key, kind, index) {
+      editEvents(byKey.get(key)!, kind, index)
+    },
     attachScript: () => false,
     revertBlocks(key) {
       const m = byKey.get(key)!
       rom.revertRange(m.blocksOff, m.width * m.height)
     },
   }
-  return { module, headerPtrs: ptrTable, banks: banksTable, tilesets, count: maps.length }
+  return { module, headerPtrs: ptrTable, banks: banksTable, tilesets, count: maps.length, viewBase }
 }

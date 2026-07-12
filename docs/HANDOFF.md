@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-148 tests green; `npm test` and `npm run build` must stay that way.
+150 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -17,6 +17,15 @@ editing (object data: border, warps 4B {y,x,destWarp,destMap}, signs
 textId bits 6/7; objectsPtr sits after the connections in the
 header). Validated against built Red/Yellow .sym files and Pallet
 Town's exact event coordinates (Yellow moves Oak to 10,4).
+Event ADD/REMOVE ships too: adding copies the last entry of that kind
+(all its ids are known-valid), growth relocates the object blob to
+bank-end free space and retargets the header pointer (old blob kept —
+other headers may alias it). The blob's trailing warp_to entries
+(4B {viewPtr,y,x} per warp, arrival scroll data read by
+LoadTilesetHeader on dungeon maps) stay in sync on add/remove/move;
+viewPtr = wOverworldMap + 7 + w + (w+6)*(y>>1) + (x>>1), with
+wOverworldMap derived by majority vote over every existing warp_to
+entry (= 0xC6E8 on built Red AND Yellow, matching their .sym).
 
 **Gen 2 (G/S/C):** species/moves editing (renames incl. moves),
 time-of-day wild encounters, trainer parties (names, items, custom
@@ -37,7 +46,10 @@ scriptsBank:eventsPtr — filler word, then counted lists: warps 5B
 {y,x,fn,script u16}, objects 13B {sprite,y+4,x+4,movefn,radii,h1,h2,
 pal/type,sight,script u16,eventFlag u16}; verified against pokecrystal
 macros/scripts/maps.asm and Pallet Town's exact coordinates in built
-Gold + Crystal).
+Gold + Crystal). Event add/remove works like Gen 1's: copy-last
+template, relocate the MapEvents blob to scripts-bank free space on
+growth, retarget the attributes' events pointer; coord events are
+carried through verbatim.
 
 **Gen 3 (R/S/E/FR/LG):** the full suite — species, moves, trainers,
 wild, maps (paint/resize/new maps/NPCs/warps/signs/script builder),

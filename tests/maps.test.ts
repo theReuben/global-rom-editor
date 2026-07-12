@@ -163,6 +163,37 @@ describe('Gen 1 maps', () => {
     expect(rev.warps[0].targetMap).toBe(7)
     expect(rev.signs[0].kind).toBe(9)
   })
+
+  it('adds and removes events, relocating the object data on growth', () => {
+    return loadGen1().then((a) => {
+      const m = a.mapModule!
+      const key = m.entries[0].key
+      for (const kind of ['warp', 'sign', 'npc'] as const) {
+        expect(m.addEvent(key, kind)).toBe(true)
+      }
+      const ev = m.events(key)
+      expect(ev.warps).toHaveLength(2)
+      expect(ev.signs).toHaveLength(2)
+      expect(ev.npcs).toHaveLength(3)
+      // Copies of the last entries — including the trainer NPC extras.
+      expect(ev.warps[1]).toMatchObject({ x: 5, y: 5, targetMap: 40 })
+      expect(ev.npcs[2]).toMatchObject({ x: 3, y: 6, graphicsId: 9 })
+      // A fresh scan parses the relocated blob identically.
+      const re = buildAdapter(new Rom('red.gb', a.rom.bytes)).adapter!
+      const rev = re.mapModule!.events(key)
+      expect(rev.warps).toHaveLength(2)
+      expect(rev.npcs).toHaveLength(3)
+      // Remove takes them back out (in place).
+      m.removeEvent(key, 'warp', 1)
+      m.removeEvent(key, 'sign', 1)
+      m.removeEvent(key, 'npc', 2)
+      const back = m.events(key)
+      expect(back.warps).toHaveLength(1)
+      expect(back.signs).toHaveLength(1)
+      expect(back.npcs).toHaveLength(2)
+      expect(back.npcs[1].graphicsId).toBe(9)
+    })
+  })
 })
 
 describe('Gen 2 maps', () => {
@@ -219,5 +250,28 @@ describe('Gen 2 maps', () => {
     expect(rev.npcs[0].x).toBe(9)
     expect(rev.warps[1].targetMap).toBe(4)
     expect(rev.signs[0].kind).toBe(2)
+  })
+
+  it('adds and removes events, relocating the MapEvents blob on growth', async () => {
+    const a = await loadGen2()
+    const m = a.mapModule!
+    for (const kind of ['warp', 'sign', 'npc'] as const) {
+      expect(m.addEvent('1.1', kind)).toBe(true)
+    }
+    const ev = m.events('1.1')
+    expect(ev.warps).toHaveLength(3)
+    expect(ev.signs).toHaveLength(2)
+    expect(ev.npcs).toHaveLength(3)
+    expect(ev.warps[2]).toMatchObject({ x: 12, y: 11, targetBank: 1, targetMap: 3 })
+    expect(ev.npcs[2]).toMatchObject({ x: 12, y: 14, graphicsId: 5, movementType: 6 })
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    expect(re.mapModule!.events('1.1').npcs).toHaveLength(3)
+    m.removeEvent('1.1', 'warp', 2)
+    m.removeEvent('1.1', 'sign', 1)
+    m.removeEvent('1.1', 'npc', 2)
+    const back = m.events('1.1')
+    expect(back.warps).toHaveLength(2)
+    expect(back.signs).toHaveLength(1)
+    expect(back.npcs).toHaveLength(2)
   })
 })

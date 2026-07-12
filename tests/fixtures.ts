@@ -115,7 +115,9 @@ export function makeGen1Rom(): Uint8Array {
   // ts 0, 4x5 blocks, no connections, objects at local 0x4500.
   put(rom, header, [0, 4, 5, 0x00, 0x44, 0x00, 0x45, 0x00, 0x45, 0, 0x00, 0x45])
   // Object data: border, 1 warp (y5 x5 -> map 40 warp 1), 1 sign
-  // (y13 x13 text 4), 2 NPCs (plain + trainer with 2 extra bytes).
+  // (y13 x13 text 4), 2 NPCs (plain + trainer with 2 extra bytes),
+  // then one warp_to entry {viewPtr, y, x} with base 0xC6E8:
+  // 0xC6E8 + 7 + 5 + (5+6)*(5>>1) + (5>>1) = 0xC70C.
   const objData = 6 * 0x4000 + 0x500
   put(rom, objData, [
     0x0b,
@@ -124,6 +126,7 @@ export function makeGen1Rom(): Uint8Array {
     2,
     7, 5 + 4, 8 + 4, 1, 2, 5,
     9, 6 + 4, 3 + 4, 0, 0, 0x40 | 2, 24, 1,
+    0x0c, 0xc7, 5, 5,
   ])
   const mapBlocks = 6 * 0x4000 + 0x400
   rom[mapBlocks + 1] = 1 // block (1,0) uses block id 1
