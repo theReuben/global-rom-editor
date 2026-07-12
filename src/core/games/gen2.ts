@@ -7,6 +7,7 @@
 import { Rom } from '../rom'
 import { findGbBankFreeSpace } from '../freespace'
 import { buildGen2Maps } from '../gb/gen2maps'
+import { buildGbEvosMoves } from '../gb/evosmoves'
 import { findAll, findByVote, findVerified } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { EGG_GROUPS, GEN2_TYPES, GEN12_GROWTH, GENDER_RATIOS, padDex } from './data'
@@ -830,6 +831,19 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
 
   const statsBase = (dex: number) => statsOff + (dex - 1) * STATS_ENTRY
 
+  // Evolutions + level-up learnsets (EvosAttacksPointers, dex order —
+  // see src/core/gb/evosmoves.ts for the format).
+  const evosMoves = buildGbEvosMoves(rom, {
+    gen: 2,
+    entries: COUNT,
+    indexForDex: (dex) => dex,
+    targetToDex: (raw) => raw,
+    dexToTarget: (dex) => dex,
+  })
+  if (evosMoves) {
+    regions.push({ name: 'Evolutions & learnsets', offset: evosMoves.tableOff, length: COUNT * 2 })
+  }
+
   return {
     gameName,
     platform,
@@ -849,8 +863,8 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     hasShinySprites: false,
     importSpeciesSprite: null,
     importSpeciesSpriteBack: null,
-    evolutions: null,
-    learnsets: null,
+    evolutions: evosMoves?.evolutions ?? null,
+    learnsets: evosMoves?.learnsets ?? null,
     typeChart: null,
     speciesNameLength: namesOff !== null ? NAME_LEN : null,
 

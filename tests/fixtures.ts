@@ -75,6 +75,21 @@ export function makeGen1Rom(): Uint8Array {
   // TM/HM move list.
   put(rom, 0x13773, [5, 13, 14, 18, 25, 92, 32, 34])
 
+  // Evos + moves: 190 internal-order pointers (bank 0x0E local 0x7000).
+  // Blob A = no evos/no moves; blob B (internal 10 = Bulbasaur) evolves
+  // at 16 into internal 9 (dex 2) and learns Tackle@1, Growl@4.
+  const evoTable = 0x3b000
+  const evoLocal = (off: number) => 0x4000 + (off - 0x38000)
+  {
+    let blob = 0x3b200
+    for (let i = 0; i < 190; i++) {
+      put(rom, evoTable + i * 2, [evoLocal(blob) & 0xff, evoLocal(blob) >> 8])
+      const data = i === 9 ? [1, 16, 9, 0, 1, 33, 4, 45, 0] : [0, 0]
+      put(rom, blob, data)
+      blob += data.length
+    }
+  }
+
   // Wild encounters (bank 3): pointer table + blocks.
   put(rom, 0xd500, [0, 0]) // "nothing" block: grass 0, water 0
   put(rom, 0xd510, [25, 3, 0x24, 3, 0xa5, 3, 0xa5, 2, 0xa5, 2, 0x24, 3, 0x24, 3, 0x24, 4, 0xa5, 4, 0x24, 5, 0x24, 0])
@@ -265,6 +280,21 @@ export function makeGen2Rom(): Uint8Array {
   for (let mv = 35; mv <= 84; mv++) g2names.push('MOVE' + String(mv))
   g2names.push('THUNDERBOLT', 'THUNDER WAVE')
   put(rom, moveNames, g2names.flatMap((n) => [...gen12Bytes(n), 0x50]))
+
+  // Evos + attacks: 251 dex-order pointers (bank 0x11 local 0x4000).
+  // Blob A = empty; blob B (dex 1) evolves at 16 into dex 2 and learns
+  // Tackle@1, Growl@4.
+  const evoTable = 0x44000
+  const evoLocal = (off: number) => 0x4000 + (off - 0x44000)
+  {
+    let blob = 0x44300
+    for (let i = 0; i < 251; i++) {
+      put(rom, evoTable + i * 2, [evoLocal(blob) & 0xff, evoLocal(blob) >> 8])
+      const data = i === 0 ? [1, 16, 2, 0, 1, 33, 4, 45, 0] : [0, 2, 33, 0]
+      put(rom, blob, data)
+      blob += data.length
+    }
+  }
 
   put(rom, 0x1167a, [223, 29, 174, 205, 46, 92, 192, 249])
 

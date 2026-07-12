@@ -12,6 +12,7 @@
 import { Rom } from '../rom'
 import { findGbBankFreeSpace } from '../freespace'
 import { buildGen1Maps } from '../gb/gen1maps'
+import { buildGbEvosMoves } from '../gb/evosmoves'
 import { findAll, findByVote, findVerified, matchesAt } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { GEN1_TYPES, GEN12_GROWTH, padDex } from './data'
@@ -751,6 +752,27 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
   for (let dex = 1; dex <= speciesCount; dex++) {
     species.push({ id: dex, label: `${padDex(dex)} ${readName(dex)}`, name: readName(dex) })
   }
+
+  // Evolutions + level-up learnsets (EvosMovesPointerTable, internal
+  // order — see src/core/gb/evosmoves.ts for the format).
+  const evosMoves =
+    mapOff !== null
+      ? buildGbEvosMoves(rom, {
+          gen: 1,
+          entries: INTERNAL_COUNT,
+          indexForDex: (dex) => dexToInternal.get(dex) ?? 0,
+          targetToDex: (raw) =>
+            mapOff !== null && raw >= 1 && raw <= INTERNAL_COUNT ? bytes[mapOff + raw - 1] : 0,
+          dexToTarget: (dex) => dexToInternal.get(dex) ?? 0,
+        })
+      : null
+  if (evosMoves) {
+    regions.push({
+      name: 'Evolutions & learnsets',
+      offset: evosMoves.tableOff,
+      length: INTERNAL_COUNT * 2,
+    })
+  }
   const moves: EntryHandle[] =
     moveOff === null
       ? []
@@ -779,8 +801,8 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
     hasShinySprites: false,
     importSpeciesSprite: null,
     importSpeciesSpriteBack: null,
-    evolutions: null,
-    learnsets: null,
+    evolutions: evosMoves?.evolutions ?? null,
+    learnsets: evosMoves?.learnsets ?? null,
     typeChart: null,
     speciesNameLength: namesOff !== null ? NAME_LEN : null,
 

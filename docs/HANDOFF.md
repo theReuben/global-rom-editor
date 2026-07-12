@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-150 tests green; `npm test` and `npm run build` must stay that way.
+152 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -26,6 +26,18 @@ LoadTilesetHeader on dungeon maps) stay in sync on add/remove/move;
 viewPtr = wOverworldMap + 7 + w + (w+6)*(y>>1) + (x>>1), with
 wOverworldMap derived by majority vote over every existing warp_to
 entry (= 0xC6E8 on built Red AND Yellow, matching their .sym).
+Evolutions + learnsets (src/core/gb/evosmoves.ts, shared with Gen 2):
+EvosMovesPointerTable = 190 INTERNAL-order bank-local u16s, each blob =
+evo entries {1,level,sp} / {2,item,minLvl(1),sp} (4B) / {3,minLvl,sp},
+0, then (level,move) pairs, 0 — species bytes are internal ids.
+Discovery: longest run of same-bank pointers whose targets parse,
+cross-checked by the blobs tiling ≥80% of their middle-90% span (the
+trim keeps editor-relocated blobs from blowing up the span). The scan
+runs once per byte parity — skipping a failed run's length is only
+sound within one parity, or an odd-aligned table gets jumped over.
+Growth relocates a blob to bank free space FLOORED past every live
+blob ("no evos, no moves" is literally 00 00 and fools the padding
+scan). Verified: table at Red 0e:705c / Yellow 0e:71e5 per .sym.
 
 **Gen 2 (G/S/C):** species/moves editing (renames incl. moves),
 time-of-day wild encounters, trainer parties (names, items, custom
@@ -50,6 +62,10 @@ Gold + Crystal). Event add/remove works like Gen 1's: copy-last
 template, relocate the MapEvents blob to scripts-bank free space on
 growth, retarget the attributes' events pointer; coord events are
 carried through verbatim.
+Evolutions + learnsets: EvosAttacksPointers = 251 DEX-order u16s
+(Gold 10:67bd, Crystal 10:65b1 per .sym); blob format as Gen 1 but
+{2,item,sp}, {3,heldItem|FF,sp}, {4,happinessWhen,sp} and
+{5,level,statCmp,sp} (4B); the stat-compare byte survives edits.
 
 **Gen 3 (R/S/E/FR/LG):** the full suite — species, moves, trainers,
 wild, maps (paint/resize/new maps/NPCs/warps/signs/script builder),

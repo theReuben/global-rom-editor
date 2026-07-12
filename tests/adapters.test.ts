@@ -86,6 +86,28 @@ describe('Gen 1 adapter', () => {
     const tmhm = a.speciesFields.find((f) => f.key === 'tmhm')!
     expect(tmhm.flagLabels![0]).toContain('TM01')
   })
+
+  it('reads and edits evolutions and learnsets (internal order)', () => {
+    const a = load()
+    const evo = a.evolutions!
+    const ls = a.learnsets!
+    // Bulbasaur (internal 10) → Ivysaur (dex 2) at 16.
+    expect(evo.read(1)[0]).toEqual({ method: 1, param: 16, target: 2 })
+    expect(evo.read(1)[1].method).toBe(0) // blank slot for appending
+    expect(ls.read(1)).toEqual([
+      { level: 1, move: 33 },
+      { level: 4, move: 45 },
+    ])
+    evo.write(1, 0, 'param', 36)
+    expect(ls.write(1, [...ls.read(1), { level: 20, move: 22 }])).toBe(true) // grows → relocates
+    const re = buildAdapter(new Rom('red.gb', a.rom.bytes)).adapter!
+    expect(re.evolutions!.read(1)[0]).toMatchObject({ method: 1, param: 36, target: 2 })
+    expect(re.learnsets!.read(1)).toHaveLength(3)
+    expect(re.evolutions!.read(2)[0].method).toBe(0) // Ivysaur untouched
+    evo.revert(1)
+    expect(evo.read(1)[0].param).toBe(16)
+    expect(ls.read(1)).toHaveLength(2)
+  })
 })
 
 describe('Gen 2 adapter', () => {
@@ -132,6 +154,21 @@ describe('Gen 2 adapter', () => {
     expect(a.readMove(2).type).toBe(1)
     a.writeMoveField(2, 'effectChance', 30)
     expect(a.readMove(2).effectChance).toBe(30)
+  })
+
+  it('reads and edits evolutions and learnsets (dex order)', () => {
+    const a = load()
+    const evo = a.evolutions!
+    const ls = a.learnsets!
+    expect(evo.read(1)[0]).toEqual({ method: 1, param: 16, target: 2 })
+    expect(ls.read(1)).toHaveLength(2)
+    // Append a happiness evolution through the blank slot.
+    const blank = evo.read(1).length - 1
+    evo.write(1, blank, 'method', 4)
+    expect(evo.read(1)[1]).toMatchObject({ method: 4 })
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    expect(re.evolutions!.read(1)).toHaveLength(3) // 2 real + blank
+    expect(re.learnsets!.read(1)).toHaveLength(2)
   })
 })
 
