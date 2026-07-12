@@ -217,8 +217,9 @@ export function makeGen2Rom(): Uint8Array {
   for (let m = 0; m < 4; m++) {
     put(rom, grpArray + m * 9, [0x40, 3, 1, 0x00, 0x42, 0, 0, 0, 0])
   }
-  // Attributes: border, h 3, w 4, blocks bank 0x40 @ local 0x4300.
-  put(rom, 0x100200, [0, 3, 4, 0x40, 0x00, 0x43, 0x01, 0x00, 0x40, 0x00, 0x40, 0])
+  // Attributes: border, h 3, w 4, blocks bank 0x40 @ local 0x4300,
+  // scripts bank 0x40 @ 0x4000, events @ local 0x4800.
+  put(rom, 0x100200, [0, 3, 4, 0x40, 0x00, 0x43, 0x40, 0x00, 0x40, 0x00, 0x48, 0])
   rom[0x100300 + 1] = 1 // block (1,0) = metatile 1
   // Tilesets: 4 × 15-byte entries {gfx 0x40:4700, meta 0x40:4600,
   // coll 0x40:4000, anim, NULL, palmap} — NULL word at +11.
@@ -230,6 +231,19 @@ export function makeGen2Rom(): Uint8Array {
   // Tileset gfx, lz3-compressed: 16 zero bytes then 16×0xFF
   // (zero-fill 16, iterate 0xFF ×16, terminator).
   put(rom, 0x100700, [0x6f, 0x3f, 0xff, 0xff])
+  // MapEvents blob (bank 0x40 local 0x4800): filler word, 2 warps
+  // {y,x,destWarp,group,map}, 0 coord events, 1 bg event {y,x,fn,script},
+  // 2 objects {sprite, y+4, x+4, movefn, radii, h1, h2, pal/type, sight,
+  // script u16, eventFlag u16}.
+  put(rom, 0x100800, [
+    0, 0,
+    2, /* warps */ 5, 5, 1, 13, 2, /**/ 11, 12, 1, 1, 3,
+    0, /* coord events */
+    1, /* bg events */ 9, 7, 0, 0x34, 0x40,
+    2, /* objects */
+    2, 8 + 4, 3 + 4, 0, 0x22, 0xff, 0xff, 0x00, 0, 0x50, 0x40, 0xff, 0xff,
+    5, 14 + 4, 12 + 4, 6, 0x20, 0xff, 0xff, 0x30, 0, 0x60, 0x40, 0xff, 0xff,
+  ])
   // Item names with two voting anchor pairs (ids 1/2 and 77/78).
   const itemNames = 0x1b0000
   const itemList = ['MASTER BALL', 'ULTRA BALL']

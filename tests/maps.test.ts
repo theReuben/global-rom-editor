@@ -195,4 +195,27 @@ describe('Gen 2 maps', () => {
     m.revertBlocks('1.1')
     expect(a.rom.changedByteCount).toBe(0)
   })
+
+  it('reads and edits warps, signs and NPCs', async () => {
+    const a = await loadGen2()
+    const m = a.mapModule!
+    const ev = m.events('1.1')
+    expect(ev.warps).toHaveLength(2)
+    expect(ev.warps[0]).toMatchObject({ x: 5, y: 5, warpId: 1, targetBank: 13, targetMap: 2 })
+    expect(ev.warps[1]).toMatchObject({ x: 12, y: 11, targetBank: 1, targetMap: 3 })
+    expect(ev.signs).toHaveLength(1)
+    expect(ev.signs[0]).toMatchObject({ x: 7, y: 9, kind: 0 })
+    expect(ev.npcs).toHaveLength(2)
+    expect(ev.npcs[0]).toMatchObject({ x: 3, y: 8, graphicsId: 2, movementType: 0 })
+    expect(ev.npcs[1]).toMatchObject({ x: 12, y: 14, graphicsId: 5, movementType: 6 })
+
+    m.updateEvent('1.1', 'npc', 0, 'x', 9)
+    m.updateEvent('1.1', 'warp', 1, 'targetMap', 4)
+    m.updateEvent('1.1', 'sign', 0, 'kind', 2)
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    const rev = re.mapModule!.events('1.1')
+    expect(rev.npcs[0].x).toBe(9)
+    expect(rev.warps[1].targetMap).toBe(4)
+    expect(rev.signs[0].kind).toBe(2)
+  })
 })

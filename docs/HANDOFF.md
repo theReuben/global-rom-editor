@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-142 tests green; `npm test` and `npm run build` must stay that way.
+143 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -24,7 +24,14 @@ moves, growth to 6), item names from the ROM (held-item dropdowns;
 vote anchors at item ids 1/77/179, and the backward name walker
 accepts the 0x4A PKMN / 0x54 POKe glyph bytes - "# DOLL"),
 map viewing + block painting (lz3 tileset
-decompressor, grayscale for now; validated against Gold/Crystal .sym).
+decompressor, grayscale for now; validated against Gold/Crystal .sym),
+warp/sign/NPC viewing and in-place editing (MapEvents blob at
+scriptsBank:eventsPtr — filler word, then counted lists: warps 5B
+{y,x,destWarp,group,map}, coord events 8B (skipped), bg events 5B
+{y,x,fn,script u16}, objects 13B {sprite,y+4,x+4,movefn,radii,h1,h2,
+pal/type,sight,script u16,eventFlag u16}; verified against pokecrystal
+macros/scripts/maps.asm and Pallet Town's exact coordinates in built
+Gold + Crystal).
 
 **Gen 3 (R/S/E/FR/LG):** the full suite — species, moves, trainers,
 wild, maps (paint/resize/new maps/NPCs/warps/signs/script builder),

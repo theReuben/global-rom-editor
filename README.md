@@ -24,7 +24,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Move renaming | ✅ | ✅ | ✅ | — |
 | Map viewer & block painting (scene editing) | ✅ | ✅ | ✅ | — |
 | Movement permission (collision) editing | — | — | ✅ | — |
-| NPC / warp / sign editing | ✅ (edit in place) | 🔜 | ✅ | — |
+| NPC / warp / sign editing | ✅ (edit in place) | ✅ (edit in place) | ✅ | — |
 | Trainer editing (class, AI, items, full parties) | ✅ parties (grow to 6) | ✅ parties+names (grow to 6) | ✅ | ✅ Gen 4 (named) |
 | Wild encounter editing (time-of-day in Gen 2/HGSS; grass/surf/rods/radio/swarms in Gen 4) | ✅ | ✅ | ✅ | ✅ D/P/Pt/HGSS |
 | Item names read from the ROM (dropdowns everywhere) | — | ✅ | ✅ | ✅ Gen 4 |

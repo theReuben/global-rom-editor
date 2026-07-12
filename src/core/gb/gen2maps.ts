@@ -165,6 +165,32 @@ export function buildGen2Maps(
 
   const byKey = new Map(maps.map((m) => [`${m.group}.${m.map}`, m]))
 
+  const parseEvents = (m: Gen2MapRec) => {
+    const bank = bytes[m.attrOff + 6] // scripts/events share a bank
+    const evOff = toFile(bank, rom.readU16LE(m.attrOff + 9))
+    const warps: number[] = []
+    const signs: number[] = []
+    const npcs: number[] = []
+    let p = evOff + 2 // skip the filler word
+    const nWarps = bytes[p++]
+    for (let i = 0; i < Math.min(nWarps, 48); i++) {
+      warps.push(p)
+      p += 5
+    }
+    p += 1 + Math.min(bytes[p], 32) * 8 // coord events: not exposed
+    const nBg = bytes[p++]
+    for (let i = 0; i < Math.min(nBg, 48); i++) {
+      signs.push(p)
+      p += 5
+    }
+    const nObj = bytes[p++]
+    for (let i = 0; i < Math.min(nObj, 48); i++) {
+      npcs.push(p)
+      p += 13
+    }
+    return { warps, signs, npcs }
+  }
+
   const gfxCache = new Map<number, Uint8Array>()
   const tilesetInfo = (ts: number) => {
     const e = tilesets + ts * TILESET_ENTRY
@@ -246,8 +272,57 @@ export function buildGen2Maps(
       rom.writeU8(m.blocksOff + y * m.width + x, blockId & 0xff)
     },
     setPermission() {},
-    events: () => ({ npcs: [], warps: [], signs: [] }),
-    updateEvent() {},
+    // MapEvents (bank = scriptsBank in the attributes): 2 filler bytes,
+    // then counted lists — warps 5B {y,x,destWarp,group,map}, coord
+    // events 8B (skipped), bg events 5B {y,x,fn,script}, objects 13B
+    // {sprite, y+4, x+4, movefn, radii, hours, pal/type, sight,
+    // script, eventFlag}. Verified against pokecrystal maps.asm macros.
+    events(key) {
+      const ev = parseEvents(byKey.get(key)!)
+      return {
+        warps: ev.warps.map((w) => ({
+          x: bytes[w + 1],
+          y: bytes[w],
+          elevation: 0,
+          warpId: bytes[w + 2],
+          targetBank: bytes[w + 3],
+          targetMap: bytes[w + 4],
+        })),
+        signs: ev.signs.map((b) => ({ x: bytes[b + 1], y: bytes[b], elevation: 0, kind: bytes[b + 2] })),
+        npcs: ev.npcs.map((n) => ({
+          x: bytes[n + 2] - 4,
+          y: bytes[n + 1] - 4,
+          elevation: 0,
+          graphicsId: bytes[n],
+          movementType: bytes[n + 3],
+        })),
+      }
+    },
+    updateEvent(key, kind, index, field, value) {
+      const ev = parseEvents(byKey.get(key)!)
+      if (kind === 'warp') {
+        const w = ev.warps[index]
+        if (w === undefined) return
+        if (field === 'x') rom.writeU8(w + 1, value)
+        else if (field === 'y') rom.writeU8(w, value)
+        else if (field === 'warpId') rom.writeU8(w + 2, value)
+        else if (field === 'targetBank') rom.writeU8(w + 3, value)
+        else if (field === 'targetMap') rom.writeU8(w + 4, value)
+      } else if (kind === 'sign') {
+        const b = ev.signs[index]
+        if (b === undefined) return
+        if (field === 'x') rom.writeU8(b + 1, value)
+        else if (field === 'y') rom.writeU8(b, value)
+        else if (field === 'kind') rom.writeU8(b + 2, value)
+      } else {
+        const n = ev.npcs[index]
+        if (n === undefined) return
+        if (field === 'x') rom.writeU8(n + 2, value + 4)
+        else if (field === 'y') rom.writeU8(n + 1, value + 4)
+        else if (field === 'graphicsId') rom.writeU8(n, value)
+        else if (field === 'movementType') rom.writeU8(n + 3, value)
+      }
+    },
     resize: () => false,
     duplicateMap: () => null,
     addEvent: () => false,
