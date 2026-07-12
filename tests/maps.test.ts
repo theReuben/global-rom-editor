@@ -100,8 +100,45 @@ describe('Gen 3 map module', () => {
     expect(ev.warps[0].targetBank).toBe(0)
   })
 
-  it('is absent for Gen 1 ROMs (roadmap)', () => {
-    const adapter = buildAdapter(new Rom('red.gb', makeGen1Rom())).adapter!
-    expect(adapter.mapModule).toBeNull()
+})
+
+describe('Gen 1 maps', () => {
+  const loadGen1 = async () => {
+    const { makeGen1Rom } = await import('./fixtures')
+    return buildAdapter(new Rom('red.gb', makeGen1Rom())).adapter!
+  }
+
+  it('discovers headers, banks and tilesets structurally', async () => {
+    const a = await loadGen1()
+    const m = a.mapModule!
+    expect(m).not.toBeNull()
+    expect(m.entries).toHaveLength(160)
+    expect(m.entries[0].label).toBe('Pallet Town')
+    expect(m.describe(m.entries[0].key)).toMatchObject({ widthBlocks: 5, heightBlocks: 4 })
+  })
+
+  it('renders 2bpp blocks and paints in place', async () => {
+    const a = await loadGen1()
+    const m = a.mapModule!
+    const key = m.entries[0].key
+    const img = m.render(key)
+    expect(img.width).toBe(5 * 32)
+    expect(img.height).toBe(4 * 32)
+    // Block (0,0) is block 0 (lightest); block (1,0) is block 1 (darkest).
+    expect(img.pixels[0]).toBe(232)
+    expect(img.pixels[(0 * img.width + 32) * 4]).toBe(28)
+    expect(m.cell(key, 1, 0).blockId).toBe(1)
+
+    m.paint(key, 0, 1, 1)
+    expect(m.cell(key, 0, 1).blockId).toBe(1)
+    const re = buildAdapter(new Rom('red.gb', a.rom.bytes)).adapter!
+    expect(re.mapModule!.cell(key, 0, 1).blockId).toBe(1)
+    m.revertBlocks(key)
+    expect(m.cell(key, 0, 1).blockId).toBe(0)
+    expect(a.rom.changedByteCount).toBe(0)
+
+    const strip = m.renderBlocks(key, 8)
+    expect(strip.count).toBeGreaterThanOrEqual(2)
+    expect(strip.perRow).toBe(8)
   })
 })

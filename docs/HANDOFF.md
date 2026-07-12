@@ -5,7 +5,16 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-135 tests green. Gen 1/2 trainer parties can now GROW to 6: the
+136 tests green. Gen 1 (R/B/Y) maps now render with block painting:
+src/core/gb/gen1maps.ts discovers MapHeaderPointers (any maximal run
+of 150-256 bank-local u16s anywhere in the ROM - Red keeps it in
+ROM0, Yellow in a switchable bank), confirms it by finding the
+MapHeaderBanks table that turns >= 85% of pointers into plausible
+headers, then locates the 12-byte Tilesets table (collision pointers
+live in ROM0, unlike blocks/gfx). Validated against the .sym files of
+built Red + Yellow: pointer table addresses match exactly, Pallet
+Town renders at 10x9 blocks, paint + reload + revert round-trips.
+Events/resize/scripts are stubbed off for Gen 1 (different engine). Gen 1/2 trainer parties can now GROW to 6: the
 whole class block/group is rebuilt (in place when it fits, else
 relocated to the bank's trailing padding via findGbBankFreeSpace,
 with the class pointer + alias pointers retargeted and the abandoned
@@ -155,6 +164,17 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    owns the lists. Fixed-level lists share one level byte for the whole
    party; level writes clamp to 1..120 so re-discovery never breaks.
    Rival 1 #1's mon is version proof: Squirtle in Red, Eevee in Yellow.
+
+   Gen 1 map facts: header = {tileset u8, height u8, width u8 (in
+   32x32px blocks), blocksPtr u16, textPtr u16, scriptPtr u16,
+   connections u8, ..., objectsPtr u16}; blocks live in the header's
+   bank; tileset entry = {bank, blocksPtr, gfxPtr, collPtr (ROM0!),
+   counterTiles[3], grassTile, anim}; block = 16 tile ids (4x4);
+   tiles 2bpp. Yellow places MapHeaderPointers+Banks adjacent in a
+   switchable bank ("Overworld Pikachu" section) while Red splits
+   them between ROM0 and bank 3 - hence candidate-run discovery.
+   Remaining for Gen 1 maps: warps/signs/NPCs (object data), Gen 2
+   maps (pokecrystal's map attributes are a different scheme).
 2. **Deeper decomp editing: SHIPPED.** Constant-expression fields
    (`.types`, `.abilities`, `.eggGroups`, `.growthRate`, `.itemCommon`,
    `.itemRare`) are dropdowns; options enumerated from the opened

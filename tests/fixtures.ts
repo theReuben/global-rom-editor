@@ -103,6 +103,23 @@ export function makeGen1Rom(): Uint8Array {
   const trEnd = cls2 + 4 // 0x00 here ⇒ classes 3+ have no trainers
   put(rom, trTable, [...trPtr(youngster), ...trPtr(cls1), ...trPtr(cls2)])
   for (let c = 3; c < 47; c++) put(rom, trTable + c * 2, trPtr(trEnd))
+
+  // Maps: pointer run + banks table + one shared header in bank 6.
+  const mapPtrs = 0x200
+  for (let m = 0; m < 160; m++) put(rom, mapPtrs + m * 2, [0x00, 0x43]) // local 0x4300
+  const mapBanks = 0xc100
+  for (let m = 0; m < 160; m++) rom[mapBanks + m] = 6
+  const header = 6 * 0x4000 + 0x300 // bank 6, local 0x4300
+  put(rom, header, [0, 4, 5, 0x00, 0x44, 0x00, 0x45, 0x00, 0x45, 0]) // ts 0, 4x5 blocks
+  const mapBlocks = 6 * 0x4000 + 0x400
+  rom[mapBlocks + 1] = 1 // block (1,0) uses block id 1
+  // Tileset 0: bank 6, blocks @0x6000, gfx @0x6800, coll in ROM0.
+  const tsTable = 0xc700
+  put(rom, tsTable, [6, 0x00, 0x60, 0x00, 0x68, 0x00, 0x10, 0xff, 0xff, 0xff, 0x52, 0])
+  const tsBlocks = 6 * 0x4000 + 0x2000
+  for (let i = 0; i < 16; i++) rom[tsBlocks + 16 + i] = 1 // block 1 = tile 1 everywhere
+  const tsGfx = 6 * 0x4000 + 0x2800
+  for (let i = 0; i < 16; i++) rom[tsGfx + 16 + i] = 0xff // tile 1 = darkest shade
   return rom
 }
 

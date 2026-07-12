@@ -22,7 +22,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | EV yields | — | — | ✅ | ✅ |
 | Move power / accuracy / PP / type / effect / priority / flags | ✅ | ✅ | ✅ | — |
 | Move renaming | 🔜 | 🔜 | ✅ | — |
-| Map viewer & block painting (scene editing) | 🔜 | 🔜 | ✅ | — |
+| Map viewer & block painting (scene editing) | ✅ | 🔜 | ✅ | — |
 | Movement permission (collision) editing | — | — | ✅ | — |
 | NPC / warp / sign editing | 🔜 | 🔜 | ✅ | — |
 | Trainer editing (class, AI, items, full parties) | ✅ parties (grow to 6) | ✅ parties+names (grow to 6) | ✅ | ✅ Gen 4 (named) |
