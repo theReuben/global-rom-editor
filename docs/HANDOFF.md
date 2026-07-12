@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-152 tests green; `npm test` and `npm run build` must stay that way.
+154 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -66,6 +66,9 @@ Evolutions + learnsets: EvosAttacksPointers = 251 DEX-order u16s
 (Gold 10:67bd, Crystal 10:65b1 per .sym); blob format as Gen 1 but
 {2,item,sp}, {3,heldItem|FF,sp}, {4,happinessWhen,sp} and
 {5,level,statCmp,sp} (4B); the stat-compare byte survives edits.
+Type chart: as Gen 1 but with a 0xFE separator before the two
+Foresight entries (Ghost immunities), exposed like normal matchups
+and preserved on rewrite (Gold 0d:4d01, Crystal 0d:4bb1; 110).
 
 **Gen 3 (R/S/E/FR/LG):** the full suite — species, moves, trainers,
 wild, maps (paint/resize/new maps/NPCs/warps/signs/script builder),

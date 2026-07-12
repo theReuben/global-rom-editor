@@ -8,6 +8,7 @@ import { Rom } from '../rom'
 import { findGbBankFreeSpace } from '../freespace'
 import { buildGen2Maps } from '../gb/gen2maps'
 import { buildGbEvosMoves } from '../gb/evosmoves'
+import { buildGbTypeChart } from '../gb/typechart'
 import { findAll, findByVote, findVerified } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { EGG_GROUPS, GEN2_TYPES, GEN12_GROWTH, GENDER_RATIOS, padDex } from './data'
@@ -844,6 +845,17 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     regions.push({ name: 'Evolutions & learnsets', offset: evosMoves.tableOff, length: COUNT * 2 })
   }
 
+  // Type effectiveness chart (TypeMatchups — 3-byte matchups with the
+  // 0xFE Foresight separator, 0xFF end).
+  const typeChart = buildGbTypeChart(rom, 0x1b) // DARK = 0x1B
+  if (typeChart) {
+    regions.push({
+      name: `Type chart (${typeChart.module.entries().length} matchups)`,
+      offset: typeChart.tableOff,
+      length: typeChart.module.entries().length * 3 + 1,
+    })
+  }
+
   return {
     gameName,
     platform,
@@ -865,7 +877,7 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     importSpeciesSpriteBack: null,
     evolutions: evosMoves?.evolutions ?? null,
     learnsets: evosMoves?.learnsets ?? null,
-    typeChart: null,
+    typeChart: typeChart?.module ?? null,
     speciesNameLength: namesOff !== null ? NAME_LEN : null,
 
     readSpecies(dex) {

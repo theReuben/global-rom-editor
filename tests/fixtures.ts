@@ -90,6 +90,18 @@ export function makeGen1Rom(): Uint8Array {
     }
   }
 
+  // Type chart: 62 triplets {atk, def, eff} + 0xFF end (bank 0x0F).
+  {
+    const chart: number[] = []
+    for (let i = 0; i < 62; i++) {
+      chart.push(i % 9, (i * 2 + 1) % 9, i < 20 ? 20 : i < 40 ? 5 : 0)
+    }
+    chart[0 * 3 + 0] = 0x15 // water vs fire, super effective
+    chart[0 * 3 + 1] = 0x14
+    // 0x99 = unrelated data right after the chart, like the real games.
+    put(rom, 0x3e400, [...chart, 0xff, 0x99])
+  }
+
   // Wild encounters (bank 3): pointer table + blocks.
   put(rom, 0xd500, [0, 0]) // "nothing" block: grass 0, water 0
   put(rom, 0xd510, [25, 3, 0x24, 3, 0xa5, 3, 0xa5, 2, 0xa5, 2, 0x24, 3, 0x24, 3, 0x24, 4, 0xa5, 4, 0x24, 5, 0x24, 0])
@@ -294,6 +306,17 @@ export function makeGen2Rom(): Uint8Array {
       put(rom, blob, data)
       blob += data.length
     }
+  }
+
+  // Type chart with the Gen 2 Foresight separator (bank 0x0D).
+  {
+    const chart: number[] = []
+    for (let i = 0; i < 62; i++) {
+      chart.push(i % 9, (i * 2 + 1) % 9, i < 20 ? 20 : i < 40 ? 5 : 0)
+    }
+    chart[0] = 0x15 // water vs fire, super effective
+    chart[1] = 0x14
+    put(rom, 0x34d00, [...chart, 0xfe, 0, 8, 0, 1, 8, 0, 0xff])
   }
 
   put(rom, 0x1167a, [223, 29, 174, 205, 46, 92, 192, 249])

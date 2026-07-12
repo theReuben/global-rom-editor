@@ -13,6 +13,7 @@ import { Rom } from '../rom'
 import { findGbBankFreeSpace } from '../freespace'
 import { buildGen1Maps } from '../gb/gen1maps'
 import { buildGbEvosMoves } from '../gb/evosmoves'
+import { buildGbTypeChart } from '../gb/typechart'
 import { findAll, findByVote, findVerified, matchesAt } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { GEN1_TYPES, GEN12_GROWTH, padDex } from './data'
@@ -773,6 +774,16 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
       length: INTERNAL_COUNT * 2,
     })
   }
+
+  // Type effectiveness chart (TypeEffects — 3-byte matchups, 0xFF end).
+  const typeChart = buildGbTypeChart(rom, 0x1a) // DRAGON = 0x1A
+  if (typeChart) {
+    regions.push({
+      name: `Type chart (${typeChart.module.entries().length} matchups)`,
+      offset: typeChart.tableOff,
+      length: typeChart.module.entries().length * 3 + 1,
+    })
+  }
   const moves: EntryHandle[] =
     moveOff === null
       ? []
@@ -803,7 +814,7 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
     importSpeciesSpriteBack: null,
     evolutions: evosMoves?.evolutions ?? null,
     learnsets: evosMoves?.learnsets ?? null,
-    typeChart: null,
+    typeChart: typeChart?.module ?? null,
     speciesNameLength: namesOff !== null ? NAME_LEN : null,
 
     readSpecies(dex) {

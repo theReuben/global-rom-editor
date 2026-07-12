@@ -108,6 +108,23 @@ describe('Gen 1 adapter', () => {
     expect(evo.read(1)[0].param).toBe(16)
     expect(ls.read(1)).toHaveLength(2)
   })
+
+  it('edits the type chart (in place, remove frees room to add)', () => {
+    const a = load()
+    const tc = a.typeChart!
+    const entries = tc.entries()
+    expect(entries.length).toBe(62)
+    expect(entries[0]).toMatchObject({ attacker: 0x15, defender: 0x14, multiplier: 20 })
+    tc.setMultiplier(0, 5)
+    expect(tc.entries()[0].multiplier).toBe(5)
+    expect(tc.addEntry(1, 2, 20)).toBe(false) // no slack yet
+    expect(tc.removeEntry(61)).toBe(true)
+    expect(tc.addEntry(1, 2, 20)).toBe(true)
+    const re = buildAdapter(new Rom('red.gb', a.rom.bytes)).adapter!
+    const rentries = re.typeChart!.entries()
+    expect(rentries.length).toBe(62)
+    expect(rentries[0]).toMatchObject({ attacker: 1, defender: 2, multiplier: 20 })
+  })
 })
 
 describe('Gen 2 adapter', () => {
@@ -169,6 +186,18 @@ describe('Gen 2 adapter', () => {
     const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
     expect(re.evolutions!.read(1)).toHaveLength(3) // 2 real + blank
     expect(re.learnsets!.read(1)).toHaveLength(2)
+  })
+
+  it('exposes the Foresight section of the type chart', () => {
+    const a = load()
+    const tc = a.typeChart!
+    const entries = tc.entries()
+    expect(entries.length).toBe(64) // 62 + 2 behind the 0xFE separator
+    expect(entries[62]).toMatchObject({ attacker: 0, defender: 8, multiplier: 0 })
+    expect(tc.removeEntry(63)).toBe(true)
+    expect(tc.addEntry(9, 0x1b, 5)).toBe(true) // Steel vs Dark
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    expect(re.typeChart!.entries()[0]).toMatchObject({ attacker: 9, defender: 0x1b })
   })
 })
 
