@@ -228,12 +228,56 @@ export function buildGen1Sprites(
   // The module is only offered when nearly everything resolved.
   if (bankOf.size < count * 0.9) return null
 
+  // SGB colorization: MonsterPalettes (152 dex-order palette ids,
+  // entry 0 = MissingNo) is immediately followed by SuperPalettes
+  // (8-byte rows of 4 RGB555 colors, each starting near-white:
+  // 31,29,31 in Red/Blue, 31,31,30 in Yellow) — verified against
+  // pokered/pokeyellow data/pokemon/palettes.asm + sgb_palettes.asm.
+  const nearWhite = (v: number) => (v & 31) >= 28 && ((v >> 5) & 31) >= 28 && ((v >> 10) & 31) >= 28
+  let palTable = -1
+  {
+    outer: for (let o = 0; o + 152 + 40 * 8 <= bytes.length; o++) {
+      for (let i = 0; i < 152; i++) {
+        if (bytes[o + i] >= 0x30) continue outer
+      }
+      // The next bytes must look like SuperPalettes rows.
+      for (let k = 0; k < 4; k++) {
+        if (!nearWhite(rom.readU16LE(o + 152 + k * 8))) continue outer
+      }
+      // Every referenced palette id must have a plausible row, and the
+      // rows must not all be identical (an all-0xFF or all-zero region
+      // could fake the shape otherwise).
+      let ok = true
+      const firsts = new Set<number>()
+      for (let dex = 1; dex <= Math.min(count, 151); dex++) {
+        const row = o + 152 + bytes[o + dex] * 8
+        if (row + 8 > bytes.length || !nearWhite(rom.readU16LE(row))) ok = false
+        else firsts.add(rom.readU16LE(row + 2))
+      }
+      if (!ok || firsts.size < 8) continue
+      palTable = o
+      break
+    }
+  }
+  const colorsFor = (dex: number): [number, number, number][] => {
+    if (palTable < 0) return GB_SHADES
+    const row = palTable + 152 + bytes[palTable + dex] * 8
+    const five = (v: number) => ((v & 31) << 3) | ((v & 31) >> 2)
+    const out: [number, number, number][] = []
+    for (let i = 0; i < 4; i++) {
+      const v = rom.readU16LE(row + i * 2)
+      out.push([five(v), five(v >> 5), five(v >> 10)])
+    }
+    return out
+  }
+
   const render = (dex: number, front: boolean): RenderedImage | null => {
     if (dex < 1 || dex > count) return null
     const pic = resolve(dex, front)
     if (!pic) return null
     const w = pic.width
     const widthPx = w * 8
+    const pal = colorsFor(dex)
     const pixels = new Uint8ClampedArray(widthPx * widthPx * 4)
     for (let t = 0; t < w * w; t++) {
       const tx = (t % w) * 8
@@ -242,7 +286,7 @@ export function buildGen1Sprites(
       for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
           const o = ((ty + y) * widthPx + tx + x) * 4
-          const [r, g, b] = GB_SHADES[tile[y * 8 + x]]
+          const [r, g, b] = pal[tile[y * 8 + x]]
           pixels[o] = r
           pixels[o + 1] = g
           pixels[o + 2] = b

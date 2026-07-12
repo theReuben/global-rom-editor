@@ -101,6 +101,14 @@ export function makeGen1Rom(): Uint8Array {
   }
   put(rom, mew + 10, [0x11, 0x00, 0x50, 0x00, 0x50])
 
+  // SGB palettes: MonsterPalettes (152 ids) + SuperPalettes rows, each
+  // near-white first (0x7FBF) with distinct second colors.
+  const palT = 0x72000
+  for (let i = 0; i < 152; i++) rom[palT + i] = i % 10
+  for (let r = 0; r < 10; r++) {
+    put(rom, palT + 152 + r * 8, [0xbf, 0x7f, r + 1, 0x7c, 0x00, 0x40, 0, 0])
+  }
+
   // Type chart: 62 triplets {atk, def, eff} + 0xFF end (bank 0x0F).
   {
     const chart: number[] = []

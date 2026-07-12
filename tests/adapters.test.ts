@@ -109,12 +109,14 @@ describe('Gen 1 adapter', () => {
     expect(ls.read(1)).toHaveLength(2)
   })
 
-  it('decodes and renders Gen 1 pics', () => {
+  it('decodes and renders Gen 1 pics in SGB colors', () => {
     const a = load()
     expect(a.speciesSprite).not.toBeNull()
     const front = a.speciesSprite!(1)!
     expect(front.width).toBe(8) // 1×1-tile fixture pic
-    expect(front.pixels[0]).toBe(255) // all zero pixels → white
+    // All-zero pixels → SGB palette color 0 = RGB555 31,29,31.
+    expect(front.pixels[0]).toBe(255)
+    expect(front.pixels[1]).toBe(239)
     expect(a.speciesSpriteBack!(1)).not.toBeNull()
     expect(a.speciesSprite!(151)).not.toBeNull() // Mew's separate entry
   })
