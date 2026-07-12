@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-159 tests green; `npm test` and `npm run build` must stay that way.
+164 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -140,7 +140,10 @@ no Gen 5 decomp exists).
 as dropdowns for pokeemerald / pokefirered / pokeemerald-expansion
 trees (1,364 species incl. Megas); one-line diffs.
 
-**Engine:** IPS + UPS patches, checksum fixing, PWA offline, CI to
+**Engine:** IPS + UPS + BPS patches (BPS = beat's format: vlq-coded
+SourceRead/TargetRead/SourceCopy/TargetCopy actions, source/target/
+patch CRC32 footer; the encoder emits SourceRead/TargetRead runs,
+which every consumer accepts), checksum fixing, PWA offline, CI to
 GitHub Pages from `main`. Change tracking via Rom write helpers powers
 revert + patch export everywhere.
 

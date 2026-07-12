@@ -34,8 +34,8 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Visual script builder (messages, Y/N questions, items, Pokémon, trainer battles, flags) | — | — | ✅ | — |
 | Decomp project editing (stats + types/abilities/egg groups dropdowns) | — | — | ✅ | — |
 | Save edited ROM with fixed checksums | ✅ | ✅ | ✅ | ✅ |
-| Export edits as an IPS or UPS patch | ✅ | ✅ | ✅ | ✅ UPS |
-| Apply community IPS / UPS patches | ✅ | ✅ | ✅ | ✅ |
+| Export edits as an IPS, UPS or BPS patch | ✅ | ✅ | ✅ | ✅ UPS/BPS |
+| Apply community IPS / UPS / BPS patches | ✅ | ✅ | ✅ | ✅ |
 
 Everything runs **entirely client-side** — ROMs never leave the user's device.
 The editor is an installable PWA: after the first visit it works fully
@@ -142,7 +142,7 @@ Still open, in rough order:
 1. Gen 5 beyond personal data (moves, trainers, wild — needs a
    verifiable byte-format source; no Gen 5 decomp exists).
 2. Sprite importing for Gen 1/2/4 (needs the compressors).
-3. Starters, item/text editing, BPS patches.
+3. Starters, item/text editing.
 
 ## What about 1000+ Pokémon, Megas, Tera, Z-moves?
 
