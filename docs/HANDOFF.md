@@ -243,8 +243,8 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    tiles 2bpp. Yellow places MapHeaderPointers+Banks adjacent in a
    switchable bank ("Overworld Pikachu" section) while Red splits
    them between ROM0 and bank 3 - hence candidate-run discovery.
-   Gen 1 events SHIPPED (in-place edits; add/remove needs object-data
-   relocation, same GB freespace approach as trainer growth).
+   Gen 1 events SHIPPED including add/remove (copy-last template +
+   object-blob relocation, warp_to kept in sync).
 
    Gen 2 map facts: map entry = {attrBank, tileset, environment,
    attrPtr u16, location, music, phone/tod, fishgroup} (9 bytes);
@@ -255,8 +255,8 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    4x4 tile grids. lz3: commands in top 3 bits (literal/iterate/
    alternate/zero/repeat/flip/reverse), LZ_LONG=7 extends length to
    10 bits, offsets positive 15-bit big-endian from output start or
-   negative 7-bit back-from-cursor-minus-one, 0xFF ends. Remaining:
-   Gen 2 events, CGB colors.
+   negative 7-bit back-from-cursor-minus-one, 0xFF ends. Gen 2
+   events (view/edit/add/remove) and CGB color rendering: SHIPPED.
 2. **Deeper decomp editing: SHIPPED.** Constant-expression fields
    (`.types`, `.abilities`, `.eggGroups`, `.growthRate`, `.itemCommon`,
    `.itemRare`) are dropdowns; options enumerated from the opened
@@ -280,7 +280,10 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    (gMonPaletteTable), so whichever sprite was imported last defines
    the colors of both. Shiny palettes: SHIPPED (tag base 500
    distinguishes the shiny table; validated against the map-file
-   addresses on built Emerald + FireRed). Remaining: Gen 1/2 sprites (2bpp + Gen 1's custom RLE), DS sprites.
+   addresses on built Emerald + FireRed). Gen 1 sprites (custom RLE
+   + SGB colors), Gen 2 sprites (lz3 + shiny palettes) and Gen 4
+   sprites (pokegra NCGR + LCRNG descramble): all SHIPPED, display
+   only — importing beyond Gen 3 would need lz3/RLE compressors.
 4. **Gen 4 text codec: SHIPPED (read-only).** `src/core/nds/msgdata.ts`
    decodes msg banks: u16 count + u16 key header; per-entry
    {u32 offset,u32 length} XORed with `key*765*(n+1) & 0xFFFF`
@@ -295,14 +298,13 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    237/750/729/730 (species/moves/trainer names/class names). Species,
    move, trainer and class names now come from the ROM itself, and
    species/trainer names WRITE back in place via writeMsgEntry
-   (same-or-shorter encoded length; keeps the alloc table untouched by
-   padding with encrypted terminators; 9-bit packed name banks are
-   re-packed). No DS
-   ROM can be built in this container (the Metrowerks compiler isn't
-   redistributable), so validation = decomp source reading + symmetric
-   encode/decode tests; writing names back (re-encrypt + NARC rebuild)
-   beyond same-length is still open (needs NARC+FAT rebuild). Gen 5
-   full personal layout: SHIPPED (PKHeX-verified).
+   (any length — the NARC growth/relocation path ships as
+   replaceNarcSub in gen45.ts). No DS ROM can be built in this
+   container (the Metrowerks compiler isn't redistributable), but the
+   asset pipeline tools ARE plain C: nitrogfx + nitroarc built the
+   real HGSS pokegra.narc here, and the repo ships the real prebuilt
+   wotbl.narc — both used as ground truth. Gen 5 full personal
+   layout: SHIPPED (PKHeX-verified).
 5. **HGSS encounters + trainers: SHIPPED.** EncounterData = 0xC4-byte
    files (pret/pokeheartgold include/wild_encounter.h): 6 rate bytes +
    2 dummy; 12 shared land levels @0x08; 12 u16 species per time of day
@@ -314,29 +316,18 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    u16 is the ball capsule instead of padding), so buildGen4Trainers is
    reused unchanged.
 
-## Gen 4+ (DS) plan — feasible, phased
+## What's genuinely left (checked 2026-07-12)
 
-Gen 4/5 (D/P/Platinum/HGSS/BW) are Nintendo DS ROMs: a real file system
-(NitroFS), not a flat binary. Hacks like Platinum Kaizo are ordinary
-Platinum ROMs with edited files — the existing product model (load ROM,
-edit, export patch) transfers directly. 3D map editing is out of scope;
-data editing is very much in scope.
-
-- **Phase 1 — container (started in `src/core/nds/`)**: ROM header
-  (gamecode at 0x0C; FNT/FAT offsets at 0x40-0x4F), file-name table,
-  file allocation table, and NARC archives (sections "BTAF"/"BTNF"/
-  "GMIF"). In-place same-size file writes first; growing files means
-  rebuilding the FAT (documented in gbatek).
-- **Phase 2 — species editor**: personal data NARCs, ~44-byte entries
-  shaped like Gen 3's (stats, types, catch, EVs u16, items, abilities):
-  D/P `/poketool/personal/personal.narc`, Platinum
-  `/poketool/personal/pl_personal.narc`, HGSS `/a/0/0/2`, BW `/a/0/1/6`.
-  Verify paths and entry layout against pret/pokediamond,
-  pret/pokeplatinum, pret/pokeheartgold before trusting them.
-- **Phase 3 — trainers/encounters**: per-version NARCs; text banks use
-  Gen 4's encrypted text format (documented; needs its own codec).
-- Ground truth: gbatek (DS filesystem), the pret DS decomps, and DSPRE
-  (MIT-licensed C# editor) as a format reference.
+- Gen 5 move data + trainers + wild: blocked on a verifiable source
+  (no decomp; PKHeX reads pre-extracted resources, not ROM bytes).
+- Gen 5 sprites: B/W NCGRs are 96x96 and unscrambled per community
+  docs — needs a verifiable reference before shipping.
+- Gen 2 Unown forms (UnownPicPointers), Gen 1 item names, Gen 4
+  TM->move labels (table lives in the compressed arm9 — hard),
+  Gen 1/2 sprite IMPORT (needs RLE/lz3 compressors), DS map editing
+  (out of scope), Gen 4 evolutions can't be byte-validated until a
+  real evo.narc surfaces (struct is source-verified; wotbl was
+  validated against the repo's real prebuilt binary).
 
 ## Legal posture
 

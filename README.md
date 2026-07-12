@@ -127,14 +127,22 @@ Yes/No questions (with bail-out) and single trainer battles. All of it
 verified on a real Emerald ROM: the edited ROM re-scans cleanly and the
 new map is discovered like any original one.
 
-In rough build order:
+**Since then, the whole Gen 1/2 suite caught up** — maps with events
+(view, edit, add, remove), CGB-color rendering for Gen 2, evolutions,
+learnsets, the type chart and sprite display (authentic SGB colors in
+Gen 1, per-species + shiny palettes in Gen 2) — every byte format
+verified against ROMs built from the pret decompilations. Gen 4 gained
+any-length renaming (the msg archive relocates via a FAT retarget),
+move data + move renaming, evolutions, learnsets and descrambled
+sprite display, validated against NARCs built with the decomp's own
+asset pipeline.
 
-1. **Gen 1/2 map & trainer editing**; Gen 5 full personal layout
-   verification; the Gen 4 text codec for names.
-2. **Deeper decomp editing** — types/abilities/items as dropdowns,
-   trainers and encounters from source, project-wide save.
-3. Level-up learnsets, evolutions, type chart, starters, sprite
-   importing, item/text editing, UPS/BPS patches.
+Still open, in rough order:
+
+1. Gen 5 beyond personal data (moves, trainers, wild — needs a
+   verifiable byte-format source; no Gen 5 decomp exists).
+2. Sprite importing for Gen 1/2/4 (needs the compressors).
+3. Starters, item/text editing, BPS patches.
 
 ## What about 1000+ Pokémon, Megas, Tera, Z-moves?
 
