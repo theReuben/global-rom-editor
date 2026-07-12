@@ -90,6 +90,17 @@ export function makeGen1Rom(): Uint8Array {
     }
   }
 
+  // Sprites: a minimal hand-built pic (1×1 tile, order 0, xor-mode 0,
+  // both planes one zero-run of 32 groups; bit stream
+  // 0 | 0 11110 00001 | 0 | 0 11110 00001) in bank 5, referenced from
+  // every stats entry (dims 0x11).
+  const pic = 5 * 0x4000 + 0x1000 // local 0x5000
+  put(rom, pic, [0x11, 0x3c, 0x13, 0xc1])
+  for (let dex = 1; dex <= 150; dex++) {
+    put(rom, stats + (dex - 1) * 28 + 10, [0x11, 0x00, 0x50, 0x00, 0x50])
+  }
+  put(rom, mew + 10, [0x11, 0x00, 0x50, 0x00, 0x50])
+
   // Type chart: 62 triplets {atk, def, eff} + 0xFF end (bank 0x0F).
   {
     const chart: number[] = []
@@ -139,8 +150,10 @@ export function makeGen1Rom(): Uint8Array {
   const mapBanks = 0xc100
   for (let m = 0; m < 160; m++) rom[mapBanks + m] = 6
   const header = 6 * 0x4000 + 0x300 // bank 6, local 0x4300
-  // ts 0, 4x5 blocks, no connections, objects at local 0x4500.
-  put(rom, header, [0, 4, 5, 0x00, 0x44, 0x00, 0x45, 0x00, 0x45, 0, 0x00, 0x45])
+  // ts 1, 4x5 blocks, no connections, objects at local 0x4500. (Using
+  // tileset 1 forces the tileset-table scan to find a 2-entry run —
+  // a single-entry "run" can appear by chance in unrelated data.)
+  put(rom, header, [1, 4, 5, 0x00, 0x44, 0x00, 0x45, 0x00, 0x45, 0, 0x00, 0x45])
   // Object data: border, 1 warp (y5 x5 -> map 40 warp 1), 1 sign
   // (y13 x13 text 4), 2 NPCs (plain + trainer with 2 extra bytes),
   // then one warp_to entry {viewPtr, y, x} with base 0xC6E8:
@@ -157,9 +170,11 @@ export function makeGen1Rom(): Uint8Array {
   ])
   const mapBlocks = 6 * 0x4000 + 0x400
   rom[mapBlocks + 1] = 1 // block (1,0) uses block id 1
-  // Tileset 0: bank 6, blocks @0x6000, gfx @0x6800, coll in ROM0.
+  // Tilesets 0 + 1 (the map uses 1): bank 6, blocks @0x6000,
+  // gfx @0x6800, coll in ROM0.
   const tsTable = 0xc700
   put(rom, tsTable, [6, 0x00, 0x60, 0x00, 0x68, 0x00, 0x10, 0xff, 0xff, 0xff, 0x52, 0])
+  put(rom, tsTable + 12, [6, 0x00, 0x60, 0x00, 0x68, 0x00, 0x10, 0xff, 0xff, 0xff, 0x52, 0])
   const tsBlocks = 6 * 0x4000 + 0x2000
   for (let i = 0; i < 16; i++) rom[tsBlocks + 16 + i] = 1 // block 1 = tile 1 everywhere
   const tsGfx = 6 * 0x4000 + 0x2800

@@ -109,6 +109,16 @@ describe('Gen 1 adapter', () => {
     expect(ls.read(1)).toHaveLength(2)
   })
 
+  it('decodes and renders Gen 1 pics', () => {
+    const a = load()
+    expect(a.speciesSprite).not.toBeNull()
+    const front = a.speciesSprite!(1)!
+    expect(front.width).toBe(8) // 1×1-tile fixture pic
+    expect(front.pixels[0]).toBe(255) // all zero pixels → white
+    expect(a.speciesSpriteBack!(1)).not.toBeNull()
+    expect(a.speciesSprite!(151)).not.toBeNull() // Mew's separate entry
+  })
+
   it('edits the type chart (in place, remove frees room to add)', () => {
     const a = load()
     const tc = a.typeChart!

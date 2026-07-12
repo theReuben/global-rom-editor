@@ -14,6 +14,7 @@ import { findGbBankFreeSpace } from '../freespace'
 import { buildGen1Maps } from '../gb/gen1maps'
 import { buildGbEvosMoves } from '../gb/evosmoves'
 import { buildGbTypeChart } from '../gb/typechart'
+import { buildGen1Sprites } from '../gb/gen1pics'
 import { findAll, findByVote, findVerified, matchesAt } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { GEN1_TYPES, GEN12_GROWTH, padDex } from './data'
@@ -775,6 +776,15 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
     })
   }
 
+  // Sprites: pic pointers live in the stats entries; banks resolved by
+  // content (see src/core/gb/gen1pics.ts).
+  const sprites = buildGen1Sprites(
+    rom,
+    statsOffsetFor,
+    (dex) => dexToInternal.get(dex) ?? 0,
+    speciesCount,
+  )
+
   // Type effectiveness chart (TypeEffects — 3-byte matchups, 0xFF end).
   const typeChart = buildGbTypeChart(rom, 0x1a) // DRAGON = 0x1A
   if (typeChart) {
@@ -807,8 +817,8 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
     trainerModule: trainers?.module ?? null,
     wildModule: wild?.module ?? null,
     itemOptions: null,
-    speciesSprite: null,
-    speciesSpriteBack: null,
+    speciesSprite: sprites ? (id) => sprites.front(id) : null,
+    speciesSpriteBack: sprites ? (id) => sprites.back(id) : null,
     hasShinySprites: false,
     importSpeciesSprite: null,
     importSpeciesSpriteBack: null,
