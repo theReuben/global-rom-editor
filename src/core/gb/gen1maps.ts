@@ -174,6 +174,35 @@ export function buildGen1Maps(
     }
   }
 
+  // Offsets of each warp/sign/object entry inside a map's object data.
+  const parseObjects = (m: Gen1Map) => {
+    const conn = bytes[m.headerOff + 9]
+    let nConn = 0
+    for (let b = 0; b < 4; b++) if (conn & (1 << b)) nConn++
+    const objOff = toFile(m.bank, rom.readU16LE(m.headerOff + 10 + nConn * 11))
+    const warps: number[] = []
+    const signs: number[] = []
+    const npcs: number[] = []
+    let p = objOff + 1 // skip the border block
+    const nWarps = bytes[p++]
+    for (let i = 0; i < Math.min(nWarps, 32); i++) {
+      warps.push(p)
+      p += 4
+    }
+    const nSigns = bytes[p++]
+    for (let i = 0; i < Math.min(nSigns, 32); i++) {
+      signs.push(p)
+      p += 3
+    }
+    const nObjects = bytes[p++]
+    for (let i = 0; i < Math.min(nObjects, 32); i++) {
+      npcs.push(p)
+      const textId = bytes[p + 5]
+      p += 6 + (textId & 0x40 ? 2 : textId & 0x80 ? 1 : 0)
+    }
+    return { warps, signs, npcs }
+  }
+
   const tileCache = new Map<string, Uint8Array>()
   const tile = (gfx: number, id: number): Uint8Array => {
     const key = `${gfx}:${id}`
@@ -253,8 +282,61 @@ export function buildGen1Maps(
     setPermission() {
       /* Gen 1 collision is tile-list based, not per-cell — not editable here. */
     },
-    events: () => ({ npcs: [], warps: [], signs: [] }),
-    updateEvent() {},
+    // Object data (same bank as the header): border byte, then warps
+    // (4B: y, x, destWarpId, destMap), signs (3B: y, x, textId) and
+    // objects (sprite, y+4, x+4, movement, range, textId[, extras]) —
+    // trainer objects (textId bit 6) carry 2 extra bytes, item objects
+    // (bit 7) one. Each list is preceded by its count.
+    events(key) {
+      const parsed = parseObjects(byKey.get(key)!)
+      return {
+        warps: parsed.warps.map((w) => ({
+          x: bytes[w + 1],
+          y: bytes[w],
+          elevation: 0,
+          warpId: bytes[w + 2],
+          targetMap: bytes[w + 3],
+          targetBank: 0,
+        })),
+        signs: parsed.signs.map((sg) => ({
+          x: bytes[sg + 1],
+          y: bytes[sg],
+          elevation: 0,
+          kind: bytes[sg + 2],
+        })),
+        npcs: parsed.npcs.map((n) => ({
+          x: bytes[n + 2] - 4,
+          y: bytes[n + 1] - 4,
+          elevation: 0,
+          graphicsId: bytes[n],
+          movementType: bytes[n + 3],
+        })),
+      }
+    },
+    updateEvent(key, kind, index, field, value) {
+      const parsed = parseObjects(byKey.get(key)!)
+      if (kind === 'warp') {
+        const w = parsed.warps[index]
+        if (w === undefined) return
+        if (field === 'x') rom.writeU8(w + 1, value)
+        else if (field === 'y') rom.writeU8(w, value)
+        else if (field === 'warpId') rom.writeU8(w + 2, value)
+        else if (field === 'targetMap') rom.writeU8(w + 3, value)
+      } else if (kind === 'sign') {
+        const sg = parsed.signs[index]
+        if (sg === undefined) return
+        if (field === 'x') rom.writeU8(sg + 1, value)
+        else if (field === 'y') rom.writeU8(sg, value)
+        else if (field === 'kind') rom.writeU8(sg + 2, value)
+      } else {
+        const n = parsed.npcs[index]
+        if (n === undefined) return
+        if (field === 'x') rom.writeU8(n + 2, value + 4)
+        else if (field === 'y') rom.writeU8(n + 1, value + 4)
+        else if (field === 'graphicsId') rom.writeU8(n, value)
+        else if (field === 'movementType') rom.writeU8(n + 3, value)
+      }
+    },
     resize: () => false,
     duplicateMap: () => null,
     addEvent: () => false,

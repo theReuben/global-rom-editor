@@ -5,14 +5,18 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-141 tests green; `npm test` and `npm run build` must stay that way.
+142 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
 **Gen 1 (R/B/Y):** species/moves editing (renames incl. moves), wild
 encounters, trainer parties (both list formats, growth to 6 via class
-relocation), map viewing + block painting (validated against built
-Red/Yellow .sym files).
+relocation), map viewing + block painting + warp/sign/NPC viewing and coordinate
+editing (object data: border, warps 4B {y,x,destWarp,destMap}, signs
+3B {y,x,text}, objects 6B + 2 trainer / 1 item extras flagged by
+textId bits 6/7; objectsPtr sits after the connections in the
+header). Validated against built Red/Yellow .sym files and Pallet
+Town's exact event coordinates (Yellow moves Oak to 10,4).
 
 **Gen 2 (G/S/C):** species/moves editing (renames incl. moves),
 time-of-day wild encounters, trainer parties (names, items, custom
@@ -159,7 +163,8 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    tiles 2bpp. Yellow places MapHeaderPointers+Banks adjacent in a
    switchable bank ("Overworld Pikachu" section) while Red splits
    them between ROM0 and bank 3 - hence candidate-run discovery.
-   Remaining for Gen 1 maps: warps/signs/NPCs (object data).
+   Gen 1 events SHIPPED (in-place edits; add/remove needs object-data
+   relocation, same GB freespace approach as trainer growth).
 
    Gen 2 map facts: map entry = {attrBank, tileset, environment,
    attrPtr u16, location, music, phone/tod, fishgroup} (9 bytes);

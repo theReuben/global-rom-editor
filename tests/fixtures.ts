@@ -112,7 +112,19 @@ export function makeGen1Rom(): Uint8Array {
   const mapBanks = 0xc100
   for (let m = 0; m < 160; m++) rom[mapBanks + m] = 6
   const header = 6 * 0x4000 + 0x300 // bank 6, local 0x4300
-  put(rom, header, [0, 4, 5, 0x00, 0x44, 0x00, 0x45, 0x00, 0x45, 0]) // ts 0, 4x5 blocks
+  // ts 0, 4x5 blocks, no connections, objects at local 0x4500.
+  put(rom, header, [0, 4, 5, 0x00, 0x44, 0x00, 0x45, 0x00, 0x45, 0, 0x00, 0x45])
+  // Object data: border, 1 warp (y5 x5 -> map 40 warp 1), 1 sign
+  // (y13 x13 text 4), 2 NPCs (plain + trainer with 2 extra bytes).
+  const objData = 6 * 0x4000 + 0x500
+  put(rom, objData, [
+    0x0b,
+    1, 5, 5, 1, 40,
+    1, 13, 13, 4,
+    2,
+    7, 5 + 4, 8 + 4, 1, 2, 5,
+    9, 6 + 4, 3 + 4, 0, 0, 0x40 | 2, 24, 1,
+  ])
   const mapBlocks = 6 * 0x4000 + 0x400
   rom[mapBlocks + 1] = 1 // block (1,0) uses block id 1
   // Tileset 0: bank 6, blocks @0x6000, gfx @0x6800, coll in ROM0.

@@ -141,6 +141,28 @@ describe('Gen 1 maps', () => {
     expect(strip.count).toBeGreaterThanOrEqual(2)
     expect(strip.perRow).toBe(8)
   })
+
+  it('reads and edits warps, signs and NPCs', async () => {
+    const a = await loadGen1()
+    const m = a.mapModule!
+    const key = m.entries[0].key
+    const ev = m.events(key)
+    expect(ev.warps).toHaveLength(1)
+    expect(ev.warps[0]).toMatchObject({ x: 5, y: 5, warpId: 1, targetMap: 40 })
+    expect(ev.signs[0]).toMatchObject({ x: 13, y: 13, kind: 4 })
+    expect(ev.npcs).toHaveLength(2) // trainer extras must not desync the walk
+    expect(ev.npcs[0]).toMatchObject({ x: 8, y: 5, graphicsId: 7, movementType: 1 })
+    expect(ev.npcs[1]).toMatchObject({ x: 3, y: 6, graphicsId: 9 })
+
+    m.updateEvent(key, 'npc', 0, 'x', 12)
+    m.updateEvent(key, 'warp', 0, 'targetMap', 7)
+    m.updateEvent(key, 'sign', 0, 'kind', 9)
+    const re = buildAdapter(new Rom('red.gb', a.rom.bytes)).adapter!
+    const rev = re.mapModule!.events(key)
+    expect(rev.npcs[0].x).toBe(12)
+    expect(rev.warps[0].targetMap).toBe(7)
+    expect(rev.signs[0].kind).toBe(9)
+  })
 })
 
 describe('Gen 2 maps', () => {
