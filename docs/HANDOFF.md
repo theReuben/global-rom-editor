@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-164 tests green; `npm test` and `npm run build` must stay that way.
+165 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -96,6 +96,16 @@ pairs; row 0 = dummy 000) found via findByVote anchors dex 1/25/131
 (byte-identical in built Gold+Crystal). Validated: tables at Gold
 12:4000 / Crystal 48:4000 per .sym, 500/500 pics render, Bulbasaur
 front byte-exact vs the build intermediate .2bpp, PNGs eyeballed.
+Sprite IMPORT ships for Gen 2: lz3Compress (literal/iterate/zero/
+repeat commands; round-trips all 500 real pics at 105% of the game's
+own compression) + luminance quantization into the 4 palette slots,
+normal+shiny palette recolored from the image midtones, in-place when
+the stream fits (lz3CompressedLength) else relocated to bank free
+space with stored byte = realBank - delta, ROUND-TRIP VERIFIED via
+resolveBank and reverted on failure (some raw values are FixPicBank-
+remapped). Crystal fronts keep their decompressed length by repeating
+the base frame (animation data). The table prefilter accepts stored
+bytes up to 0x7F — relocations in delta-0 games write high values.
 
 **Gen 3 (R/S/E/FR/LG):** the full suite — species, moves, trainers,
 wild, maps (paint/resize/new maps/NPCs/warps/signs/script builder),
@@ -338,7 +348,7 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
 - Gen 4
   TM->move labels (table lives in the compressed arm9 — hard),
   Gen 1/2 sprite IMPORT (needs RLE/lz3 compressors), DS map editing
-  (out of scope), Gen 4 evolutions can't be byte-validated until a
+  (out of scope), Gen 1/Gen 4 sprite import, Gen 4 evolutions can't be byte-validated until a
   real evo.narc surfaces (struct is source-verified; wotbl was
   validated against the repo's real prebuilt binary).
 

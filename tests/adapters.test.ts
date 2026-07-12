@@ -225,6 +225,30 @@ describe('Gen 2 adapter', () => {
     expect(a.speciesSprite!(201, false)).toBeNull() // Unown filler slot
   })
 
+  it('imports a custom sprite (quantize, lz3, relocate, recolor)', () => {
+    const a = load()
+    // Fixture dims are 2×2 tiles → 16×16 pixels required.
+    const px = 16
+    const pixels = new Uint8ClampedArray(px * px * 4)
+    for (let i = 0; i < px * px; i++) {
+      // Left half bright red-ish (bucket 1), right half dark (bucket 3).
+      const bright = i % px < px / 2
+      pixels[i * 4] = bright ? 200 : 10
+      pixels[i * 4 + 1] = bright ? 120 : 10
+      pixels[i * 4 + 2] = bright ? 120 : 10
+      pixels[i * 4 + 3] = 255
+    }
+    expect(a.importSpeciesSprite!(1, { pixels, width: 8, height: 8 })).toContain('16×16')
+    expect(a.importSpeciesSprite!(1, { pixels, width: px, height: px })).toBeNull()
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    const img = re.speciesSprite!(1, false)!
+    expect(img.width).toBe(16)
+    expect(img.pixels[0]).toBeGreaterThan(150) // recolored midtone red
+    expect(img.pixels[2]).toBeLessThan(150)
+    const right = (px - 1) * 4
+    expect(img.pixels[right]).toBeLessThan(32) // dark bucket → black
+  })
+
   it('exposes the Foresight section of the type chart', () => {
     const a = load()
     const tc = a.typeChart!

@@ -19,6 +19,100 @@ function bitflip(b: number): number {
 }
 
 /**
+ * Byte length of the compressed stream at `off`, including the 0xFF
+ * terminator. Throws if the stream doesn't terminate.
+ */
+export function lz3CompressedLength(data: Uint8Array, off: number): number {
+  let p = off
+  while (p < data.length) {
+    const b = data[p++]
+    if (b === LZ_END) return p - off
+    let cmd = b >> 5
+    let len: number
+    if (cmd === 7) {
+      cmd = (b >> 2) & 7
+      len = (((b & 3) << 8) | data[p++]) + 1
+    } else {
+      len = (b & 0x1f) + 1
+    }
+    if (cmd === 0) p += len
+    else if (cmd === 1) p += 1
+    else if (cmd === 2) p += 2
+    else if (cmd === 3) { /* zero-fill: no payload */ }
+    else p += data[p] & 0x80 ? 1 : 2
+  }
+  throw new Error('lz3: no terminator')
+}
+
+/**
+ * Compress `data` into a valid lz3 stream (literal / iterate / zero /
+ * repeat commands). Not byte-identical to the game compressor's output
+ * — it doesn't need to be, the game only ever decompresses — but every
+ * stream round-trips through lz3Decompress byte-exactly.
+ */
+export function lz3Compress(data: Uint8Array): Uint8Array {
+  const out: number[] = []
+  const cmdHeader = (cmd: number, len: number) => {
+    if (len <= 32) out.push((cmd << 5) | (len - 1))
+    else out.push(0xe0 | (cmd << 2) | ((len - 1) >> 8), (len - 1) & 0xff)
+  }
+  const MAX_LEN = 1024
+  let literal: number[] = []
+  const flushLiteral = () => {
+    let i = 0
+    while (i < literal.length) {
+      const chunk = Math.min(MAX_LEN, literal.length - i)
+      cmdHeader(0, chunk)
+      for (let k = 0; k < chunk; k++) out.push(literal[i + k])
+      i += chunk
+    }
+    literal = []
+  }
+
+  let p = 0
+  while (p < data.length) {
+    // Zero-fill / iterate runs.
+    let run = 1
+    while (p + run < data.length && data[p + run] === data[p] && run < MAX_LEN) run++
+    if (run >= 3) {
+      flushLiteral()
+      if (data[p] === 0) cmdHeader(3, run)
+      else {
+        cmdHeader(1, run)
+        out.push(data[p])
+      }
+      p += run
+      continue
+    }
+    // Back-reference into what's already been produced (15-bit
+    // absolute offsets from the output start).
+    let bestLen = 0
+    let bestSrc = 0
+    const windowStart = Math.max(0, p - 0x7fff)
+    for (let s = windowStart; s < p; s++) {
+      if (data[s] !== data[p]) continue
+      let l = 0
+      while (p + l < data.length && data[s + l] === data[p + l] && l < MAX_LEN) l++
+      if (l > bestLen) {
+        bestLen = l
+        bestSrc = s
+      }
+    }
+    if (bestLen >= 4 && bestSrc <= 0x7fff) {
+      flushLiteral()
+      cmdHeader(4, bestLen)
+      out.push((bestSrc >> 8) & 0x7f, bestSrc & 0xff)
+      p += bestLen
+      continue
+    }
+    literal.push(data[p++])
+  }
+  flushLiteral()
+  out.push(LZ_END)
+  return Uint8Array.from(out)
+}
+
+/**
  * Like lz3Decompress but returns null unless the stream ends with a
  * proper LZ_END terminator — random data (zero-filled banks especially)
  * "decompresses" by running off the end, so termination is the strong

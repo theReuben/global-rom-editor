@@ -20,8 +20,9 @@
 import type { Rom } from '../rom'
 import type { RenderedImage } from '../games/schema'
 import { decodeTile2bpp } from '../tiles'
-import { lz3Decompress, lz3TryDecompress } from './lz3'
+import { lz3Compress, lz3CompressedLength, lz3Decompress, lz3TryDecompress } from './lz3'
 import { findByVote } from '../scan'
+import { findGbBankFreeSpace } from '../freespace'
 
 const PAL_ANCHORS = [
   { index: 1, pattern: [236, 47, 95, 25, 148, 47, 95, 25] },
@@ -41,6 +42,8 @@ export function buildGen2Sprites(
 ): {
   front: (id: number, shiny: boolean) => RenderedImage | null
   back: (id: number, shiny: boolean) => RenderedImage | null
+  importFront: (id: number, image: RenderedImage) => string | null
+  importBack: (id: number, image: RenderedImage) => string | null
   hasPalettes: boolean
   tableOff: number
 } | null {
@@ -81,7 +84,7 @@ export function buildGen2Sprites(
         continue
       }
       const p = rom.readU16LE(o + i * 3 + 1)
-      if (p < 0x4000 || p >= 0x8000 || bytes[o + i * 3] > 0x60) continue outer
+      if (p < 0x4000 || p >= 0x8000 || bytes[o + i * 3] > 0x7f) continue outer
     }
     candidates.push(o)
     if (candidates.length > 8) break
@@ -255,9 +258,129 @@ export function buildGen2Sprites(
     return { pixels, width, height }
   }
 
+  /**
+   * Replace a species' pic with a quantized image. Pixels bucket by
+   * luminance into the four palette slots; slots 1 and 2 recolor the
+   * species' normal AND shiny palette from the image. The 2bpp data is
+   * lz3-compressed in place when it fits, else relocated to bank free
+   * space with the pointer's stored bank byte rewritten as real−delta
+   * (round-trip verified, since some banks are game-remapped).
+   */
+  const importPic = (id: number, front: boolean, image: RenderedImage): string | null => {
+    if (id < 1 || id > count) return 'Unknown species'
+    const entry = tableOff + (id - 1) * 6 + (front ? 0 : 3)
+    if (isFiller(entry)) return "Unown's pics can't be replaced yet"
+    const d = front ? dimsOf(id) : 0x66
+    const w = d >> 4
+    const h = d & 0x0f
+    const px = w * 8
+    if (image.width !== px || image.height !== h * 8) {
+      return `This sprite must be ${px}×${h * 8} pixels`
+    }
+
+    // Quantize by luminance into 4 buckets and pick mid colors.
+    const idx = new Uint8Array(px * px)
+    const sums = [
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ]
+    for (let i = 0; i < px * px; i++) {
+      const r = image.pixels[i * 4]
+      const g = image.pixels[i * 4 + 1]
+      const b = image.pixels[i * 4 + 2]
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b
+      const v = lum >= 192 ? 0 : lum >= 128 ? 1 : lum >= 64 ? 2 : 3
+      idx[i] = v
+      if (v === 1 || v === 2) {
+        sums[v - 1][0] += r
+        sums[v - 1][1] += g
+        sums[v - 1][2] += b
+        sums[v - 1][3]++
+      }
+    }
+
+    // 2bpp tiles in the column-major order render() expects.
+    const tiles = w * h
+    const data = new Uint8Array(tiles * 16)
+    for (let t = 0; t < tiles; t++) {
+      const tx = Math.floor(t / h) * 8
+      const ty = (t % h) * 8
+      for (let y = 0; y < 8; y++) {
+        let lo = 0
+        let hi = 0
+        for (let x = 0; x < 8; x++) {
+          const v = idx[(ty + y) * px + tx + x]
+          lo = (lo << 1) | (v & 1)
+          hi = (hi << 1) | (v >> 1)
+        }
+        data[t * 16 + y * 2] = lo
+        data[t * 16 + y * 2 + 1] = hi
+      }
+    }
+
+    // Preserve the original decompressed length (Crystal fronts carry
+    // animation frames) by repeating the base frame.
+    const oldBank = resolveBank(bytes[entry], rom.readU16LE(entry + 1), tiles)
+    if (oldBank < 0) return 'Could not locate the original sprite'
+    const oldOff = toFile(oldBank, rom.readU16LE(entry + 1))
+    const origLen = lz3Decompress(bytes, oldOff).length
+    let full = data
+    if (origLen > data.length) {
+      full = new Uint8Array(origLen)
+      for (let i = 0; i < origLen; i++) full[i] = data[i % data.length]
+    }
+    const packed = lz3Compress(full)
+
+    let dest = oldOff
+    let destBank = oldBank
+    if (packed.length > lz3CompressedLength(bytes, oldOff)) {
+      dest = -1
+      const romBankCount = Math.max(2, Math.floor(bytes.length / 0x4000))
+      for (let b = romBankCount - 1; b >= 1 && dest < 0; b--) {
+        const stored = b - delta
+        if (stored < 0 || stored > 0xff) continue
+        const cand = findGbBankFreeSpace(bytes, b, packed.length)
+        if (cand !== null) {
+          dest = cand
+          destBank = b
+        }
+      }
+      if (dest < 0) return 'No free space for the new sprite'
+    }
+    rom.writeBytes(dest, packed)
+    rom.writeU8(entry, destBank - delta)
+    rom.writeU16LE(entry + 1, (dest % 0x4000) + 0x4000)
+    bankCache.clear()
+    // The stored bank must round-trip through content resolution —
+    // some raw bank values are remapped by the game's FixPicBank.
+    if (resolveBank(bytes[entry], rom.readU16LE(entry + 1), tiles) !== destBank) {
+      rom.revertRange(entry, 3)
+      rom.revertRange(dest, packed.length)
+      bankCache.clear()
+      return 'The target bank is not addressable in this game'
+    }
+
+    // Recolor the palette (normal + shiny) from the image's midtones.
+    if (palOff !== null) {
+      const toBgr = (s: number[]) => {
+        const n = Math.max(1, s[3])
+        return ((s[0] / n) >> 3) | (((s[1] / n) >> 3) << 5) | (((s[2] / n) >> 3) << 10)
+      }
+      const c1 = sums[0][3] ? toBgr(sums[0]) : 0x56b5
+      const c2 = sums[1][3] ? toBgr(sums[1]) : 0x294a
+      for (const base of [palOff + id * 8, palOff + id * 8 + 4]) {
+        rom.writeU16LE(base, c1)
+        rom.writeU16LE(base + 2, c2)
+      }
+    }
+    return null
+  }
+
   return {
     front: (id, shiny) => render(id, true, shiny),
     back: (id, shiny) => render(id, false, shiny),
+    importFront: (id, image) => importPic(id, true, image),
+    importBack: (id, image) => importPic(id, false, image),
     hasPalettes: palOff !== null,
     tableOff,
   }

@@ -16,7 +16,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Starting moves / level-up learnsets | ✅ | ✅ | ✅ | ✅ Gen 4 |
 | Evolutions & type effectiveness chart | ✅ | ✅ | ✅ | ✅ Gen 4 evolutions |
 | Front + back sprite display (with shiny toggle) | ✅ (SGB colors) | ✅ | ✅ | ✅ Gen 4 |
-| Custom sprite importing, front and back (64×64 PNG, auto-relocation) | — | — | ✅ | — |
+| Custom sprite importing, front and back (PNG, auto-relocation) | — | ✅ | ✅ | — |
 | Wild held items, gender ratio, egg groups, hatch cycles | — | ✅ | ✅ | ✅ |
 | Abilities (named, read from the ROM) | — | — | ✅ | ✅ (+hidden in Gen 5) |
 | EV yields | — | — | ✅ | ✅ |
@@ -141,7 +141,8 @@ Still open, in rough order:
 
 1. Gen 5 beyond personal data (moves, trainers, wild — needs a
    verifiable byte-format source; no Gen 5 decomp exists).
-2. Sprite importing for Gen 1/2/4 (needs the compressors).
+2. Sprite importing for Gen 1 and Gen 4 (Gen 2 shipped — the lz3
+   compressor now exists; Gen 1 needs an RLE compressor port).
 3. Starters, item/text editing.
 
 ## What about 1000+ Pokémon, Megas, Tera, Z-moves?
