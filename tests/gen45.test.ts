@@ -65,6 +65,21 @@ describe('Gen 4 adapter (Platinum-style)', () => {
     expect(re.species[0].name).toBe('Bulbasaur') // species bank untouched
   })
 
+  it('renders descrambled sprites with shiny palettes', () => {
+    const a = load()
+    expect(a.speciesSprite).not.toBeNull()
+    expect(a.hasShinySprites).toBe(true)
+    const front = a.speciesSprite!(1, false)!
+    expect(front.width).toBe(80)
+    expect(front.height).toBe(80)
+    expect(front.pixels[0]).toBe(255) // color 1 = BGR555 0x001F = red
+    expect(front.pixels[1]).toBe(0)
+    const shiny = a.speciesSprite!(1, true)!
+    expect(shiny.pixels[1]).toBe(255) // shiny color 1 = green
+    expect(a.speciesSpriteBack!(1, false)).not.toBeNull()
+    expect(a.speciesSprite!(2, false)).toBeNull() // empty slots
+  })
+
   it('shows ability names from the generated constants', () => {
     const a = load()
     const field = a.speciesFields.find((f) => f.key === 'ability1')!

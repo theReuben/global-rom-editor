@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-156 tests green; `npm test` and `npm run build` must stay that way.
+157 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -109,7 +109,19 @@ item names from the msg banks (D/P bank
 editing (16-byte waza_tbl entries — effect, category,
 power, type, accuracy %, PP, effect chance, priority; struct from
 pokeplatinum move_table.h == pokeheartgold move.h; paths
-waza_tbl / pl_waza_tbl / a-0-1-1).
+waza_tbl / pl_waza_tbl / a-0-1-1), and front+back sprite display
+with shiny palettes (src/core/nds/pokegra.ts): the pokegra NARC
+(pokegra.narc / pl_pokegra.narc / a-0-0-4) holds 6 subfiles per
+species {back F, back M, front F, front M, NCLR normal, NCLR shiny}
+per pokeheartgold GetMonSpriteCharAndPlttNarcIdsEx. NCGR char data is
+160x80 4bpp LINEAR (the 'scanned' flag at RAHC+0x14 bit 0 — NOT
+tiled), two frames side by side (render shows the right frame, the
+standard pose), XOR-scrambled by an LCRNG (seed*1103515245+24691,
+pokepic.c): D/P seeds from the LAST u16 walking backward, Pt/HGSS
+from the FIRST walking forward. Ground truth: pokeheartgold's asset
+pipeline (nitrogfx + nitroarc, plain C, buildable here) produced the
+REAL pokegra.narc from source PNGs + scramble keys; all 493 fronts
+decode and Bulbasaur/Pikachu are pixel-perfect vs the source art.
 
 **Gen 5 (B/W/B2W2):** full personal editing (PKHeX-verified layout —
 no Gen 5 decomp exists).

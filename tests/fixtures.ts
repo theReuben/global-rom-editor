@@ -845,6 +845,51 @@ export function encodeMsgBank(texts: string[], key: number): Uint8Array {
   return out
 }
 
+/** Scrambled Pt/HGSS-style NCGR: 160×80 4bpp, all color-1 pixels. */
+function buildNcgr(key: number): Uint8Array {
+  const plain = new Uint8Array(6400).fill(0x11)
+  plain[0] = 0
+  plain[1] = 0
+  const data = new Uint8Array(6400)
+  let seed = key >>> 0
+  for (let i = 0; i < 3200; i++) {
+    const v = (plain[i * 2] | (plain[i * 2 + 1] << 8)) ^ (seed & 0xffff)
+    data[i * 2] = v & 0xff
+    data[i * 2 + 1] = (v >> 8) & 0xff
+    seed = (Math.imul(seed, 1103515245) + 24691) >>> 0
+  }
+  const out = new Uint8Array(0x30 + 6400)
+  put(out, 0, [...'RGCN'].map((c) => c.charCodeAt(0)))
+  put(out, 4, [0xff, 0xfe, 0x00, 0x01])
+  put(out, 8, [(out.length & 0xff), (out.length >> 8) & 0xff, 0, 0])
+  put(out, 12, [0x10, 0, 1, 0])
+  put(out, 0x10, [...'RAHC'].map((c) => c.charCodeAt(0)))
+  put(out, 0x14, [0x20, 0x19, 0, 0]) // block size
+  put(out, 0x18, [10, 0, 20, 0]) // tilesY, tilesX
+  put(out, 0x1c, [3, 0, 0, 0]) // 4bpp
+  put(out, 0x24, [1, 0, 0, 0]) // scanned (linear) flag
+  put(out, 0x28, [0x00, 0x19, 0, 0]) // data size 6400
+  put(out, 0x2c, [0x18, 0, 0, 0])
+  put(out, 0x30, data)
+  return out
+}
+
+/** 16-color NCLR with color 1 set to `c1` (BGR555). */
+function buildNclr(c1: number): Uint8Array {
+  const out = new Uint8Array(0x28 + 32)
+  put(out, 0, [...'RLCN'].map((c) => c.charCodeAt(0)))
+  put(out, 4, [0xff, 0xfe, 0x00, 0x01])
+  put(out, 8, [out.length & 0xff, (out.length >> 8) & 0xff, 0, 0])
+  put(out, 12, [0x10, 0, 1, 0])
+  put(out, 0x10, [...'TTLP'].map((c) => c.charCodeAt(0)))
+  put(out, 0x14, [0x38, 0, 0, 0])
+  put(out, 0x18, [4, 0, 0, 0])
+  put(out, 0x20, [0x20, 0, 0, 0])
+  put(out, 0x24, [0x10, 0, 0, 0])
+  put(out, 0x28 + 2, [c1 & 0xff, c1 >> 8]) // color 1
+  return out
+}
+
 /** Platinum-style ROM: 150-species personal NARC, Gen 4 layout. */
 export function makeGen4Rom(): Uint8Array {
   const entries: Uint8Array[] = []
@@ -870,10 +915,23 @@ export function makeGen4Rom(): Uint8Array {
   msgSubs.push(encodeMsgBank(['Egg', 'Bulbasaur', 'Ivysaur'], 0x1e39))
   while (msgSubs.length < 647) msgSubs.push(new Uint8Array(0))
   msgSubs.push(encodeMsgBank(['x', 'Pound', 'KarateChop'], 0x2b21))
+  // pl_pokegra: 6 subfiles/species; species 1/4/7/25 get real scrambled
+  // NCGRs + palettes (red normal, green shiny), everything else empty.
+  const graSubs: Uint8Array[] = []
+  for (let sp = 0; sp <= 110; sp++) {
+    const real = sp === 1 || sp === 4 || sp === 7 || sp === 25
+    graSubs.push(new Uint8Array(0)) // back female
+    graSubs.push(real ? buildNcgr(0x1234 + sp) : new Uint8Array(0)) // back male
+    graSubs.push(new Uint8Array(0)) // front female
+    graSubs.push(real ? buildNcgr(0x4321 + sp) : new Uint8Array(0)) // front male
+    graSubs.push(real ? buildNclr(0x001f) : new Uint8Array(0)) // normal: red
+    graSubs.push(real ? buildNclr(0x03e0) : new Uint8Array(0)) // shiny: green
+  }
   return makeNdsRom('CPUE', [
     { path: 'poketool/personal/pl_personal.narc', content: buildNarc(entries) },
     { path: 'poketool/waza/pl_waza_tbl.narc', content: buildNarc(moves) },
     { path: 'msgdata/pl_msg.narc', content: buildNarc(msgSubs) },
+    { path: 'poketool/pokegra/pl_pokegra.narc', content: buildNarc(graSubs) },
   ])
 }
 

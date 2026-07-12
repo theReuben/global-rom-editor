@@ -22,6 +22,7 @@ import {
   type NdsFile,
 } from '../nds/nds'
 import { parseMsgBank, rebuildMsgBank, writeMsgEntry } from '../nds/msgdata'
+import { buildPokegra } from '../nds/pokegra'
 import { fixNdsHeaderCrc } from '../checksum'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
 import { NATDEX_NAMES, NATDEX_ABILITIES } from './natdex-names'
@@ -566,6 +567,24 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     if (subs && subs.length > 400 && subs[1]?.length === 16) waza = subs
   }
 
+  // Sprites: the pokegra NARC (6 subfiles per species — see
+  // src/core/nds/pokegra.ts). D/P scramble differs from Pt/HGSS.
+  const GRA_PATHS: Record<string, { path: string; mode: 'dp' | 'pt' }> = {
+    ADA: { path: '/poketool/pokegra/pokegra.narc', mode: 'dp' },
+    APA: { path: '/poketool/pokegra/pokegra.narc', mode: 'dp' },
+    CPU: { path: '/poketool/pokegra/pl_pokegra.narc', mode: 'pt' },
+    IPK: { path: '/a/0/0/4', mode: 'pt' },
+    IPG: { path: '/a/0/0/4', mode: 'pt' },
+  }
+  let pokegra: ReturnType<typeof buildPokegra> = null
+  if (GRA_PATHS[code3]) {
+    const file = findNdsFile(files, GRA_PATHS[code3].path)
+    const subs = file ? parseNarc(bytes, file.start) : null
+    if (subs && subs.length > 600) {
+      pokegra = buildPokegra(bytes, subs, GRA_PATHS[code3].mode, personal.length - 1)
+    }
+  }
+
   const moveHandles = msgMoves
     .map((name, id) => ({ id, label: `${String(id).padStart(3, '0')} ${name}`, name }))
     .filter((m) => m.id > 0 && m.name.length > 0)
@@ -738,9 +757,9 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
       msgItems.length > 1
         ? msgItems.map((label, value) => ({ value, label: value === 0 ? '— none —' : label || `Item #${value}` }))
         : null,
-    speciesSprite: null,
-    speciesSpriteBack: null,
-    hasShinySprites: false,
+    speciesSprite: pokegra ? (id, shiny) => pokegra!.front(id, shiny ?? false) : null,
+    speciesSpriteBack: pokegra ? (id, shiny) => pokegra!.back(id, shiny ?? false) : null,
+    hasShinySprites: pokegra !== null,
     importSpeciesSprite: null,
     importSpeciesSpriteBack: null,
     evolutions: null,
