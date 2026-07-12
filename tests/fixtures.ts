@@ -196,6 +196,28 @@ export function makeGen2Rom(): Uint8Array {
   put(rom, moves, [0x01, 0x00, 40, 0x00, 0xff, 35, 0x00])
   put(rom, moves + 7, [0x02, 0x00, 50, 0x01, 0xff, 25, 0x00])
 
+  // Maps: 26 group pointers (bank 0x40) sharing one 4-map array.
+  const grpTable = 0x100000 // bank 0x40, local 0x4000
+  const grpLocal = (off: number) => 0x4000 + (off - 0x100000)
+  const grpArray = 0x100100
+  for (let g = 0; g < 26; g++) put(rom, grpTable + g * 2, [grpLocal(grpArray) & 0xff, grpLocal(grpArray) >> 8])
+  // 4 map entries: attrBank 0x40, tileset 3, env 1, attrPtr, misc.
+  for (let m = 0; m < 4; m++) {
+    put(rom, grpArray + m * 9, [0x40, 3, 1, 0x00, 0x42, 0, 0, 0, 0])
+  }
+  // Attributes: border, h 3, w 4, blocks bank 0x40 @ local 0x4300.
+  put(rom, 0x100200, [0, 3, 4, 0x40, 0x00, 0x43, 0x01, 0x00, 0x40, 0x00, 0x40, 0])
+  rom[0x100300 + 1] = 1 // block (1,0) = metatile 1
+  // Tilesets: 4 × 15-byte entries {gfx 0x40:4700, meta 0x40:4600,
+  // coll 0x40:4000, anim, NULL, palmap} — NULL word at +11.
+  for (let t = 0; t < 4; t++) {
+    put(rom, 0x100400 + t * 15, [0x40, 0x00, 0x47, 0x40, 0x00, 0x46, 0x40, 0x00, 0x40, 0x00, 0x40, 0, 0, 0x00, 0x40])
+  }
+  // Metatiles: metatile 0 = 16×tile0, metatile 1 = 16×tile1.
+  for (let i = 0; i < 16; i++) rom[0x100600 + 16 + i] = 1
+  // Tileset gfx, lz3-compressed: 16 zero bytes then 16×0xFF
+  // (zero-fill 16, iterate 0xFF ×16, terminator).
+  put(rom, 0x100700, [0x6f, 0x3f, 0xff, 0xff])
   const moveNames = 0x1c9f29
   const g2names = ['POUND', 'KARATE CHOP']
   for (let mv = 3; mv <= 32; mv++) g2names.push('MOVE' + String(mv))

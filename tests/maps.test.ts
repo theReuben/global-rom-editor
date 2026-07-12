@@ -142,3 +142,35 @@ describe('Gen 1 maps', () => {
     expect(strip.perRow).toBe(8)
   })
 })
+
+describe('Gen 2 maps', () => {
+  const loadGen2 = async () => {
+    const { makeGen2Rom } = await import('./fixtures')
+    return buildAdapter(new Rom('crystal.gbc', makeGen2Rom())).adapter!
+  }
+
+  it('discovers groups, attributes and tilesets structurally', async () => {
+    const a = await loadGen2()
+    const m = a.mapModule!
+    expect(m).not.toBeNull()
+    expect(m.entries).toHaveLength(26 * 4) // 26 groups sharing a 4-map array
+    expect(m.entries.some((e) => e.key === '3.2')).toBe(true)
+    expect(m.describe('1.1')).toMatchObject({ widthBlocks: 4, heightBlocks: 3 })
+  })
+
+  it('renders lz3 tilesets and paints in place', async () => {
+    const a = await loadGen2()
+    const m = a.mapModule!
+    const img = m.render('1.1')
+    expect(img.width).toBe(4 * 32)
+    expect(img.height).toBe(3 * 32)
+    expect(img.pixels[0]).toBe(232) // block 0 → tile 0 → lightest
+    expect(img.pixels[32 * 4]).toBe(28) // block (1,0) → tile 1 → darkest
+    m.paint('1.1', 0, 1, 1)
+    expect(m.cell('1.1', 0, 1).blockId).toBe(1)
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    expect(re.mapModule!.cell('1.1', 0, 1).blockId).toBe(1)
+    m.revertBlocks('1.1')
+    expect(a.rom.changedByteCount).toBe(0)
+  })
+})

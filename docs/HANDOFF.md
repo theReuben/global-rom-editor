@@ -5,7 +5,17 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-137 tests green. Gen 1/2 move renaming shipped (same-or-shorter,
+139 tests green. Gen 2 (G/S/C) maps render with block painting:
+src/core/gb/gen2maps.ts walks MapGroupPointers (a same-bank pointer
+run where consecutive groups are 9-byte aligned and every group
+opens with a plausible map entry) -> 9-byte map entries -> 12-byte
+MapAttributes -> the 15-byte Tilesets table (pinned by its NULL word
+at +11). Tileset gfx are lz3-compressed - src/core/gb/lz3.ts is a
+port of pokecrystal home/decompress.asm, byte-exact against 30 of
+the build's own .2bpp/.2bpp.lz pairs. Validated on built Gold +
+Crystal: discovered Tilesets matches the .sym address, Sprout Tower
+2F renders 10x8, paint + reload + revert round-trips. Rendering is
+grayscale for now (CGB palette maps are a later nicety). Gen 1/2 move renaming shipped (same-or-shorter,
 space-padded in the variable-length 0x50-terminated list). Move-NAME
 discovery is now voting-based too: adjacent-pair anchors at moves
 1/33/85/94 walk BACKWARD (id-1) validated segments to the list start
@@ -177,8 +187,19 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    tiles 2bpp. Yellow places MapHeaderPointers+Banks adjacent in a
    switchable bank ("Overworld Pikachu" section) while Red splits
    them between ROM0 and bank 3 - hence candidate-run discovery.
-   Remaining for Gen 1 maps: warps/signs/NPCs (object data), Gen 2
-   maps (pokecrystal's map attributes are a different scheme).
+   Remaining for Gen 1 maps: warps/signs/NPCs (object data).
+
+   Gen 2 map facts: map entry = {attrBank, tileset, environment,
+   attrPtr u16, location, music, phone/tod, fishgroup} (9 bytes);
+   attributes = {border, height, width, blocksBank, blocksPtr u16,
+   scriptsBank, scriptsPtr u16, eventsPtr u16, connections};
+   tileset entry (15 bytes) = dba GFX, dba Meta, dba Coll, dw Anim,
+   dw NULL, dw PalMap. GFX is lz3-compressed; metatiles are raw
+   4x4 tile grids. lz3: commands in top 3 bits (literal/iterate/
+   alternate/zero/repeat/flip/reverse), LZ_LONG=7 extends length to
+   10 bits, offsets positive 15-bit big-endian from output start or
+   negative 7-bit back-from-cursor-minus-one, 0xFF ends. Remaining:
+   Gen 2 events, CGB colors.
 2. **Deeper decomp editing: SHIPPED.** Constant-expression fields
    (`.types`, `.abilities`, `.eggGroups`, `.growthRate`, `.itemCommon`,
    `.itemRare`) are dropdowns; options enumerated from the opened

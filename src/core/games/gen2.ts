@@ -6,6 +6,7 @@
  */
 import { Rom } from '../rom'
 import { findGbBankFreeSpace } from '../freespace'
+import { buildGen2Maps } from '../gb/gen2maps'
 import { findAll, findByVote, findVerified } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { EGG_GROUPS, GEN2_TYPES, GEN12_GROWTH, GENDER_RATIOS, padDex } from './data'
@@ -702,6 +703,18 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     warnings.push("Couldn't locate wild encounter data — wild editing disabled for this ROM.")
   }
 
+  // Maps (view + block painting).
+  const gen2maps = buildGen2Maps(rom, GEN2_MAP_NAMES)
+  if (gen2maps) {
+    regions.push({
+      name: `Map groups (${gen2maps.groups} groups, ${gen2maps.count} maps)`,
+      offset: gen2maps.tilesets,
+      length: gen2maps.groups * 2,
+    })
+  } else {
+    warnings.push("Couldn't locate the map group tables — map viewing disabled for this ROM.")
+  }
+
   // Trainer parties.
   const trainers = buildGen2Trainers(rom)
   if (trainers) {
@@ -782,7 +795,7 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     species,
     speciesFields,
     typeOptions: GEN2_TYPES,
-    mapModule: null, // Gen 2 map editing: on the roadmap
+    mapModule: gen2maps?.module ?? null,
     trainerModule: trainers?.module ?? null,
     wildModule: wild?.module ?? null,
     itemOptions: null,
