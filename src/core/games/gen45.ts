@@ -478,6 +478,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
   let msgItems: string[] = []
   let speciesBank: NarcSubfile | null = null
   let trainerBank: NarcSubfile | null = null
+  let movesBank: NarcSubfile | null = null
   let msgFile: NdsFile | null = null
   let msgSubs: NarcSubfile[] | null = null
   const msgCfg = MSG_BANKS[code3]
@@ -492,6 +493,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
       }
       speciesBank = sub(msgCfg.species)
       trainerBank = sub(msgCfg.trainers)
+      movesBank = sub(msgCfg.moves)
       msgSpecies = bank(msgCfg.species)
       msgMoves = bank(msgCfg.moves)
       msgTrainers = bank(msgCfg.trainers)
@@ -542,6 +544,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     if (!msgSubs) return false
     speciesBank = msgSubs.find((x) => x.index === msgCfg!.species) ?? null
     trainerBank = msgSubs.find((x) => x.index === msgCfg!.trainers) ?? null
+    movesBank = msgSubs.find((x) => x.index === msgCfg!.moves) ?? null
     return true
   }
 
@@ -562,6 +565,10 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     const subs = file ? parseNarc(bytes, file.start) : null
     if (subs && subs.length > 400 && subs[1]?.length === 16) waza = subs
   }
+
+  const moveHandles = msgMoves
+    .map((name, id) => ({ id, label: `${String(id).padStart(3, '0')} ${name}`, name }))
+    .filter((m) => m.id > 0 && m.name.length > 0)
 
   const speciesCount = personal.length - 1
   const speciesName = (id: number) => msgSpecies[id] || NATDEX_NAMES[id - 1] || `Extra entry #${id}`
@@ -817,9 +824,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     },
 
     // Move names feed the party-move dropdowns and the Moves editor.
-    moves: msgMoves
-      .map((name, id) => ({ id, label: `${String(id).padStart(3, '0')} ${name}`, name }))
-      .filter((m) => m.id > 0 && m.name.length > 0),
+    moves: moveHandles,
     moveFields: waza
       ? [
           { key: 'power', label: 'Power', kind: 'number', min: 0, max: 255 },
@@ -841,8 +846,24 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
           { key: 'priority', label: 'Priority', kind: 'number', min: -7, max: 7 },
         ]
       : [],
-    moveNameLength: null,
-    setMoveName: () => false,
+    // Move renames ride the same msg-bank machinery as species names:
+    // in place when the new name fits, NARC growth path otherwise.
+    moveNameLength: movesBank ? 16 : null,
+    setMoveName(id, name) {
+      if (!movesBank || name.length === 0 || id <= 0 || id >= msgMoves.length) return false
+      if (
+        !writeMsgEntry(rom, movesBank.offset, movesBank.length, id, name) &&
+        !growMsgEntry(msgCfg!.moves, id, name)
+      )
+        return false
+      msgMoves[id] = name
+      const handle = moveHandles.find((m) => m.id === id)
+      if (handle) {
+        handle.name = name
+        handle.label = `${String(id).padStart(3, '0')} ${name}`
+      }
+      return true
+    },
     readMove(id) {
       const out: Record<string, FieldValue> = {}
       if (!waza?.[id]) return out

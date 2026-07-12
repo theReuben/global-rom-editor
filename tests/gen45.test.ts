@@ -52,6 +52,19 @@ describe('Gen 4 adapter (Platinum-style)', () => {
     expect(re.species[1].name).toBe('Ivy')
   })
 
+  it('renames moves through the msg bank, including growth', () => {
+    const a = load()
+    expect(a.moves.find((m) => m.id === 1)!.name).toBe('Pound')
+    expect(a.moveNameLength).toBe(16)
+    expect(a.setMoveName(1, 'Bonk')).toBe(true) // shorter → in place
+    expect(a.moves.find((m) => m.id === 1)!.name).toBe('Bonk')
+    expect(a.setMoveName(2, 'KarateChopSupreme')).toBe(true) // growth
+    const re = buildAdapter(new Rom('platinum.nds', a.rom.bytes)).adapter!
+    expect(re.moves.find((m) => m.id === 1)!.name).toBe('Bonk')
+    expect(re.moves.find((m) => m.id === 2)!.name).toBe('KarateChopSupreme')
+    expect(re.species[0].name).toBe('Bulbasaur') // species bank untouched
+  })
+
   it('shows ability names from the generated constants', () => {
     const a = load()
     const field = a.speciesFields.find((f) => f.key === 'ability1')!

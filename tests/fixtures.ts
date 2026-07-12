@@ -771,10 +771,13 @@ export function makeGen4Rom(): Uint8Array {
   put(moves[1], 0, [0, 0, 0, 40, 0, 100, 35, 0, 0, 0, 0, 0])
   // Quick Attack-ish: priority +1 at offset 10.
   put(moves[98], 0, [0, 0, 0, 40, 0, 100, 30, 0, 0, 0, 1, 0])
-  // Msg NARC with the species name bank at Platinum's index 412.
+  // Msg NARC with the species (412) and move (647) name banks at
+  // Platinum's indices.
   const msgSubs: Uint8Array[] = []
   for (let i = 0; i < 412; i++) msgSubs.push(new Uint8Array(0))
   msgSubs.push(encodeMsgBank(['Egg', 'Bulbasaur', 'Ivysaur'], 0x1e39))
+  while (msgSubs.length < 647) msgSubs.push(new Uint8Array(0))
+  msgSubs.push(encodeMsgBank(['x', 'Pound', 'KarateChop'], 0x2b21))
   return makeNdsRom('CPUE', [
     { path: 'poketool/personal/pl_personal.narc', content: buildNarc(entries) },
     { path: 'poketool/waza/pl_waza_tbl.narc', content: buildNarc(moves) },
