@@ -5,7 +5,7 @@
  * which makes life easier than Gen 1. Base stat entries are 32 bytes.
  */
 import { Rom } from '../rom'
-import { findVerified } from '../scan'
+import { findByVote, findVerified } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { EGG_GROUPS, GEN2_TYPES, GEN12_GROWTH, GENDER_RATIOS, padDex } from './data'
 import { GEN2_MAP_NAMES } from './gen2-constants'
@@ -436,7 +436,20 @@ function buildGen2Trainers(rom: Rom): { module: TrainerModule; offset: number; c
 
 export function tryBuildGen2(rom: Rom, gameName: string, platform: string): GameAdapter | null {
   const bytes = rom.bytes
-  const statsOff = findVerified(bytes, BULBASAUR, [{ delta: STATS_ENTRY, pattern: IVYSAUR }])
+  // Stats, names and moves are found by anchor majority vote (bytes
+  // extracted from built Gold + Crystal, identical in both), so editing
+  // any anchor species or move can't break re-discovery on reload.
+  const statsOff = findByVote(
+    bytes,
+    [
+      { index: 0, pattern: BULBASAUR },
+      { index: 1, pattern: IVYSAUR },
+      { index: 24, pattern: [25, 35, 55, 30, 90, 50, 40, 23, 23, 190] }, // Pikachu
+      { index: 112, pattern: [113, 250, 5, 5, 50, 35, 105, 0, 0, 30] }, // Chansey
+      { index: 149, pattern: [150, 106, 110, 90, 130, 154, 90, 24, 24, 3] }, // Mewtwo
+    ],
+    STATS_ENTRY,
+  )
   if (statsOff === null) return null
 
   const warnings: string[] = []
@@ -444,16 +457,38 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     { name: 'Base stats', offset: statsOff, length: COUNT * STATS_ENTRY },
   ]
 
-  const namesOff = findVerified(bytes, [...gen12Bytes('BULBASAUR'), 0x50], [
-    { delta: NAME_LEN, pattern: [...gen12Bytes('IVYSAUR'), 0x50] },
-  ])
+  const gbPad = (t: string) => {
+    const out = gen12Bytes(t)
+    while (out.length < NAME_LEN) out.push(0x50)
+    return out
+  }
+  const namesOff = findByVote(
+    bytes,
+    [
+      { index: 0, pattern: gbPad('BULBASAUR') },
+      { index: 1, pattern: gbPad('IVYSAUR') },
+      { index: 24, pattern: gbPad('PIKACHU') },
+      { index: 149, pattern: gbPad('MEWTWO') },
+    ],
+    NAME_LEN,
+  )
   if (namesOff === null) {
     warnings.push("Couldn't locate the Pokémon name table — names are shown as numbers.")
   } else {
     regions.push({ name: 'Pokémon names', offset: namesOff, length: COUNT * NAME_LEN })
   }
 
-  const moveOff = findVerified(bytes, POUND, [{ delta: MOVE_ENTRY, pattern: KARATE_CHOP }])
+  const moveOff = findByVote(
+    bytes,
+    [
+      { index: 0, pattern: POUND },
+      { index: 1, pattern: KARATE_CHOP },
+      { index: 32, pattern: [33, 0, 35, 0, 242, 35, 0] }, // Tackle
+      { index: 84, pattern: [85, 6, 95, 23, 255, 15, 25] }, // Thunderbolt
+      { index: 93, pattern: [94, 72, 90, 24, 255, 10, 25] }, // Psychic
+    ],
+    MOVE_ENTRY,
+  )
   if (moveOff === null) warnings.push("Couldn't locate the move data table — move editing disabled.")
   else regions.push({ name: 'Move data', offset: moveOff, length: COUNT * MOVE_ENTRY })
 

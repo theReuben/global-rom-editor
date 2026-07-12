@@ -7,7 +7,7 @@
  * index space (1–411; 252–276 are unused placeholders).
  */
 import { Rom } from '../rom'
-import { findAll, findVerified } from '../scan'
+import { findByVote, findVerified } from '../scan'
 import { gen3Bytes, gen3Codec } from '../text'
 import { buildGen3MapModule } from '../gba/maps'
 import { buildTrainerModule } from '../gba/trainers'
@@ -74,22 +74,7 @@ const STATS_ANCHORS: { dex: number; sig: number[] }[] = [
 
 /** Locate the stats table (entry 0 = dummy) by anchor majority vote. */
 function findStatsTable(bytes: Uint8Array): number | null {
-  const votes = new Map<number, number>()
-  for (const a of STATS_ANCHORS) {
-    for (const hit of findAll(bytes, a.sig, 8)) {
-      const base = hit - a.dex * STATS_ENTRY
-      if (base >= 0) votes.set(base, (votes.get(base) ?? 0) + 1)
-    }
-  }
-  let best: number | null = null
-  let bestVotes = 0
-  for (const [base, v] of votes) {
-    if (v > bestVotes) {
-      best = base
-      bestVotes = v
-    }
-  }
-  return bestVotes >= 2 ? best : null
+  return findByVote(bytes, STATS_ANCHORS.map((a) => ({ index: a.dex, pattern: a.sig })), STATS_ENTRY)
 }
 // effect, power, type, accuracy, pp, effect chance, target, priority — Pound.
 const POUND = [0, 40, 0, 100, 35, 0, 0, 0]
@@ -132,10 +117,18 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
   const warnings: string[] = []
   const regions: TableRegion[] = []
 
-  const bulbaName = findVerified(bytes, [...gen3Bytes('BULBASAUR'), 0xff], [
-    { delta: NAME_LEN, pattern: [...gen3Bytes('IVYSAUR'), 0xff] },
-  ])
-  const namesOff = bulbaName === null ? null : bulbaName - NAME_LEN
+  // Names too are found by vote so renaming an anchor species can't
+  // break reload (anchor bytes verified on built Emerald + FireRed).
+  const namesOff = findByVote(
+    bytes,
+    [
+      { index: 1, pattern: [...gen3Bytes('BULBASAUR'), 0xff] },
+      { index: 2, pattern: [...gen3Bytes('IVYSAUR'), 0xff] },
+      { index: 25, pattern: [...gen3Bytes('PIKACHU'), 0xff] },
+      { index: 150, pattern: [...gen3Bytes('MEWTWO'), 0xff] },
+    ],
+    NAME_LEN,
+  )
   // Table sizes come from the ROM itself, so expanded hacks (1000+
   // species) get their full rosters instead of the vanilla counts. The
   // name scan can overshoot into neighbouring text, so trailing entries
@@ -154,8 +147,19 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     regions.push({ name: 'Pokémon names', offset: namesOff, length: (SPECIES_COUNT + 1) * NAME_LEN })
   }
 
-  const poundOff = findVerified(bytes, POUND, [{ delta: MOVE_ENTRY, pattern: KARATE_CHOP }])
-  const moveOff = poundOff === null ? null : poundOff - MOVE_ENTRY
+  // Move rows for Tackle/Thunderbolt/Psychic extracted from the built
+  // ROMs (identical in Emerald and FireRed) join Pound as vote anchors.
+  const moveOff = findByVote(
+    bytes,
+    [
+      { index: 1, pattern: POUND },
+      { index: 2, pattern: KARATE_CHOP },
+      { index: 33, pattern: [0, 35, 0, 95, 35, 0, 0, 0] }, // Tackle
+      { index: 85, pattern: [6, 95, 13, 100, 15, 10, 0, 0] }, // Thunderbolt
+      { index: 94, pattern: [72, 90, 14, 100, 10, 10, 0, 0] }, // Psychic
+    ],
+    MOVE_ENTRY,
+  )
 
   const poundName = findVerified(bytes, [...gen3Bytes('POUND'), 0xff], [
     { delta: MOVE_NAME_LEN, pattern: [...gen3Bytes('KARATE CHOP'), 0xff] },

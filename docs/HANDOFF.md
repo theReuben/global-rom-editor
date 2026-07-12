@@ -5,7 +5,10 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-133 tests green. Anchor voting now also covers evolutions,
+133 tests green. Anchor voting now covers ALL generations:
+Gen 1/2/3 stats, names and move-data tables each vote across 4-5
+anchors (Pikachu/Chansey/Mewtwo rows extracted from built
+Red/Yellow/Gold/Crystal/Emerald/FireRed; findByVote in scan.ts). Anchor voting now also covers evolutions,
 learnsets and TM/HM bits (species-extras.ts voteForBase / learnset
 3-of-5 first-word vote). The Gen 3 stats table is now found by anchor
 MAJORITY VOTE (Bulba/Ivy/Pikachu/Chansey/Mewtwo each vote for a
@@ -96,9 +99,12 @@ no matter which anchor species was edited. Validated by wrecking
 Bulbasaur's evo/learnset/TM rows (plus Ivysaur's evo) on both real
 ROMs and reloading with zero warnings. Still single-anchor: the type
 chart (not per-species — editing it can't self-break the same way,
-its signature rows are Normal-type matchups) and the Gen 1/2 tables
-(extend the same pattern there next; extract anchor bytes from built
-ROMs, never from memory).
+its signature rows are Normal-type matchups). Gen 1/2/3 stats, names
+and move-data tables all vote via `findByVote` (scan.ts) — validated
+on all six built ROMs by wrecking Bulba/Ivy stats + names and
+Pound/Karate Chop move rows, then reloading with zero new warnings.
+Gen 1 name anchors are INTERNAL-order indices (Rhydon 1, Kangaskhan 2,
+Pikachu 84, Mewtwo 131 — from pokered constants).
 
 ## Remaining roadmap, with implementation notes
 

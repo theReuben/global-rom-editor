@@ -20,7 +20,7 @@ import type {
   TypeChartEntry,
   TypeChartModule,
 } from '../games/schema'
-import { findAll } from '../scan'
+import { findAll, findByVote } from '../scan'
 import { readGbaPointer, relocate } from '../freespace'
 
 // Compiled entries are padded to 8 bytes (verified against a built ROM).
@@ -59,25 +59,9 @@ const EVO_ANCHORS: { dex: number; sig: number[] }[] = [
   { dex: 133, sig: [7, 0, 96, 0, 135, 0] }, // Eevee: Thunder Stone
 ]
 
-/** Majority vote over anchor hits; returns the winner with ≥2 votes. */
-function voteForBase(bytes: Uint8Array, anchors: { dex: number; sig: number[] }[], stride: number): number | null {
-  const votes = new Map<number, number>()
-  for (const a of anchors) {
-    for (const hit of findAll(bytes, a.sig, 8)) {
-      const base = hit - a.dex * stride
-      if (base >= 0) votes.set(base, (votes.get(base) ?? 0) + 1)
-    }
-  }
-  let best: number | null = null
-  let bestVotes = 0
-  for (const [base, v] of votes) {
-    if (v > bestVotes) {
-      best = base
-      bestVotes = v
-    }
-  }
-  return bestVotes >= 2 ? best : null
-}
+/** Majority vote over anchor hits; returns the winner with >= 2 votes. */
+const voteForBase = (bytes: Uint8Array, anchors: { dex: number; sig: number[] }[], stride: number) =>
+  findByVote(bytes, anchors.map((a) => ({ index: a.dex, pattern: a.sig })), stride)
 
 export function buildEvolutions(rom: Rom, speciesCount: number): { module: EvolutionModule; offset: number } | null {
   const bytes = rom.bytes

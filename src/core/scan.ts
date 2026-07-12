@@ -50,3 +50,33 @@ export function findVerified(
   )
   return verified.length === 1 ? verified[0] : null
 }
+
+/**
+ * Locate a fixed-stride table by anchor majority vote: each anchor hit
+ * votes for `hit - index * stride` as the table base, and the base with
+ * the most votes wins if it reaches `minVotes`. With anchors spread
+ * across the table, editing any one anchor entry can't break discovery.
+ */
+export function findByVote(
+  data: Uint8Array,
+  anchors: { index: number; pattern: number[] }[],
+  stride: number,
+  minVotes = 2,
+): number | null {
+  const votes = new Map<number, number>()
+  for (const a of anchors) {
+    for (const hit of findAll(data, a.pattern, 8)) {
+      const base = hit - a.index * stride
+      if (base >= 0) votes.set(base, (votes.get(base) ?? 0) + 1)
+    }
+  }
+  let best: number | null = null
+  let bestVotes = 0
+  for (const [base, v] of votes) {
+    if (v > bestVotes) {
+      best = base
+      bestVotes = v
+    }
+  }
+  return bestVotes >= minVotes ? best : null
+}

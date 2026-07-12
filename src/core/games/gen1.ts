@@ -10,7 +10,7 @@
  *  - In Red/Blue, Mew's stats live outside the main table.
  */
 import { Rom } from '../rom'
-import { findAll, findVerified, matchesAt } from '../scan'
+import { findAll, findByVote, findVerified, matchesAt } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { GEN1_TYPES, GEN12_GROWTH, padDex } from './data'
 import { GEN1_MAP_NAMES, GEN1_TRAINER_CLASSES } from './gen1-constants'
@@ -381,7 +381,20 @@ function buildGen1Trainers(
 
 export function tryBuildGen1(rom: Rom, gameName: string, platform: string): GameAdapter | null {
   const bytes = rom.bytes
-  const statsOff = findVerified(bytes, BULBASAUR, [{ delta: STATS_ENTRY, pattern: IVYSAUR }])
+  // Stats, names and moves are found by anchor majority vote (bytes
+  // extracted from built Red + Yellow, identical in both), so editing
+  // any anchor species or move can't break re-discovery on reload.
+  const statsOff = findByVote(
+    bytes,
+    [
+      { index: 0, pattern: BULBASAUR },
+      { index: 1, pattern: IVYSAUR },
+      { index: 24, pattern: [25, 35, 55, 30, 90, 50, 23, 23, 190, 82] }, // Pikachu
+      { index: 112, pattern: [113, 250, 5, 5, 50, 105, 0, 0, 30, 255] }, // Chansey
+      { index: 149, pattern: [150, 106, 110, 90, 130, 154, 24, 24, 3, 220] }, // Mewtwo
+    ],
+    STATS_ENTRY,
+  )
   if (statsOff === null) return null
 
   const warnings: string[] = []
@@ -399,17 +412,36 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
   const speciesCount = mewOff !== null ? 151 : 150
 
   const mapOff = findVerified(bytes, INTERNAL_TO_DEX_SIG, [{ delta: 8, pattern: [0x02] }])
-  const namesOff = findVerified(bytes, [...gen12Bytes('RHYDON'), 0x50], [
-    { delta: NAME_LEN, pattern: gen12Bytes('KANGASKHAN') },
-  ])
+  const gbPad = (t: string) => {
+    const out = gen12Bytes(t)
+    while (out.length < NAME_LEN) out.push(0x50)
+    return out
+  }
+  const namesOff = findByVote(
+    bytes,
+    [
+      { index: 0, pattern: gbPad('RHYDON') }, // internal order!
+      { index: 1, pattern: gbPad('KANGASKHAN') },
+      { index: 83, pattern: gbPad('PIKACHU') }, // internal 84
+      { index: 130, pattern: gbPad('MEWTWO') }, // internal 131
+    ],
+    NAME_LEN,
+  )
   if (mapOff === null || namesOff === null) {
     warnings.push("Couldn't locate the Pokémon name table — names are shown as numbers.")
   }
 
-  const moveOff = findVerified(bytes, POUND, [
-    { delta: MOVE_ENTRY, pattern: KARATE_CHOP },
-    { delta: 2 * MOVE_ENTRY, pattern: [0x03, -1, 15, 0x00] },
-  ])
+  const moveOff = findByVote(
+    bytes,
+    [
+      { index: 0, pattern: POUND },
+      { index: 1, pattern: KARATE_CHOP },
+      { index: 32, pattern: [33, 0, 35, 0, 242, 35] }, // Tackle
+      { index: 84, pattern: [85, 6, 95, 23, 255, 15] }, // Thunderbolt
+      { index: 93, pattern: [94, 71, 90, 24, 255, 10] }, // Psychic
+    ],
+    MOVE_ENTRY,
+  )
   if (moveOff === null) warnings.push("Couldn't locate the move data table — move editing disabled.")
 
   // Move names: variable-length 0x50-terminated strings, so read-only.
