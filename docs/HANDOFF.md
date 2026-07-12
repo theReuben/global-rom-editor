@@ -5,78 +5,41 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-139 tests green. Gen 2 (G/S/C) maps render with block painting:
-src/core/gb/gen2maps.ts walks MapGroupPointers (a same-bank pointer
-run where consecutive groups are 9-byte aligned and every group
-opens with a plausible map entry) -> 9-byte map entries -> 12-byte
-MapAttributes -> the 15-byte Tilesets table (pinned by its NULL word
-at +11). Tileset gfx are lz3-compressed - src/core/gb/lz3.ts is a
-port of pokecrystal home/decompress.asm, byte-exact against 30 of
-the build's own .2bpp/.2bpp.lz pairs. Validated on built Gold +
-Crystal: discovered Tilesets matches the .sym address, Sprout Tower
-2F renders 10x8, paint + reload + revert round-trips. Rendering is
-grayscale for now (CGB palette maps are a later nicety). Gen 1/2 move renaming shipped (same-or-shorter,
-space-padded in the variable-length 0x50-terminated list). Move-NAME
-discovery is now voting-based too: adjacent-pair anchors at moves
-1/33/85/94 walk BACKWARD (id-1) validated segments to the list start
-and vote - renaming an anchor move only silences one vote. Gen 1 (R/B/Y) maps now render with block painting:
-src/core/gb/gen1maps.ts discovers MapHeaderPointers (any maximal run
-of 150-256 bank-local u16s anywhere in the ROM - Red keeps it in
-ROM0, Yellow in a switchable bank), confirms it by finding the
-MapHeaderBanks table that turns >= 85% of pointers into plausible
-headers, then locates the 12-byte Tilesets table (collision pointers
-live in ROM0, unlike blocks/gfx). Validated against the .sym files of
-built Red + Yellow: pointer table addresses match exactly, Pallet
-Town renders at 10x9 blocks, paint + reload + revert round-trips.
-Events/resize/scripts are stubbed off for Gen 1 (different engine). Gen 1/2 trainer parties can now GROW to 6: the
-whole class block/group is rebuilt (in place when it fits, else
-relocated to the bank's trailing padding via findGbBankFreeSpace,
-with the class pointer + alias pointers retargeted and the abandoned
-block zeroed). Discovery fallbacks were rebuilt for this: a class
-relocation breaks both the content anchor and the old entry-0
-self-reference, so the fallback is now "a maximal run of valid class
-pointers bounded by non-pointers" (party/name bytes never read as
-bank-local pointers) and the table validators tolerate up to 8
-pointer descents. Shiny palettes render (front + back toggle; the
-shiny table is told from the normal one by its tag base — 500 =
-SPECIES_SHINY_TAG — not ROM order; imports copy their palette to the
-shiny slot too). Anchor voting now covers ALL generations:
-Gen 1/2/3 stats, names and move-data tables each vote across 4-5
-anchors (Pikachu/Chansey/Mewtwo rows extracted from built
-Red/Yellow/Gold/Crystal/Emerald/FireRed; findByVote in scan.ts). Anchor voting now also covers evolutions,
-learnsets and TM/HM bits (species-extras.ts voteForBase / learnset
-3-of-5 first-word vote). The Gen 3 stats table is now found by anchor
-MAJORITY VOTE (Bulba/Ivy/Pikachu/Chansey/Mewtwo each vote for a
-table base; two agreeing win), so editing anchor species no longer
-breaks reload for base stats. DS species and trainer names are now editable
-in place (msg-bank rewrite, same-or-shorter encoded length — the
-XOR scrambling is symmetric and each entry has a fixed allocation,
-so nothing moves; longer names would need a NARC rebuild). Back sprites now display and import next to fronts;
-this also fixed Emerald showing BACK pics as front (its back table
-precedes the front table in ROM, unlike R/S/FRLG). Decomp projects now edit types, abilities (incl.
-hidden), egg groups, level curve and wild items as dropdowns —
-options enumerated from the opened tree's own headers (#define and
-expansion enum styles), edits stay one-line diffs; validated against
-the real pokeemerald and pokeemerald-expansion trees. Gen 5 (B/W, B2W2) now edits the full personal
-entry (items ×3, hidden ability, u16 base EXP, 101 TM/HM flags) —
-layout verified against PKHeX PersonalInfo5BW/B2W2 since no Gen 5
-decomp or buildable ROM exists. Gen 4 names (species, moves, trainers, classes)
-now decode from the msg banks — DS editors show real names. Shipped and validated: Gen 1–3 Pokémon/move editing;
-Gen 3 sprite importing (64×64 PNG → 4bpp+LZ77, auto-relocation,
-round-trip pixel-perfect on built Emerald);
-Gen 3 trainers, wild encounters, maps (view/paint/resize/new-map),
-NPC/warp/sign editing, visual script builder, evolutions, learnsets,
-type chart, TM/HM compatibility; Gen 1 (R/B/Y) trainer parties
-(validated against Red + Yellow built from pokered/pokeyellow with
-rgbds — 391/396 trainers exact, edit + re-scan clean); Gen 2 (G/S/C)
-trainer parties incl. names, held items and custom moves (validated
-against built Gold 495/66-class and Crystal 541/67-class — counts
-derived, never assumed); Gen 1 and Gen 2 (G/S/C, time-of-day) wild
-encounters; Gen 4 (D/P/Pt/HGSS) species editing and
-D/P/Pt trainers + encounters via the NDS/NARC layer; Gen 5 full personal editing;
-IPS + UPS patches; PWA offline; decomp backend editing species stats in
-pokeemerald / pokefirered / pokeemerald-expansion (1,364 species incl.
-Megas). CI deploys to GitHub Pages from `main`.
+139 tests green; `npm test` and `npm run build` must stay that way.
+Everything below is validated against ROMs built from the pret decomps
+(see Validation methodology) unless noted.
+
+**Gen 1 (R/B/Y):** species/moves editing (renames incl. moves), wild
+encounters, trainer parties (both list formats, growth to 6 via class
+relocation), map viewing + block painting (validated against built
+Red/Yellow .sym files).
+
+**Gen 2 (G/S/C):** species/moves editing (renames incl. moves),
+time-of-day wild encounters, trainer parties (names, items, custom
+moves, growth to 6), map viewing + block painting (lz3 tileset
+decompressor, grayscale for now; validated against Gold/Crystal .sym).
+
+**Gen 3 (R/S/E/FR/LG):** the full suite — species, moves, trainers,
+wild, maps (paint/resize/new maps/NPCs/warps/signs/script builder),
+evolutions, learnsets, type chart, TM/HM, front+back sprite display
+AND importing (PNG → 4bpp+LZ77, auto-relocation), shiny palettes.
+All per-species tables discovered by anchor majority vote (findByVote)
+so editing anchor species can't break reload.
+
+**Gen 4 (D/P/Pt/HGSS):** full personal editing, trainers, encounters
+(incl. HGSS time-of-day/radio/swarms), real names from the msg banks,
+species/trainer renaming in place (same-or-shorter encoded length).
+
+**Gen 5 (B/W/B2W2):** full personal editing (PKHeX-verified layout —
+no Gen 5 decomp exists).
+
+**Decomp backend:** species stats + types/abilities/egg groups/items
+as dropdowns for pokeemerald / pokefirered / pokeemerald-expansion
+trees (1,364 species incl. Megas); one-line diffs.
+
+**Engine:** IPS + UPS patches, checksum fixing, PWA offline, CI to
+GitHub Pages from `main`. Change tracking via Rom write helpers powers
+revert + patch export everywhere.
 
 ## Validation methodology (the project's superpower)
 
