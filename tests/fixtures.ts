@@ -218,6 +218,13 @@ export function makeGen2Rom(): Uint8Array {
   // Tileset gfx, lz3-compressed: 16 zero bytes then 16×0xFF
   // (zero-fill 16, iterate 0xFF ×16, terminator).
   put(rom, 0x100700, [0x6f, 0x3f, 0xff, 0xff])
+  // Item names with two voting anchor pairs (ids 1/2 and 77/78).
+  const itemNames = 0x1b0000
+  const itemList = ['MASTER BALL', 'ULTRA BALL']
+  for (let it = 3; it <= 76; it++) itemList.push('ITEM' + String(it))
+  itemList.push('SHARP BEAK', 'PRZCUREBERRY')
+  put(rom, itemNames, itemList.flatMap((n) => [...gen12Bytes(n), 0x50]))
+
   const moveNames = 0x1c9f29
   const g2names = ['POUND', 'KARATE CHOP']
   for (let mv = 3; mv <= 32; mv++) g2names.push('MOVE' + String(mv))

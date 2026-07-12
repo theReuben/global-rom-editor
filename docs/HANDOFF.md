@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-140 tests green; `npm test` and `npm run build` must stay that way.
+141 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -16,7 +16,10 @@ Red/Yellow .sym files).
 
 **Gen 2 (G/S/C):** species/moves editing (renames incl. moves),
 time-of-day wild encounters, trainer parties (names, items, custom
-moves, growth to 6), map viewing + block painting (lz3 tileset
+moves, growth to 6), item names from the ROM (held-item dropdowns;
+vote anchors at item ids 1/77/179, and the backward name walker
+accepts the 0x4A PKMN / 0x54 POKe glyph bytes - "# DOLL"),
+map viewing + block painting (lz3 tileset
 decompressor, grayscale for now; validated against Gold/Crystal .sym).
 
 **Gen 3 (R/S/E/FR/LG):** the full suite — species, moves, trainers,

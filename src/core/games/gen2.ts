@@ -619,7 +619,10 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
       if (p < 2 || bytes[p - 1] !== 0x50) return null
       let q = p - 2
       let len = 0
-      while (q >= 0 && bytes[q] !== 0x50 && bytes[q] >= 0x60 && len <= 12) {
+      // Printable name bytes, plus the PKMN (0x4A) and POKe (0x54)
+      // glyphs that appear in names like "# DOLL" (POKe DOLL).
+      const nameChar = (b: number) => b >= 0x60 || b === 0x4a || b === 0x54
+      while (q >= 0 && bytes[q] !== 0x50 && nameChar(bytes[q]) && len <= 12) {
         q--
         len++
       }
@@ -675,6 +678,44 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     return true
   }
   const moveName = (id: number) => moveNames[id - 1] ?? `Move #${id}`
+
+  // Item names: the same 0x50-terminated list scheme as move names,
+  // with pair anchors at ids 1/77/179 (identical in Gold and Crystal).
+  const ITEM_NAME_ANCHORS: { id: number; pair: string[] }[] = [
+    { id: 1, pair: ['MASTER BALL', 'ULTRA BALL'] },
+    { id: 77, pair: ['SHARP BEAK', 'PRZCUREBERRY'] },
+    { id: 179, pair: ['TERU-SAMA', 'BRICK PIECE'] },
+  ]
+  const itemVotes = new Map<number, number>()
+  for (const a of ITEM_NAME_ANCHORS) {
+    const pattern = [...gen12Bytes(a.pair[0]), 0x50, ...gen12Bytes(a.pair[1]), 0x50]
+    for (const hit of findAll(bytes, pattern, 8)) {
+      const start = a.id === 1 ? hit : walkBackNames(hit, a.id - 1)
+      if (start !== null) itemVotes.set(start, (itemVotes.get(start) ?? 0) + 1)
+    }
+  }
+  let itemNamesOff: number | null = null
+  let bestItemVotes = 0
+  for (const [start, v] of itemVotes) {
+    if (v > bestItemVotes) {
+      itemNamesOff = start
+      bestItemVotes = v
+    }
+  }
+  const itemOptions: { value: number; label: string }[] | null =
+    bestItemVotes >= 2 && itemNamesOff !== null
+      ? [{ value: 0, label: '— none —' }]
+      : null
+  if (itemOptions && itemNamesOff !== null) {
+    let p = itemNamesOff
+    for (let i = 1; i <= 255 && p < bytes.length; i++) {
+      let end = p
+      while (end < bytes.length && bytes[end] !== 0x50) end++
+      const name = gen12Codec.decode(bytes.subarray(p, end)).trimEnd()
+      itemOptions.push({ value: i, label: name.length >= 1 && name.length <= 12 ? name : `Item #${i}` })
+      p = end + 1
+    }
+  }
 
   let tmMoves: number[] | null = null
   const tmOff = findVerified(bytes, TM_LIST_SIG, [])
@@ -744,8 +785,12 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     { key: 'catchRate', label: 'Catch rate', kind: 'number', min: 1, max: 255, group: 'battle' },
     { key: 'baseExp', label: 'Base EXP yield', kind: 'number', min: 0, max: 255, group: 'battle' },
     { key: 'growthRate', label: 'Level curve', kind: 'select', options: GEN12_GROWTH, group: 'battle' },
-    { key: 'item1', label: 'Wild held item 1', kind: 'number', min: 0, max: 255, group: 'battle', help: 'Item ID (0 = none).' },
-    { key: 'item2', label: 'Wild held item 2', kind: 'number', min: 0, max: 255, group: 'battle', help: 'Item ID (0 = none).' },
+    itemOptions
+      ? { key: 'item1', label: 'Wild held item 1', kind: 'select' as const, options: itemOptions, group: 'battle' }
+      : { key: 'item1', label: 'Wild held item 1', kind: 'number' as const, min: 0, max: 255, group: 'battle', help: 'Item ID (0 = none).' },
+    itemOptions
+      ? { key: 'item2', label: 'Wild held item 2', kind: 'select' as const, options: itemOptions, group: 'battle' }
+      : { key: 'item2', label: 'Wild held item 2', kind: 'number' as const, min: 0, max: 255, group: 'battle', help: 'Item ID (0 = none).' },
     { key: 'gender', label: 'Gender ratio', kind: 'select', options: GENDER_RATIOS, group: 'breeding' },
     { key: 'eggCycles', label: 'Egg cycles', kind: 'number', min: 1, max: 255, group: 'breeding', help: 'Steps to hatch = cycles × 256.' },
     { key: 'eggGroup1', label: 'Egg group 1', kind: 'select', options: EGG_GROUPS, group: 'breeding' },
@@ -798,7 +843,7 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     mapModule: gen2maps?.module ?? null,
     trainerModule: trainers?.module ?? null,
     wildModule: wild?.module ?? null,
-    itemOptions: null,
+    itemOptions,
     speciesSprite: null,
     speciesSpriteBack: null,
     hasShinySprites: false,

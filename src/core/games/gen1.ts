@@ -574,7 +574,10 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
       if (p < 2 || bytes[p - 1] !== 0x50) return null
       let q = p - 2
       let len = 0
-      while (q >= 0 && bytes[q] !== 0x50 && bytes[q] >= 0x60 && len <= 12) {
+      // Printable name bytes, plus the PKMN (0x4A) and POKe (0x54)
+      // glyphs that appear in names like "# DOLL" (POKe DOLL).
+      const nameChar = (b: number) => b >= 0x60 || b === 0x4a || b === 0x54
+      while (q >= 0 && bytes[q] !== 0x50 && nameChar(bytes[q]) && len <= 12) {
         q--
         len++
       }

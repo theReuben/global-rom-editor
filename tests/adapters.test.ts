@@ -118,6 +118,15 @@ describe('Gen 2 adapter', () => {
     expect(a.readSpecies(1).eggGroup2).toBe(12)
   })
 
+  it('reads item names for held-item dropdowns', () => {
+    const a = load()
+    expect(a.itemOptions).not.toBeNull()
+    expect(a.itemOptions![1].label).toBe('MASTER BALL')
+    expect(a.itemOptions![78].label).toBe('PRZCUREBERRY')
+    const item1 = a.speciesFields.find((f) => f.key === 'item1')!
+    expect(item1.kind).toBe('select')
+  })
+
   it('edits Gen 2 moves (7-byte entries)', () => {
     const a = load()
     expect(a.readMove(2).type).toBe(1)
