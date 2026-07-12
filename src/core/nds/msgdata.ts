@@ -125,6 +125,102 @@ export function writeMsgEntry(
   return true
 }
 
+/**
+ * Rebuild an entire msg bank with one entry re-encoded at whatever
+ * length it needs (the growth path when `writeMsgEntry` rejects a
+ * longer name). Other entries' encrypted character streams are copied
+ * verbatim — the char scrambling depends only on the entry index, not
+ * its offset — and the header offset/length words are re-scrambled for
+ * the new layout. Returns the new bank buffer, or null on failure.
+ */
+export function rebuildMsgBank(
+  bytes: Uint8Array,
+  start: number,
+  length: number,
+  index: number,
+  text: string,
+): Uint8Array | null {
+  const u16 = (o: number) => bytes[start + o] | (bytes[start + o + 1] << 8)
+  if (length < 4) return null
+  const count = u16(0)
+  const key = u16(2)
+  if (index < 0 || index >= count || 4 + count * 8 > length) return null
+
+  const entrySeed = (n: number) => {
+    let seed = (key * 765 * (n + 1)) & 0xffff
+    return ((seed | (seed << 16)) & 0xffffffff) >>> 0
+  }
+  const streams: Uint16Array[] = []
+  for (let n = 0; n < count; n++) {
+    const seed = entrySeed(n)
+    const off = ((u16(4 + n * 8) | (u16(6 + n * 8) << 16)) ^ seed) >>> 0
+    const len = ((u16(8 + n * 8) | (u16(10 + n * 8) << 16)) ^ seed) >>> 0
+    if (off + len * 2 > length || len > 0x2000) return null
+    const s = new Uint16Array(len)
+    for (let j = 0; j < len; j++) s[j] = u16(off + j * 2)
+    streams.push(s)
+  }
+
+  // Encode the replacement entry (same plain/packed mode as before).
+  const codes: number[] = []
+  for (const ch of text) {
+    const c = charToCode(ch)
+    if (c === undefined) return null
+    codes.push(c)
+  }
+  if (codes.length === 0) return null
+  const seed0 = ((index + 1) * 596947) & 0xffff
+  const packed = streams[index].length > 0 && ((streams[index][0] ^ seed0) & 0xffff) === 0xf100
+  let words: number[]
+  if (packed) {
+    for (const c of codes) if (c > 0x1ff) return null
+    words = [0xf100]
+    let acc = 0
+    let bits = 0
+    for (const c of [...codes, 0x1ff]) {
+      acc |= c << bits
+      bits += 9
+      if (bits >= 15) {
+        words.push(acc & 0x7fff)
+        acc >>= 15
+        bits -= 15
+      }
+    }
+    if (bits > 0) words.push(acc & 0x7fff)
+  } else {
+    words = [...codes, 0xffff]
+  }
+  const enc = new Uint16Array(words.length)
+  let charSeed = seed0
+  for (let j = 0; j < words.length; j++) {
+    enc[j] = (words[j] ^ charSeed) & 0xffff
+    charSeed = (charSeed + 18749) & 0xffff
+  }
+  streams[index] = enc
+
+  const total = 4 + count * 8 + streams.reduce((a, s) => a + s.length * 2, 0)
+  const out = new Uint8Array(total)
+  const putU16 = (o: number, v: number) => {
+    out[o] = v & 0xff
+    out[o + 1] = (v >> 8) & 0xff
+  }
+  putU16(0, count)
+  putU16(2, key)
+  let off = 4 + count * 8
+  for (let n = 0; n < count; n++) {
+    const seed = entrySeed(n)
+    const encOff = (off ^ seed) >>> 0
+    const encLen = (streams[n].length ^ seed) >>> 0
+    putU16(4 + n * 8, encOff & 0xffff)
+    putU16(6 + n * 8, encOff >>> 16)
+    putU16(8 + n * 8, encLen & 0xffff)
+    putU16(10 + n * 8, encLen >>> 16)
+    for (let j = 0; j < streams[n].length; j++) putU16(off + j * 2, streams[n][j])
+    off += streams[n].length * 2
+  }
+  return out
+}
+
 function decodeChars(chars: Uint16Array): string {
   let s = ''
   let j = 0

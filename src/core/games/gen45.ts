@@ -11,8 +11,18 @@
  * editable there until verified further (see docs/HANDOFF.md).
  */
 import { Rom } from '../rom'
-import { isNdsRom, parseNdsHeader, listNdsFiles, findNdsFile, parseNarc, type NarcSubfile } from '../nds/nds'
-import { parseMsgBank, writeMsgEntry } from '../nds/msgdata'
+import {
+  isNdsRom,
+  parseNdsHeader,
+  listNdsFiles,
+  findNdsFile,
+  parseNarc,
+  rebuildNarcWithSubfile,
+  type NarcSubfile,
+  type NdsFile,
+} from '../nds/nds'
+import { parseMsgBank, rebuildMsgBank, writeMsgEntry } from '../nds/msgdata'
+import { fixNdsHeaderCrc } from '../checksum'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
 import { NATDEX_NAMES, NATDEX_ABILITIES } from './natdex-names'
 import type {
@@ -468,12 +478,14 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
   let msgItems: string[] = []
   let speciesBank: NarcSubfile | null = null
   let trainerBank: NarcSubfile | null = null
+  let msgFile: NdsFile | null = null
+  let msgSubs: NarcSubfile[] | null = null
   const msgCfg = MSG_BANKS[code3]
   if (msgCfg) {
-    const msg = findNdsFile(files, msgCfg.path)
-    const msgSubs = msg ? parseNarc(bytes, msg.start) : null
+    msgFile = findNdsFile(files, msgCfg.path)
+    msgSubs = msgFile ? parseNarc(bytes, msgFile.start) : null
     if (msgSubs) {
-      const sub = (index: number) => msgSubs.find((s) => s.index === index) ?? null
+      const sub = (index: number) => msgSubs!.find((s) => s.index === index) ?? null
       const bank = (index: number) => {
         const s = sub(index)
         return s ? parseMsgBank(bytes, s.offset, s.length) : []
@@ -486,6 +498,51 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
       msgClasses = bank(msgCfg.classes)
       msgItems = bank(msgCfg.items)
     }
+  }
+
+  // Growth path for renames that outgrow their msg-bank slot: rebuild
+  // the bank, repack the msg NARC, and relocate it into the trailing
+  // 0xFF/0x00 padding at the end of the ROM (retail dumps are padded
+  // to a power of two), retargeting its FAT entry. Trimmed ROMs with
+  // no padding simply keep the in-place-only behaviour.
+  const readU32 = (o: number) => (rom.readU16LE(o) | (rom.readU16LE(o + 2) << 16)) >>> 0
+  const writeU32 = (o: number, v: number) => {
+    rom.writeU16LE(o, v & 0xffff)
+    rom.writeU16LE(o + 2, (v >>> 16) & 0xffff)
+  }
+  const growMsgEntry = (bankIndex: number, entry: number, text: string): boolean => {
+    if (!msgFile || !msgSubs) return false
+    const s = msgSubs.find((x) => x.index === bankIndex)
+    if (!s) return false
+    const newBank = rebuildMsgBank(bytes, s.offset, s.length, entry, text)
+    if (!newBank) return false
+    const newNarc = rebuildNarcWithSubfile(bytes, msgFile.start, bankIndex, newBank)
+    if (!newNarc) return false
+    let dest = msgFile.start
+    if (newNarc.length > msgFile.end - msgFile.start) {
+      // Free space must sit beyond every live FAT entry (read fresh —
+      // an earlier growth may already have moved a file out here).
+      let maxEnd = 0
+      for (let f = header.fatOffset; f + 8 <= header.fatOffset + header.fatSize; f += 8) {
+        maxEnd = Math.max(maxEnd, readU32(f + 4))
+      }
+      let padStart = bytes.length
+      while (padStart > maxEnd && (bytes[padStart - 1] === 0xff || bytes[padStart - 1] === 0)) padStart--
+      dest = (Math.max(padStart, maxEnd) + 0x1ff) & ~0x1ff
+      if (dest + newNarc.length > bytes.length) return false
+    }
+    rom.writeBlock(dest, newNarc)
+    const fat = header.fatOffset + msgFile.id * 8
+    writeU32(fat, dest)
+    writeU32(fat + 4, dest + newNarc.length)
+    if (dest + newNarc.length > readU32(0x80)) writeU32(0x80, dest + newNarc.length)
+    fixNdsHeaderCrc(rom)
+    msgFile = { ...msgFile, start: dest, end: dest + newNarc.length }
+    msgSubs = parseNarc(bytes, dest)
+    if (!msgSubs) return false
+    speciesBank = msgSubs.find((x) => x.index === msgCfg!.species) ?? null
+    trainerBank = msgSubs.find((x) => x.index === msgCfg!.trainers) ?? null
+    return true
   }
 
   // Move data (MoveTbl, 16 bytes/move — verified against pokeplatinum
@@ -626,7 +683,9 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
           trainers: msgTrainers,
           classes: msgClasses,
           rename: trainerBank
-            ? (id, name) => writeMsgEntry(rom, trainerBank!.offset, trainerBank!.length, id, name)
+            ? (id, name) =>
+                writeMsgEntry(rom, trainerBank!.offset, trainerBank!.length, id, name) ||
+                growMsgEntry(msgCfg!.trainers, id, name)
             : null,
         })
         regions.push({ name: `Trainers (${trainerModule.entries.length})`, offset: trd.start, length: trd.end - trd.start })
@@ -680,12 +739,17 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     evolutions: null,
     learnsets: null,
     typeChart: null,
-    // In-place msg-bank rename: any name that fits the entry's original
-    // encoded allocation works; longer names are rejected.
+    // Msg-bank rename: written in place when the new name fits the
+    // entry's original allocation; otherwise the bank is rebuilt and
+    // the msg NARC relocated into end-of-ROM padding (FAT retarget).
     speciesNameLength: speciesBank ? 12 : null,
     setSpeciesName(id, name) {
       if (!speciesBank || name.length === 0) return false
-      if (!writeMsgEntry(rom, speciesBank.offset, speciesBank.length, id, name)) return false
+      if (
+        !writeMsgEntry(rom, speciesBank.offset, speciesBank.length, id, name) &&
+        !growMsgEntry(msgCfg!.species, id, name)
+      )
+        return false
       msgSpecies[id] = name
       const handle = species[id - 1]
       if (handle) {

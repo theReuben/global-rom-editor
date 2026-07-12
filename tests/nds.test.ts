@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { parseMsgBank, writeMsgEntry } from '../src/core/nds/msgdata'
+import { parseMsgBank, rebuildMsgBank, writeMsgEntry } from '../src/core/nds/msgdata'
 import { Rom } from '../src/core/rom'
 import { buildAdapter } from '../src/core/games'
-import { parseNdsHeader, isNdsRom, listNdsFiles, findNdsFile, parseNarc } from '../src/core/nds/nds'
+import {
+  parseNdsHeader,
+  isNdsRom,
+  listNdsFiles,
+  findNdsFile,
+  parseNarc,
+  rebuildNarcWithSubfile,
+} from '../src/core/nds/nds'
+import { buildNarc } from './fixtures'
 
 function put(buf: Uint8Array, off: number, bytes: ArrayLike<number>): void {
   buf.set(Uint8Array.from(bytes as number[]), off)
@@ -247,5 +255,46 @@ describe('Gen 4 message bank writing', () => {
     expect(writeMsgEntry(rom, 0, bank.length, 0, 'Steve')).toBe(true)
     expect(parseMsgBank(rom.bytes, 0, bank.length)).toEqual(['Steve', 'Clair'])
     expect(writeMsgEntry(rom, 0, bank.length, 0, 'MuchLongerName')).toBe(false)
+  })
+
+  it('rebuilds a bank around an entry that outgrew its slot', () => {
+    const bank = encodeBank(
+      [[...chars('Bulbasaur'), 0xffff], [...chars('Ivysaur'), 0xffff], [...chars('Venusaur'), 0xffff]],
+      0x77aa,
+    )
+    const grown = rebuildMsgBank(bank, 0, bank.length, 1, 'IvysaurusMaximus')!
+    expect(grown).not.toBeNull()
+    expect(grown.length).toBeGreaterThan(bank.length)
+    expect(parseMsgBank(grown, 0, grown.length)).toEqual(['Bulbasaur', 'IvysaurusMaximus', 'Venusaur'])
+  })
+
+  it('rebuilds packed name entries and keeps the 9-bit coding', () => {
+    const bank = encodeBank([pack(chars('Lance')), pack(chars('Clair'))], 3)
+    const grown = rebuildMsgBank(bank, 0, bank.length, 0, 'Alexander')!
+    expect(parseMsgBank(grown, 0, grown.length)).toEqual(['Alexander', 'Clair'])
+  })
+})
+
+describe('NARC rebuilding', () => {
+  it('replaces a subfile with longer data and repacks 4-byte aligned', () => {
+    const narc = buildNarc([
+      Uint8Array.from([1, 2, 3]),
+      Uint8Array.from([4, 5]),
+      Uint8Array.from([6, 7, 8, 9]),
+    ])
+    const bigger = Uint8Array.from({ length: 11 }, (_, i) => 40 + i)
+    const out = rebuildNarcWithSubfile(narc, 0, 1, bigger)!
+    expect(out).not.toBeNull()
+    const subs = parseNarc(out, 0)!
+    expect(subs).toHaveLength(3)
+    expect([...out.subarray(subs[0].offset, subs[0].offset + subs[0].length)]).toEqual([1, 2, 3])
+    expect([...out.subarray(subs[1].offset, subs[1].offset + subs[1].length)]).toEqual([...bigger])
+    expect([...out.subarray(subs[2].offset, subs[2].offset + subs[2].length)]).toEqual([6, 7, 8, 9])
+    // 4-byte alignment between members, 0xFF padding.
+    expect(subs[1].offset % 4).toBe(0)
+    expect(subs[2].offset % 4).toBe(0)
+    // Total-size field matches the buffer.
+    const total = out[8] | (out[9] << 8) | (out[10] << 16) | (out[11] << 24)
+    expect(total).toBe(out.length)
   })
 })

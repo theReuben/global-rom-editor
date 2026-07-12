@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-143 tests green; `npm test` and `npm run build` must stay that way.
+147 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -48,7 +48,14 @@ so editing anchor species can't break reload.
 
 **Gen 4 (D/P/Pt/HGSS):** full personal editing, trainers, encounters
 (incl. HGSS time-of-day/radio/swarms), real names from the msg banks,
-species/trainer renaming in place (same-or-shorter encoded length),
+species/trainer renaming at ANY length — in place when it fits, else
+the growth path: rebuild the msg bank (char scrambling depends only on
+entry index, so other entries' encrypted streams copy verbatim),
+repack the msg NARC (4-byte aligned, 0xFF padding, per o2narc), and
+relocate it into end-of-ROM 0xFF/0x00 padding with a FAT retarget +
+used-size (0x80) + header CRC16 update (poly 0xA001 per fixrom.c).
+Trimmed ROMs without padding keep the in-place-only behaviour.
+Also:
 item names from the msg banks (D/P bank
 344, Pt 392, HGSS 222) feeding held-item dropdowns, move data
 editing (16-byte waza_tbl entries — effect, category,

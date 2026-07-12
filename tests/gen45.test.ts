@@ -34,6 +34,24 @@ describe('Gen 4 adapter (Platinum-style)', () => {
     expect(flags[2]).toBe(true) // TM03
   })
 
+  it('renames species in place and grows past the slot via NARC relocation', () => {
+    const a = load()
+    expect(a.species[0].name).toBe('Bulbasaur') // from the msg bank
+    // Same-or-shorter goes in place.
+    expect(a.setSpeciesName(1, 'Bulba')).toBe(true)
+    // Longer than the slot triggers the growth path: rebuild the bank,
+    // repack the msg NARC into end-of-ROM padding, retarget the FAT.
+    expect(a.setSpeciesName(1, 'BulbasaurusMaximus')).toBe(true)
+    expect(a.species[0].name).toBe('BulbasaurusMaximus')
+
+    const re = buildAdapter(new Rom('platinum.nds', a.rom.bytes)).adapter!
+    expect(re.species[0].name).toBe('BulbasaurusMaximus')
+    expect(re.species[1].name).toBe('Ivysaur') // neighbours intact
+    // The relocated bank still accepts follow-up renames.
+    expect(re.setSpeciesName(2, 'Ivy')).toBe(true)
+    expect(re.species[1].name).toBe('Ivy')
+  })
+
   it('shows ability names from the generated constants', () => {
     const a = load()
     const field = a.speciesFields.find((f) => f.key === 'ability1')!

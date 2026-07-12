@@ -115,6 +115,70 @@ export interface NarcSubfile {
  * `bytes`, so editors can write subfile fields through the usual Rom
  * helpers (same-size edits; growing files needs a FAT rebuild — phase 2).
  */
+/**
+ * Rebuild a NARC with one subfile replaced (any length). Subfiles are
+ * repacked 4-byte aligned with 0xFF padding and the BTAF/GMIF/total
+ * sizes recomputed — the layout o2narc (pokeheartgold's packer) emits.
+ * The BTNF chunk is copied verbatim. Returns the new NARC buffer.
+ */
+export function rebuildNarcWithSubfile(
+  bytes: Uint8Array,
+  base: number,
+  subIndex: number,
+  newData: Uint8Array,
+): Uint8Array | null {
+  if (ascii(bytes, base, 4) !== 'NARC') return null
+  const headerSize = u16(bytes, base + 0x0c)
+  const btaf = base + headerSize
+  if (ascii(bytes, btaf, 4) !== 'BTAF') return null
+  const btafSize = u32(bytes, btaf + 4)
+  const count = u16(bytes, btaf + 8)
+  if (subIndex < 0 || subIndex >= count) return null
+  const btnf = btaf + btafSize
+  if (ascii(bytes, btnf, 4) !== 'BTNF') return null
+  const btnfSize = u32(bytes, btnf + 4)
+  const gmif = btnf + btnfSize
+  if (ascii(bytes, gmif, 4) !== 'GMIF') return null
+  const dataStart = gmif + 8
+
+  const subs: Uint8Array[] = []
+  for (let i = 0; i < count; i++) {
+    const s = u32(bytes, btaf + 12 + i * 8)
+    const e = u32(bytes, btaf + 16 + i * 8)
+    subs.push(i === subIndex ? newData : bytes.subarray(dataStart + s, dataStart + e))
+  }
+
+  const starts: number[] = []
+  const ends: number[] = []
+  let cursor = 0
+  for (const s of subs) {
+    starts.push(cursor)
+    ends.push(cursor + s.length)
+    cursor = (cursor + s.length + 3) & ~3
+  }
+  const dataLen = cursor
+  const total = headerSize + btafSize + btnfSize + 8 + dataLen
+  const out = new Uint8Array(total)
+  out.set(bytes.subarray(base, base + headerSize + btafSize + btnfSize), 0)
+  const putU32 = (o: number, v: number) => {
+    out[o] = v & 0xff
+    out[o + 1] = (v >> 8) & 0xff
+    out[o + 2] = (v >> 16) & 0xff
+    out[o + 3] = (v >>> 24) & 0xff
+  }
+  putU32(8, total) // NARC FileSize
+  for (let i = 0; i < count; i++) {
+    putU32(headerSize + 12 + i * 8, starts[i])
+    putU32(headerSize + 16 + i * 8, ends[i])
+  }
+  const outGmif = headerSize + btafSize + btnfSize
+  out.set(bytes.subarray(gmif, gmif + 4), outGmif) // 'GMIF'
+  putU32(outGmif + 4, 8 + dataLen) // GMIF ChunkSize
+  out.fill(0xff, outGmif + 8, total)
+  for (let i = 0; i < count; i++) out.set(subs[i], outGmif + 8 + starts[i])
+  return out
+}
+
 export function parseNarc(bytes: Uint8Array, base: number): NarcSubfile[] | null {
   if (ascii(bytes, base, 4) !== 'NARC') return null
   const headerSize = u16(bytes, base + 0x0c)

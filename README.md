@@ -10,7 +10,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Feature | Gen 1 (R/B/Y) | Gen 2 (G/S/C) | Gen 3 (R/S/E/FR/LG) | Gen 4/5 (DS) |
 | --- | :-: | :-: | :-: | :-: |
 | Base stats, types, catch rate, EXP yield | ✅ | ✅ | ✅ | ✅ |
-| Pokémon renaming | ✅ | ✅ | ✅ | ✅ (same length or shorter) |
+| Pokémon renaming | ✅ | ✅ | ✅ | ✅ Gen 4 (any length — the msg archive relocates when a name outgrows its slot) |
 | Level curve (growth rate) | ✅ | ✅ | ✅ | ✅ |
 | TM/HM compatibility (checkbox grid) | ✅ | ✅ | ✅ | ✅ |
 | Starting moves / level-up learnsets | ✅ | — | ✅ | — |

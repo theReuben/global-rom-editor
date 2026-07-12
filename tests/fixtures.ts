@@ -717,6 +717,42 @@ export function makeNdsRomWithFile(
   return rom
 }
 
+/**
+ * Encode a Gen 4 msg bank (XOR-symmetric scrambling). Only A-Z / a-z
+ * text: A=0x12B…, a=0x145… per the generated charmap.
+ */
+export function encodeMsgBank(texts: string[], key: number): Uint8Array {
+  const chars = (text: string) =>
+    [...text].map((ch) =>
+      ch >= 'A' && ch <= 'Z' ? 0x12b + ch.charCodeAt(0) - 65 : 0x145 + ch.charCodeAt(0) - 97,
+    )
+  const messages = texts.map((t) => [...chars(t), 0xffff])
+  const total = 4 + messages.length * 8 + messages.reduce((s, m) => s + m.length * 2, 0)
+  const out = new Uint8Array(total)
+  const w16 = (o: number, v: number) => {
+    out[o] = v & 0xff
+    out[o + 1] = (v >> 8) & 0xff
+  }
+  w16(0, messages.length)
+  w16(2, key)
+  let off = 4 + messages.length * 8
+  messages.forEach((msg, n) => {
+    let seed = (key * 765 * (n + 1)) & 0xffff
+    seed = ((seed | (seed << 16)) & 0xffffffff) >>> 0
+    w16(4 + n * 8, (off ^ seed) & 0xffff)
+    w16(6 + n * 8, ((off ^ seed) >>> 16) & 0xffff)
+    w16(8 + n * 8, (msg.length ^ seed) & 0xffff)
+    w16(10 + n * 8, ((msg.length ^ seed) >>> 16) & 0xffff)
+    let charSeed = ((n + 1) * 596947) & 0xffff
+    for (const c of msg) {
+      w16(off, (c ^ charSeed) & 0xffff)
+      charSeed = (charSeed + 18749) & 0xffff
+      off += 2
+    }
+  })
+  return out
+}
+
 /** Platinum-style ROM: 150-species personal NARC, Gen 4 layout. */
 export function makeGen4Rom(): Uint8Array {
   const entries: Uint8Array[] = []
@@ -735,9 +771,14 @@ export function makeGen4Rom(): Uint8Array {
   put(moves[1], 0, [0, 0, 0, 40, 0, 100, 35, 0, 0, 0, 0, 0])
   // Quick Attack-ish: priority +1 at offset 10.
   put(moves[98], 0, [0, 0, 0, 40, 0, 100, 30, 0, 0, 0, 1, 0])
+  // Msg NARC with the species name bank at Platinum's index 412.
+  const msgSubs: Uint8Array[] = []
+  for (let i = 0; i < 412; i++) msgSubs.push(new Uint8Array(0))
+  msgSubs.push(encodeMsgBank(['Egg', 'Bulbasaur', 'Ivysaur'], 0x1e39))
   return makeNdsRom('CPUE', [
     { path: 'poketool/personal/pl_personal.narc', content: buildNarc(entries) },
     { path: 'poketool/waza/pl_waza_tbl.narc', content: buildNarc(moves) },
+    { path: 'msgdata/pl_msg.narc', content: buildNarc(msgSubs) },
   ])
 }
 
