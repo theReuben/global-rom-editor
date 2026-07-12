@@ -625,6 +625,7 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     itemOptions: null,
     speciesSprite: null,
     speciesSpriteBack: null,
+    hasShinySprites: false,
     importSpeciesSprite: null,
     importSpeciesSpriteBack: null,
     evolutions: null,

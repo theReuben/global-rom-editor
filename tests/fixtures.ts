@@ -305,13 +305,20 @@ function addSpeciesExtras(rom: Uint8Array): void {
   palData[4] = 0xe0 // color 2 = pure green (0x03E0 in BGR555)
   palData[5] = 0x03
   put(rom, pal, lz77Compress(palData))
+  const shinyPal = 0x3d7100
+  const shinyData = new Uint8Array(32)
+  shinyData[2] = 0x00 // color 1 = pure blue (0x7C00 in BGR555)
+  shinyData[3] = 0x7c
+  put(rom, shinyPal, lz77Compress(shinyData))
   const picTable = 0x3d8000
   const backTable = 0x3d9000
   const palTable = 0x3da000
+  const shinyTable = 0x3db000
   for (let i = 0; i < 210; i++) {
     put(rom, picTable + i * 8, [...ptr(gfx), ...u16s(0x800, i)])
     put(rom, backTable + i * 8, [...ptr(backGfx), ...u16s(0x800, i)])
     put(rom, palTable + i * 8, [...ptr(pal), ...u16s(i, 0)])
+    put(rom, shinyTable + i * 8, [...ptr(shinyPal), ...u16s(500 + i, 0)]) // SPECIES_SHINY_TAG base
   }
 }
 

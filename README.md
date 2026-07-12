@@ -15,7 +15,7 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | TM/HM compatibility (checkbox grid) | ✅ | ✅ | ✅ | ✅ |
 | Starting moves / level-up learnsets | ✅ | — | ✅ | — |
 | Evolutions & type effectiveness chart | — | — | ✅ | — |
-| Front + back sprite display | — | — | ✅ | — |
+| Front + back sprite display (with shiny toggle) | — | — | ✅ | — |
 | Custom sprite importing, front and back (64×64 PNG, auto-relocation) | — | — | ✅ | — |
 | Wild held items, gender ratio, egg groups, hatch cycles | — | ✅ | ✅ | ✅ |
 | Abilities (named, read from the ROM) | — | — | ✅ | ✅ (+hidden in Gen 5) |

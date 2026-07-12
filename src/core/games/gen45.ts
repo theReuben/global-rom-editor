@@ -645,6 +645,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     itemOptions: null,
     speciesSprite: null,
     speciesSpriteBack: null,
+    hasShinySprites: false,
     importSpeciesSprite: null,
     importSpeciesSpriteBack: null,
     evolutions: null,

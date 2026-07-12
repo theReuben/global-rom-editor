@@ -25,9 +25,11 @@ const FRONT_SIZE = 0x800 // 64×64 4bpp = one animation frame
 const MIN_RUN = 200
 
 export interface SpriteViewer {
-  front(id: number): RenderedImage | null
+  front(id: number, shiny?: boolean): RenderedImage | null
   /** null when the back-pic table could not be told apart / found. */
-  back: ((id: number) => RenderedImage | null) | null
+  back: ((id: number, shiny?: boolean) => RenderedImage | null) | null
+  /** Whether a shiny palette table was found (front/back accept shiny). */
+  hasShiny: boolean
   /**
    * Replace a species' sprite with a 64×64 image of at most 16 colors
    * (transparent pixels + the top-left color become the background).
@@ -44,9 +46,14 @@ function findTagTables(
   tagOff: number,
   validEntry: (e: number) => boolean,
   max: number,
-): number[] {
-  const found: number[] = []
+  anyBase = false,
+): { offset: number; tagBase: number }[] {
+  const found: { offset: number; tagBase: number }[] = []
   for (let o = 0; o + MIN_RUN * ENTRY <= bytes.length && found.length < max; o += 4) {
+    // Tags count up from a base: 0 for pic tables, but e.g. Emerald's
+    // shiny palettes start at SPECIES_SHINY_TAG (500).
+    const tagBase = bytes[o + tagOff] | (bytes[o + tagOff + 1] << 8)
+    if (!anyBase && tagBase !== 0) continue
     let ok = true
     for (let i = 0; i < MIN_RUN; i++) {
       const e = o + i * ENTRY
@@ -54,7 +61,7 @@ function findTagTables(
       if (
         t === null ||
         bytes[t] !== 0x10 ||
-        (bytes[e + tagOff] | (bytes[e + tagOff + 1] << 8)) !== i ||
+        (bytes[e + tagOff] | (bytes[e + tagOff + 1] << 8)) !== ((tagBase + i) & 0xffff) ||
         !validEntry(e)
       ) {
         ok = false
@@ -62,7 +69,7 @@ function findTagTables(
       }
     }
     if (ok) {
-      found.push(o)
+      found.push({ offset: o, tagBase })
       o += MIN_RUN * ENTRY // resume past this table
     }
   }
@@ -97,12 +104,15 @@ export function buildSpriteViewer(rom: Rom, speciesCount: number): SpriteViewer 
       return size === FRONT_SIZE || size === FRONT_SIZE * 2
     },
     2,
-  )
+  ).map((t) => t.offset)
   if (picTables.length === 0) return null
   // Palette entries carry their tag at +4 (the struct has no size
-  // field); the first table is the normal palette, the second shiny.
-  const palTables = findTagTables(bytes, 4, () => true, 1)
-  const palTable = palTables[0] ?? null
+  // field). The normal table's tags start at 0; the shiny table's
+  // start higher (SPECIES_SHINY_TAG = 500 in the decomps), which is
+  // how the two are told apart.
+  const palTables = findTagTables(bytes, 4, () => true, 2, true)
+  const palTable = palTables.find((t) => t.tagBase === 0)?.offset ?? null
+  const shinyTable = palTables.find((t) => t.tagBase !== 0)?.offset ?? null
 
   // Classify front vs back (see header comment).
   const rawLen = (table: number, id: number): number => {
@@ -121,9 +131,10 @@ export function buildSpriteViewer(rom: Rom, speciesCount: number): SpriteViewer 
   }
 
   const cache = new Map<string, RenderedImage | null>()
-  const render = (table: number, id: number): RenderedImage | null => {
+  const render = (table: number, id: number, shiny = false): RenderedImage | null => {
     if (id < 0 || id > speciesCount) return null
-    const key = `${table}:${id}`
+    const palettes = shiny && shinyTable !== null ? shinyTable : palTable
+    const key = `${table}:${id}:${shiny}`
     if (cache.has(key)) return cache.get(key)!
     let out: RenderedImage | null = null
     try {
@@ -139,8 +150,8 @@ export function buildSpriteViewer(rom: Rom, speciesCount: number): SpriteViewer 
           i * 16,
           i * 16,
         ])
-        if (palTable !== null) {
-          const palPtr = readGbaPointer(bytes, palTable + id * ENTRY)
+        if (palettes !== null) {
+          const palPtr = readGbaPointer(bytes, palettes + id * ENTRY)
           if (palPtr !== null) palette = readPalette(lz77Decompress(bytes, palPtr), 0)
         }
         out = renderTilesRgba(tiles, 8, palette, true)
@@ -212,14 +223,20 @@ export function buildSpriteViewer(rom: Rom, speciesCount: number): SpriteViewer 
     if (gfxError) return gfxError
     const palError = replaceCompressed(rom, palTable + id * ENTRY, lz77Compress(palBytes))
     if (palError) return palError
-    cache.delete(`${frontTable}:${id}`)
-    cache.delete(`${backTable}:${id}`)
+    // The shiny palette gets the same colors so imported sprites don't
+    // show vanilla-shiny colors on someone else's artwork.
+    if (shinyTable !== null) replaceCompressed(rom, shinyTable + id * ENTRY, lz77Compress(palBytes))
+    for (const sh of ['true', 'false']) {
+      cache.delete(`${frontTable}:${id}:${sh}`)
+      cache.delete(`${backTable}:${id}:${sh}`)
+    }
     return null
   }
 
   return {
-    front: (id) => render(frontTable, id),
-    back: backTable !== null ? (id) => render(backTable!, id) : null,
+    front: (id, shiny) => render(frontTable, id, shiny),
+    back: backTable !== null ? (id, shiny) => render(backTable!, id, shiny) : null,
+    hasShiny: shinyTable !== null,
     importFront: (id, image) => importPic(frontTable, id, image),
     importBack: backTable !== null ? (id, image) => importPic(backTable!, id, image) : null,
   }

@@ -79,26 +79,33 @@ function OneSprite({
 }
 
 function SpriteView({ adapter, id, onEdit }: { adapter: GameAdapter; id: number; onEdit: () => void }) {
+  const [shiny, setShiny] = useState(false)
   if (!adapter.speciesSprite) return null
   return (
     <>
       <OneSprite
-        key={`f${id}`}
+        key={`f${id}${shiny}`}
         label="front"
-        render={() => adapter.speciesSprite!(id)}
+        render={() => adapter.speciesSprite!(id, shiny)}
         importSprite={adapter.importSpeciesSprite ? (img) => adapter.importSpeciesSprite!(id, img) : null}
         onEdit={onEdit}
       />
       {adapter.speciesSpriteBack && (
         <OneSprite
-          key={`b${id}`}
+          key={`b${id}${shiny}`}
           label="back"
-          render={() => adapter.speciesSpriteBack!(id)}
+          render={() => adapter.speciesSpriteBack!(id, shiny)}
           importSprite={
             adapter.importSpeciesSpriteBack ? (img) => adapter.importSpeciesSpriteBack!(id, img) : null
           }
           onEdit={onEdit}
         />
+      )}
+      {adapter.hasShinySprites && (
+        <label className="shiny-toggle">
+          <input type="checkbox" checked={shiny} onChange={(e) => setShiny(e.target.checked)} />
+          <span>✨ Shiny</span>
+        </label>
       )}
     </>
   )

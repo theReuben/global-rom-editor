@@ -5,7 +5,10 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-133 tests green. Anchor voting now covers ALL generations:
+133 tests green. Shiny palettes render (front + back toggle; the
+shiny table is told from the normal one by its tag base — 500 =
+SPECIES_SHINY_TAG — not ROM order; imports copy their palette to the
+shiny slot too). Anchor voting now covers ALL generations:
 Gen 1/2/3 stats, names and move-data tables each vote across 4-5
 anchors (Pikachu/Chansey/Mewtwo rows extracted from built
 Red/Yellow/Gold/Crystal/Emerald/FireRed; findByVote in scan.ts). Anchor voting now also covers evolutions,
@@ -160,8 +163,9 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    (R/S/FRLG) the first table in ROM order is front — Emerald is the
    only game with back before front. Front and back share one palette
    (gMonPaletteTable), so whichever sprite was imported last defines
-   the colors of both. Remaining: shiny palettes (second palette
-   table), Gen 1/2 sprites (2bpp + Gen 1's custom RLE), DS sprites.
+   the colors of both. Shiny palettes: SHIPPED (tag base 500
+   distinguishes the shiny table; validated against the map-file
+   addresses on built Emerald + FireRed). Remaining: Gen 1/2 sprites (2bpp + Gen 1's custom RLE), DS sprites.
 4. **Gen 4 text codec: SHIPPED (read-only).** `src/core/nds/msgdata.ts`
    decodes msg banks: u16 count + u16 key header; per-entry
    {u32 offset,u32 length} XORed with `key*765*(n+1) & 0xFFFF`

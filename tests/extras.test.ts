@@ -126,6 +126,10 @@ describe('Gen 3 sprites', () => {
     expect(a.speciesSpriteBack).not.toBeNull()
     const back = a.speciesSpriteBack!(1)!
     expect([back.pixels[0], back.pixels[1], back.pixels[2]]).toEqual([0, 255, 0])
+    // Shiny palette: same pixels, blue instead of red.
+    expect(a.hasShinySprites).toBe(true)
+    const shiny = a.speciesSprite!(1, true)!
+    expect([shiny.pixels[0], shiny.pixels[1], shiny.pixels[2]]).toEqual([0, 0, 255])
   })
 
   it('imports a back sprite independently of the front', () => {

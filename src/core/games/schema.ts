@@ -100,9 +100,11 @@ export interface GameAdapter {
   /** Item id → name options, when item names could be read from the ROM. */
   itemOptions: SelectOption[] | null
   /** Front sprite renderer, when the sprite tables were found. */
-  speciesSprite: ((id: number) => RenderedImage | null) | null
+  speciesSprite: ((id: number, shiny?: boolean) => RenderedImage | null) | null
   /** Back sprite renderer (null = table not found for this game). */
-  speciesSpriteBack: ((id: number) => RenderedImage | null) | null
+  speciesSpriteBack: ((id: number, shiny?: boolean) => RenderedImage | null) | null
+  /** True when a shiny palette exists (sprite renderers accept shiny). */
+  hasShinySprites: boolean
   /**
    * Replace a species' front sprite (64×64, ≤16 colors). Returns an
    * error message or null on success. Null when importing isn't
