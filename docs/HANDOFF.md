@@ -70,8 +70,13 @@ Type chart: as Gen 1 but with a 0xFE separator before the two
 Foresight entries (Ghost immunities), exposed like normal matchups
 and preserved on rewrite (Gold 0d:4d01, Crystal 0d:4bb1; 110).
 Sprites (src/core/gb/gen2sprites.ts): PokemonPicPointers = 251 x
-6-byte {frontBank,ptr, backBank,ptr}; Unown's slot is 0xFF filler
-(its pics live in UnownPicPointers). The stored bank byte is
+6-byte {frontBank,ptr, backBank,ptr}; Unown's slot is 0xFF filler —
+its 26 per-form entries live in UnownPicPointers (Gold 1f:4000,
+Crystal 49:4000), discovered structurally and rendered as form A.
+Two bank strategies: Crystal spreads forms over many banks (the main
+table's delta applies per entry); Gold stores one shared REMAPPED
+bank byte ($1F -> Pics 14 in FixPicBank), so a single-bank sweep
+finds the real one. The stored bank byte is
 game-specific nonsense (Crystal subtracts PICS_FIX 0x36 + bank list,
 Gold raw + 3 remaps) so real banks are resolved by CONTENT: the bank
 where the pic lz3-decompresses WITH a proper LZ_END terminator
@@ -322,7 +327,7 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
   (no decomp; PKHeX reads pre-extracted resources, not ROM bytes).
 - Gen 5 sprites: B/W NCGRs are 96x96 and unscrambled per community
   docs — needs a verifiable reference before shipping.
-- Gen 2 Unown forms (UnownPicPointers), Gen 1 item names, Gen 4
+- Gen 1 item names, Gen 4
   TM->move labels (table lives in the compressed arm9 — hard),
   Gen 1/2 sprite IMPORT (needs RLE/lz3 compressors), DS map editing
   (out of scope), Gen 4 evolutions can't be byte-validated until a

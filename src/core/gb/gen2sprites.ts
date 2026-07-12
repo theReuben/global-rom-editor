@@ -152,15 +152,79 @@ export function buildGen2Sprites(
     return shades
   }
 
+  // Unown's slot in the main table is filler — its 26 per-form pic
+  // entries live in UnownPicPointers. Discover that table by content:
+  // a 26-entry run whose fronts decode (via the voted delta) to
+  // Unown's dims and whose backs decode too. Form A is displayed.
+  let unownTable = -1
+  let unownBank = -1
+  const findUnownTable = (id: number): number => {
+    if (unownTable !== -1) return unownTable
+    unownTable = -2 // searched, absent
+    const tiles = frontTiles(id)
+    if (tiles < 1) return unownTable
+    // Structural prefilter (26 pointer pairs with small bank bytes),
+    // then two content strategies: (A) Crystal spreads the forms over
+    // many banks and the main table's delta applies per entry;
+    // (B) Gold stores one shared remapped bank byte, so sweep for the
+    // single real bank where every form decodes.
+    const romBankCount = Math.max(2, Math.floor(bytes.length / 0x4000))
+    outer: for (let o = 0; o + 26 * 6 <= bytes.length; o++) {
+      if (o >= tableOff && o < tableOff + count * 6) continue
+      for (let f = 0; f < 26; f++) {
+        const e = o + f * 6
+        const fp = rom.readU16LE(e + 1)
+        const bp = rom.readU16LE(e + 4)
+        if (bytes[e] > 0x60 || bytes[e + 3] > 0x60) continue outer
+        if (fp < 0x4000 || fp >= 0x8000 || bp < 0x4000 || bp >= 0x8000) continue outer
+      }
+      // Strategy A: stored + delta decodes every form.
+      let deltaHits = 0
+      for (let f = 0; f < 26; f++) {
+        const e = o + f * 6
+        if (
+          decodesTo(toFile(bytes[e] + delta, rom.readU16LE(e + 1)), tiles) &&
+          decodesTo(toFile(bytes[e + 3] + delta, rom.readU16LE(e + 4)), 36)
+        )
+          deltaHits++
+      }
+      if (deltaHits === 26) {
+        unownTable = o
+        return unownTable
+      }
+      // Strategy B: one shared bank, entries all carry the same byte.
+      if (bytes[o] === bytes[o + 3] && bytes.subarray(o, o + 26 * 6).every((_, i) => i % 3 !== 0 || bytes[o + i] === bytes[o])) {
+        bank: for (let b = 1; b < romBankCount; b++) {
+          for (let f = 0; f < 26; f++) {
+            const e = o + f * 6
+            if (!decodesTo(toFile(b, rom.readU16LE(e + 1)), tiles)) continue bank
+            if (!decodesTo(toFile(b, rom.readU16LE(e + 4)), 36)) continue bank
+          }
+          unownTable = o
+          unownBank = b
+          return unownTable
+        }
+      }
+    }
+    return unownTable
+  }
+
   const render = (id: number, front: boolean, shiny: boolean): RenderedImage | null => {
     if (id < 1 || id > count) return null
-    const entry = tableOff + (id - 1) * 6 + (front ? 0 : 3)
-    if (isFiller(entry)) return null // Unown's slot is blank here
+    let entry = tableOff + (id - 1) * 6 + (front ? 0 : 3)
+    let forcedBank = -1
+    if (isFiller(entry)) {
+      const t = findUnownTable(id)
+      if (t < 0) return null
+      entry = t + (front ? 0 : 3) // form A
+      forcedBank = unownBank // -1 when the per-entry delta applies
+    }
     const d = front ? dimsOf(id) : 0x66 // backs are always 6×6
     const w = d >> 4
     const h = d & 0x0f
     const tiles = w * h
-    const bank = resolveBank(bytes[entry], rom.readU16LE(entry + 1), tiles)
+    const bank =
+      forcedBank >= 0 ? forcedBank : resolveBank(bytes[entry], rom.readU16LE(entry + 1), tiles)
     if (bank < 0) return null
     let data: Uint8Array
     try {
