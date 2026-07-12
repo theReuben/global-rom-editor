@@ -619,6 +619,43 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
       p = end + 1
     }
   }
+  // Item names: the same 0x50-terminated list scheme, pair anchors at
+  // ids 1/20/76 (identical in pokered and pokeyellow; the list ends
+  // with the elevator floor names, B4F at 97).
+  const ITEM_NAME_ANCHORS: { id: number; pair: string[] }[] = [
+    { id: 1, pair: ['MASTER BALL', 'ULTRA BALL'] },
+    { id: 20, pair: ['POTION', 'BOULDERBADGE'] },
+    { id: 76, pair: ['OLD ROD', 'GOOD ROD'] },
+  ]
+  const itemVotes = new Map<number, number>()
+  for (const a of ITEM_NAME_ANCHORS) {
+    const pattern = [...gen12Bytes(a.pair[0]), 0x50, ...gen12Bytes(a.pair[1]), 0x50]
+    for (const hit of findAll(bytes, pattern, 8)) {
+      const start = a.id === 1 ? hit : walkBackNames(hit, a.id - 1)
+      if (start !== null) itemVotes.set(start, (itemVotes.get(start) ?? 0) + 1)
+    }
+  }
+  let itemNamesOff: number | null = null
+  let bestItemVotes = 0
+  for (const [start, v] of itemVotes) {
+    if (v > bestItemVotes) {
+      itemNamesOff = start
+      bestItemVotes = v
+    }
+  }
+  const itemOptions: { value: number; label: string }[] | null =
+    bestItemVotes >= 2 && itemNamesOff !== null ? [{ value: 0, label: '— none —' }] : null
+  if (itemOptions && itemNamesOff !== null) {
+    let p = itemNamesOff
+    for (let i = 1; i <= 97 && p < bytes.length; i++) {
+      let end = p
+      while (end < bytes.length && bytes[end] !== 0x50) end++
+      const name = gen12Codec.decode(bytes.subarray(p, end)).trimEnd()
+      itemOptions.push({ value: i, label: name.length >= 1 && name.length <= 12 ? name : `Item #${i}` })
+      p = end + 1
+    }
+  }
+
   // Same-footprint renames: shorter names space-pad up to the original
   // terminator so the list never shifts.
   const renameMove = (id: number, name: string): boolean => {
@@ -816,7 +853,7 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
     mapModule: gen1maps?.module ?? null,
     trainerModule: trainers?.module ?? null,
     wildModule: wild?.module ?? null,
-    itemOptions: null,
+    itemOptions,
     speciesSprite: sprites ? (id) => sprites.front(id) : null,
     speciesSpriteBack: sprites ? (id) => sprites.back(id) : null,
     hasShinySprites: false,

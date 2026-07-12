@@ -93,7 +93,8 @@ export function EvolutionCard({
     module.write(speciesId, slot, field, value)
     onEdit()
   }
-  const itemParam = (method: number) => method === 6 || method === 7
+  const itemMethods = module.itemParamMethods ?? [6, 7]
+  const itemParam = (method: number) => itemMethods.includes(method)
 
   return (
     <section className="card">

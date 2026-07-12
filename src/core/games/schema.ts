@@ -179,6 +179,11 @@ export interface EvolutionEntry {
 
 export interface EvolutionModule {
   methods: SelectOption[]
+  /**
+   * Methods whose param is an item id (shown as an item dropdown when
+   * itemOptions exist). Defaults to Gen 3's use-item/trade-item pair.
+   */
+  itemParamMethods?: number[]
   read(id: number): EvolutionEntry[]
   write(id: number, slot: number, field: string, value: number): void
   revert(id: number): void

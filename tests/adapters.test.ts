@@ -109,6 +109,14 @@ describe('Gen 1 adapter', () => {
     expect(ls.read(1)).toHaveLength(2)
   })
 
+  it('reads item names for the evolution item dropdown', () => {
+    const a = load()
+    expect(a.itemOptions).not.toBeNull()
+    expect(a.itemOptions![1].label).toBe('MASTER BALL')
+    expect(a.itemOptions!.find((o) => o.value === 76)!.label).toBe('OLD ROD')
+    expect(a.evolutions!.itemParamMethods).toEqual([2])
+  })
+
   it('decodes and renders Gen 1 pics in SGB colors', () => {
     const a = load()
     expect(a.speciesSprite).not.toBeNull()

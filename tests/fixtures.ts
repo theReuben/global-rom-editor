@@ -101,6 +101,17 @@ export function makeGen1Rom(): Uint8Array {
   }
   put(rom, mew + 10, [0x11, 0x00, 0x50, 0x00, 0x50])
 
+  // Item names with vote anchor pairs at ids 1-2, 20-21 and 76-77.
+  {
+    const items = ['MASTER BALL', 'ULTRA BALL']
+    for (let it = 3; it <= 19; it++) items.push('ITEM' + String(it))
+    items.push('POTION', 'BOULDERBADGE')
+    for (let it = 22; it <= 75; it++) items.push('ITEM' + String(it))
+    items.push('OLD ROD', 'GOOD ROD')
+    for (let it = 78; it <= 97; it++) items.push('ITEM' + String(it))
+    put(rom, 0xb1000, items.flatMap((n) => [...gen12Bytes(n), 0x50]))
+  }
+
   // SGB palettes: MonsterPalettes (152 ids) + SuperPalettes rows, each
   // near-white first (0x7FBF) with distinct second colors.
   const palT = 0x72000

@@ -601,6 +601,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     const subFor = (id: number) => evoSubs.find((s) => s.index === id) ?? null
     evolutions = {
       methods: GEN4_EVO_METHODS,
+      itemParamMethods: [6, 7, 16, 17, 18, 19],
       read(id) {
         const s = subFor(id)
         if (!s) return []

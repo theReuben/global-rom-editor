@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-158 tests green; `npm test` and `npm run build` must stay that way.
+159 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -26,6 +26,11 @@ LoadTilesetHeader on dungeon maps) stay in sync on add/remove/move;
 viewPtr = wOverworldMap + 7 + w + (w+6)*(y>>1) + (x>>1), with
 wOverworldMap derived by majority vote over every existing warp_to
 entry (= 0xC6E8 on built Red AND Yellow, matching their .sym).
+Item names: same backward-walk pair voting as Gen 2, anchors at ids
+1/20/76 (identical pokered/pokeyellow; the 97-entry list ends with
+the elevator floor names). They feed the evolution editor's item
+dropdown via the new EvolutionModule.itemParamMethods field (Gen 1
+method 2; Gen 2 methods 2-3; Gen 4 methods 6/7/16-19).
 Evolutions + learnsets (src/core/gb/evosmoves.ts, shared with Gen 2):
 EvosMovesPointerTable = 190 INTERNAL-order bank-local u16s, each blob =
 evo entries {1,level,sp} / {2,item,minLvl(1),sp} (4B) / {3,minLvl,sp},
@@ -327,7 +332,7 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
   (no decomp; PKHeX reads pre-extracted resources, not ROM bytes).
 - Gen 5 sprites: B/W NCGRs are 96x96 and unscrambled per community
   docs — needs a verifiable reference before shipping.
-- Gen 1 item names, Gen 4
+- Gen 4
   TM->move labels (table lives in the compressed arm9 — hard),
   Gen 1/2 sprite IMPORT (needs RLE/lz3 compressors), DS map editing
   (out of scope), Gen 4 evolutions can't be byte-validated until a

@@ -229,6 +229,9 @@ export function buildGbEvosMoves(
 
   const evolutions: EvolutionModule = {
     methods: gen === 1 ? GEN1_METHODS : GEN2_METHODS,
+    // Gen 1 EVOLVE_ITEM(2) takes an item; Gen 2 adds the trade held
+    // item on method 3.
+    itemParamMethods: gen === 1 ? [2] : [2, 3],
     read(dex): EvolutionEntry[] {
       const cur = parseFor(dex, bytes)
       const out: EvolutionEntry[] = (cur?.blob.evos ?? []).map((e) => ({
