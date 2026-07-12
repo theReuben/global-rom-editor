@@ -188,6 +188,23 @@ describe('Gen 2 adapter', () => {
     expect(re.learnsets!.read(1)).toHaveLength(2)
   })
 
+  it('renders front and back sprites in per-species colors', () => {
+    const a = load()
+    expect(a.speciesSprite).not.toBeNull()
+    expect(a.hasShinySprites).toBe(true)
+    const front = a.speciesSprite!(1, false)!
+    expect(front.width).toBe(16) // dims 2×2 tiles
+    expect(front.height).toBe(16)
+    // The fixture pic is all color-1 pixels; Bulbasaur's palette color 1
+    // is RGB555 0x2FEC → red five(12)=99.
+    expect(front.pixels[0]).toBe(99)
+    const shiny = a.speciesSprite!(1, true)!
+    expect(shiny.pixels[0]).not.toBe(front.pixels[0])
+    const back = a.speciesSpriteBack!(1, false)!
+    expect(back.width).toBe(48) // backs are always 6×6 tiles
+    expect(a.speciesSprite!(201, false)).toBeNull() // Unown filler slot
+  })
+
   it('exposes the Foresight section of the type chart', () => {
     const a = load()
     const tc = a.typeChart!

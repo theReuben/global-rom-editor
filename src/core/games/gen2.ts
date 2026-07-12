@@ -9,6 +9,7 @@ import { findGbBankFreeSpace } from '../freespace'
 import { buildGen2Maps } from '../gb/gen2maps'
 import { buildGbEvosMoves } from '../gb/evosmoves'
 import { buildGbTypeChart } from '../gb/typechart'
+import { buildGen2Sprites } from '../gb/gen2sprites'
 import { findAll, findByVote, findVerified } from '../scan'
 import { gen12Bytes, gen12Codec } from '../text'
 import { EGG_GROUPS, GEN2_TYPES, GEN12_GROWTH, GENDER_RATIOS, padDex } from './data'
@@ -845,6 +846,12 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     regions.push({ name: 'Evolutions & learnsets', offset: evosMoves.tableOff, length: COUNT * 2 })
   }
 
+  // Sprites (front + back, per-species palettes with shiny variants).
+  const sprites = buildGen2Sprites(rom, statsOff, STATS_ENTRY, COUNT)
+  if (sprites) {
+    regions.push({ name: 'Pokémon pic pointers', offset: sprites.tableOff, length: COUNT * 6 })
+  }
+
   // Type effectiveness chart (TypeMatchups — 3-byte matchups with the
   // 0xFE Foresight separator, 0xFF end).
   const typeChart = buildGbTypeChart(rom, 0x1b) // DARK = 0x1B
@@ -870,9 +877,9 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     trainerModule: trainers?.module ?? null,
     wildModule: wild?.module ?? null,
     itemOptions,
-    speciesSprite: null,
-    speciesSpriteBack: null,
-    hasShinySprites: false,
+    speciesSprite: sprites ? (id, shiny) => sprites.front(id, shiny ?? false) : null,
+    speciesSpriteBack: sprites ? (id, shiny) => sprites.back(id, shiny ?? false) : null,
+    hasShinySprites: sprites?.hasPalettes ?? false,
     importSpeciesSprite: null,
     importSpeciesSpriteBack: null,
     evolutions: evosMoves?.evolutions ?? null,

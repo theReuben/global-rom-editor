@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-154 tests green; `npm test` and `npm run build` must stay that way.
+155 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -69,6 +69,23 @@ Evolutions + learnsets: EvosAttacksPointers = 251 DEX-order u16s
 Type chart: as Gen 1 but with a 0xFE separator before the two
 Foresight entries (Ghost immunities), exposed like normal matchups
 and preserved on rewrite (Gold 0d:4d01, Crystal 0d:4bb1; 110).
+Sprites (src/core/gb/gen2sprites.ts): PokemonPicPointers = 251 x
+6-byte {frontBank,ptr, backBank,ptr}; Unown's slot is 0xFF filler
+(its pics live in UnownPicPointers). The stored bank byte is
+game-specific nonsense (Crystal subtracts PICS_FIX 0x36 + bank list,
+Gold raw + 3 remaps) so real banks are resolved by CONTENT: the bank
+where the pic lz3-decompresses WITH a proper LZ_END terminator
+(lz3TryDecompress strict mode — zero-filled banks 'decompress' to
+plausible sizes by running off the end otherwise) to >= tiles*16
+bytes (front tiles from stats dims byte 17, nibbles w/h; backs always
+6x6; Crystal fronts carry animation frames after the base sprite so
+the size check is >=, render uses frame 0). Delta stored->real voted
+across species, per-stored-bank exceptions cached. Tiles are
+COLUMN-major. PokemonPalettes (8B/species: normal+shiny RGB555 color
+pairs; row 0 = dummy 000) found via findByVote anchors dex 1/25/131
+(byte-identical in built Gold+Crystal). Validated: tables at Gold
+12:4000 / Crystal 48:4000 per .sym, 500/500 pics render, Bulbasaur
+front byte-exact vs the build intermediate .2bpp, PNGs eyeballed.
 
 **Gen 3 (R/S/E/FR/LG):** the full suite — species, moves, trainers,
 wild, maps (paint/resize/new maps/NPCs/warps/signs/script builder),

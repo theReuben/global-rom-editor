@@ -18,12 +18,30 @@ function bitflip(b: number): number {
   return ((b & 0xaa) >> 1) | ((b & 0x55) << 1)
 }
 
-export function lz3Decompress(data: Uint8Array, off: number): Uint8Array {
+/**
+ * Like lz3Decompress but returns null unless the stream ends with a
+ * proper LZ_END terminator — random data (zero-filled banks especially)
+ * "decompresses" by running off the end, so termination is the strong
+ * signal for content-validated discovery.
+ */
+export function lz3TryDecompress(data: Uint8Array, off: number, maxOut = MAX_OUT): Uint8Array | null {
+  try {
+    return lz3Decompress(data, off, true, maxOut)
+  } catch {
+    return null
+  }
+}
+
+export function lz3Decompress(data: Uint8Array, off: number, strict = false, maxOut = MAX_OUT): Uint8Array {
+  let terminated = false
   const out: number[] = []
   let p = off
   while (p < data.length) {
     const b = data[p++]
-    if (b === LZ_END) break
+    if (b === LZ_END) {
+      terminated = true
+      break
+    }
     let cmd = b >> 5
     let len: number
     if (cmd === 7) {
@@ -57,13 +75,17 @@ export function lz3Decompress(data: Uint8Array, off: number): Uint8Array {
         // repeat / flip / reverse from already-decompressed output
         const o1 = data[p++]
         const src = o1 & 0x80 ? out.length - (o1 & 0x7f) - 1 : (o1 << 8) | data[p++]
-        if (src < 0) return Uint8Array.from(out)
+        if (src < 0) {
+          if (strict) throw new Error('lz3: bad back-reference')
+          return Uint8Array.from(out)
+        }
         if (cmd === 4) for (let i = 0; i < len; i++) out.push(out[src + i] ?? 0)
         else if (cmd === 5) for (let i = 0; i < len; i++) out.push(bitflip(out[src + i] ?? 0))
         else for (let i = 0; i < len; i++) out.push(out[src - i] ?? 0)
       }
     }
-    if (out.length > MAX_OUT) break
+    if (out.length > maxOut) break
   }
+  if (strict && !terminated) throw new Error('lz3: no terminator')
   return Uint8Array.from(out)
 }

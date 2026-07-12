@@ -308,6 +308,27 @@ export function makeGen2Rom(): Uint8Array {
     }
   }
 
+  // Sprites: pic pointer table (bank 0x12), lz3 pics, palettes.
+  // dims 2x2 for the first species so fronts are 4 tiles (64 bytes).
+  for (let id = 1; id <= 24; id++) rom[stats + (id - 1) * 32 + 17] = 0x22
+  const picTable = 0x48000
+  // Front: 2×(alternate FF,00 ×32) = 64 bytes of color-1 pixels.
+  put(rom, 0x48800, [0x5f, 0xff, 0x00, 0x5f, 0xff, 0x00, 0xff])
+  // Back: 18×(zero-fill 32) = 576 bytes (6×6 tiles).
+  put(rom, 0x48900, [...Array.from({ length: 18 }, () => 0x7f), 0xff])
+  for (let i = 0; i < 251; i++) {
+    if (i === 200) {
+      put(rom, picTable + i * 6, [0xff, 0xff, 0xff, 0xff, 0xff, 0xff]) // Unown slot
+      continue
+    }
+    put(rom, picTable + i * 6, [0x12, 0x00, 0x48, 0x12, 0x00, 0x49])
+  }
+  // Palettes: anchor rows for dex 1 / 25 / 131.
+  const pals = 0xa8c0
+  put(rom, pals + 1 * 8, [236, 47, 95, 25, 148, 47, 95, 25])
+  put(rom, pals + 25 * 8, [93, 23, 218, 0, 63, 2, 84, 44])
+  put(rom, pals + 131 * 8, [188, 54, 8, 114, 191, 125, 112, 125])
+
   // Type chart with the Gen 2 Foresight separator (bank 0x0D).
   {
     const chart: number[] = []
