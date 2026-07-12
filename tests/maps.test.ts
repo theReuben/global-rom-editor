@@ -180,14 +180,16 @@ describe('Gen 2 maps', () => {
     expect(m.describe('1.1')).toMatchObject({ widthBlocks: 4, heightBlocks: 3 })
   })
 
-  it('renders lz3 tilesets and paints in place', async () => {
+  it('renders lz3 tilesets in CGB colors and paints in place', async () => {
     const a = await loadGen2()
     const m = a.mapModule!
     const img = m.render('1.1')
     expect(img.width).toBe(4 * 32)
     expect(img.height).toBe(3 * 32)
-    expect(img.pixels[0]).toBe(232) // block 0 → tile 0 → lightest
-    expect(img.pixels[32 * 4]).toBe(28) // block (1,0) → tile 1 → darkest
+    // Palette map says tile 0 = GRAY, tile 1 = BROWN; the fixture maps
+    // are TOWN so the outdoor day palettes apply.
+    expect(img.pixels[0]).toBe(222) // GRAY color 0 = RGB5 27,31,27
+    expect(img.pixels[32 * 4]).toBe(57) // block (1,0) → tile 1 color 3 = BROWN dark
     m.paint('1.1', 0, 1, 1)
     expect(m.cell('1.1', 0, 1).blockId).toBe(1)
     const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!

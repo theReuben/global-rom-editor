@@ -222,10 +222,14 @@ export function makeGen2Rom(): Uint8Array {
   put(rom, 0x100200, [0, 3, 4, 0x40, 0x00, 0x43, 0x40, 0x00, 0x40, 0x00, 0x48, 0])
   rom[0x100300 + 1] = 1 // block (1,0) = metatile 1
   // Tilesets: 4 × 15-byte entries {gfx 0x40:4700, meta 0x40:4600,
-  // coll 0x40:4000, anim, NULL, palmap} — NULL word at +11.
+  // coll 0x40:4000, anim, NULL, palmap 0x4900} — NULL word at +11.
   for (let t = 0; t < 4; t++) {
-    put(rom, 0x100400 + t * 15, [0x40, 0x00, 0x47, 0x40, 0x00, 0x46, 0x40, 0x00, 0x40, 0x00, 0x40, 0, 0, 0x00, 0x40])
+    put(rom, 0x100400 + t * 15, [0x40, 0x00, 0x47, 0x40, 0x00, 0x46, 0x40, 0x00, 0x40, 0x00, 0x40, 0, 0, 0x00, 0x49])
   }
+  // Palette map (bank 0x40 local 0x4900): nibble per tile, bit 3 clear.
+  // Tile 0 = GRAY (0), tile 1 = BROWN (5), then variety for the vote.
+  put(rom, 0x100900, [0x50, 0x15, 0x65, 0x66])
+  for (let i = 4; i < 48; i++) rom[0x100900 + i] = (i % 2 === 0 ? 0x05 : 0x21)
   // Metatiles: metatile 0 = 16×tile0, metatile 1 = 16×tile1.
   for (let i = 0; i < 16; i++) rom[0x100600 + 16 + i] = 1
   // Tileset gfx, lz3-compressed: 16 zero bytes then 16×0xFF

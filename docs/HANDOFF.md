@@ -23,8 +23,14 @@ time-of-day wild encounters, trainer parties (names, items, custom
 moves, growth to 6), item names from the ROM (held-item dropdowns;
 vote anchors at item ids 1/77/179, and the backward name walker
 accepts the 0x4A PKMN / 0x54 POKe glyph bytes - "# DOLL"),
-map viewing + block painting (lz3 tileset
-decompressor, grayscale for now; validated against Gold/Crystal .sym),
+map viewing + block painting in CGB color (lz3 tileset decompressor;
+palette maps are 1 nibble/tile — byte = tile>>1, odd tile = high
+nibble, bit 3 = VRAM bank, low 3 bits = palette; the palmap pointer at
+tileset entry +13 has NO bank byte, so the bank is discovered by
+voting across all tilesets for nibble-pair-shaped data — Gold bank
+0x02, Crystal 0x13, matching the .sym files; colors = the public
+day/indoor/dungeon sets from bg_tiles.pal picked by the map entry's
+environment byte per environment_colors.asm),
 warp/sign/NPC viewing and in-place editing (MapEvents blob at
 scriptsBank:eventsPtr — filler word, then counted lists: warps 5B
 {y,x,destWarp,group,map}, coord events 8B (skipped), bg events 5B

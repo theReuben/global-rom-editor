@@ -15,6 +15,13 @@
  *    collision bank+ptr, anim u16, NULL u16, palmap u16} — the NULL
  *    word is a handy structural invariant. Tileset gfx are lz3
  *    compressed; metatiles are raw 16-byte 4×4 tile grids.
+ *  - Palette maps (gfx/tileset_palette_maps.asm): one nibble per tile
+ *    (byte = tile>>1, odd tile = high nibble), bit 3 = VRAM bank,
+ *    low 3 bits = BG palette 0-7. The palmap pointer has no bank
+ *    byte — all maps live in the bank of _LoadOverworldAttrmapPals,
+ *    which we discover by voting across every tileset's pointer.
+ *    Colors are the public day/indoor/dungeon sets from
+ *    gfx/tilesets/bg_tiles.pal + data/maps/environment_colors.asm.
  */
 import type { Rom } from '../rom'
 import type { MapModule, RenderedImage } from '../games/schema'
@@ -34,10 +41,50 @@ const GB_SHADES: [number, number, number][] = [
   [28, 35, 26],
 ]
 
+// 5-bit RGB rows from pokecrystal gfx/tilesets/bg_tiles.pal: the "day"
+// set (outdoor water swapped in per environment_colors.asm $28), the
+// plain day set for caves/dungeons, and the indoor set. Order:
+// GRAY, RED, GREEN, WATER, YELLOW, BROWN, ROOF, TEXT.
+type PalSet = number[][][]
+const five = (v: number) => (v << 3) | (v >> 2)
+const P = (...vals: number[]): number[][] => {
+  const colors: number[][] = []
+  for (let i = 0; i < 4; i++) colors.push([five(vals[i * 3]), five(vals[i * 3 + 1]), five(vals[i * 3 + 2])])
+  return colors
+}
+const DAY_COMMON = [
+  P(27, 31, 27, 21, 21, 21, 13, 13, 13, 7, 7, 7), // gray
+  P(27, 31, 27, 31, 19, 24, 30, 10, 6, 7, 7, 7), // red
+  P(22, 31, 10, 12, 25, 1, 5, 14, 0, 7, 7, 7), // green
+]
+const DAY_TAIL = [
+  P(27, 31, 27, 31, 31, 7, 31, 16, 1, 7, 7, 7), // yellow
+  P(27, 31, 27, 24, 18, 7, 20, 15, 3, 7, 7, 7), // brown
+  P(27, 31, 27, 15, 31, 31, 5, 17, 31, 7, 7, 7), // roof
+  P(31, 31, 16, 31, 31, 16, 14, 9, 0, 0, 0, 0), // text
+]
+const OUTDOOR: PalSet = [...DAY_COMMON, P(23, 23, 31, 18, 19, 31, 13, 12, 31, 7, 7, 7), ...DAY_TAIL]
+const DUNGEON: PalSet = [...DAY_COMMON, P(31, 31, 31, 8, 12, 31, 1, 4, 31, 7, 7, 7), ...DAY_TAIL]
+const INDOOR: PalSet = [
+  P(30, 28, 26, 19, 19, 19, 13, 13, 13, 7, 7, 7),
+  P(30, 28, 26, 31, 19, 24, 30, 10, 6, 7, 7, 7),
+  P(18, 24, 9, 15, 20, 1, 9, 13, 0, 7, 7, 7),
+  P(30, 28, 26, 15, 16, 31, 9, 9, 31, 7, 7, 7),
+  P(30, 28, 26, 31, 31, 7, 31, 16, 1, 7, 7, 7),
+  P(26, 24, 17, 21, 17, 7, 16, 13, 3, 7, 7, 7),
+  P(30, 28, 26, 17, 19, 31, 14, 16, 31, 7, 7, 7),
+  P(31, 31, 16, 31, 31, 16, 14, 9, 0, 0, 0, 0),
+]
+// Environments (constants/map_data_constants.asm): INDOOR=3, GATE=6
+// use the indoor colors; CAVE=4, DUNGEON=7 the plain day colors.
+const palSetFor = (env: number): PalSet =>
+  env === 3 || env === 6 ? INDOOR : env === 4 || env === 7 ? DUNGEON : OUTDOOR
+
 interface Gen2MapRec {
   group: number // 1-based
   map: number // 1-based
   tileset: number
+  environment: number
   height: number
   width: number
   blocksOff: number
@@ -51,7 +98,7 @@ function toFile(bank: number, local: number): number {
 export function buildGen2Maps(
   rom: Rom,
   mapNames: Record<string, string>,
-): { module: MapModule; groups: number; tilesets: number; count: number } | null {
+): { module: MapModule; groups: number; tilesets: number; count: number; palBank: number } | null {
   const bytes = rom.bytes
   const romBanks = Math.max(2, Math.floor(bytes.length / 0x4000))
   const ptrOk = (v: number) => v >= 0x4000 && v < 0x8000
@@ -126,6 +173,7 @@ export function buildGen2Maps(
         group: g + 1,
         map: m,
         tileset: bytes[off + 1],
+        environment: bytes[off + 2],
         height: bytes[attrOff + 1],
         width: bytes[attrOff + 2],
         blocksOff: toFile(bytes[attrOff + 3], rom.readU16LE(attrOff + 4)),
@@ -163,6 +211,41 @@ export function buildGen2Maps(
   }
   if (tilesets < 0) return null
 
+  // 3b. Palette-map bank: the palmap word (entry +13) carries no bank.
+  //     Vote across tilesets — the right bank shows nibble-pair data
+  //     (bit 3 of every nibble clear in the first 48 bytes = the VRAM
+  //     bank-0 tiles) with real variety, in every tileset at once.
+  const tilesetCount = maxTileset + 1
+  let palBank = -1
+  {
+    const palPtrs: number[] = []
+    for (let t = 0; t < tilesetCount; t++) {
+      const ptr = rom.readU16LE(tilesets + t * TILESET_ENTRY + 13)
+      if (ptrOk(ptr)) palPtrs.push(ptr)
+    }
+    let bestScore = 0
+    for (let b = 1; b < romBanks; b++) {
+      let score = 0
+      for (const ptr of palPtrs) {
+        const off = toFile(b, ptr)
+        if (off + 0x30 > bytes.length) continue
+        let ok = true
+        const seen = new Set<number>()
+        for (let i = 0; i < 0x30; i++) {
+          const v = bytes[off + i]
+          if ((v & 0x88) !== 0) ok = false
+          seen.add(v)
+        }
+        if (ok && seen.size >= 4) score++
+      }
+      if (score > bestScore) {
+        bestScore = score
+        palBank = b
+      }
+    }
+    if (bestScore < Math.max(3, Math.floor(palPtrs.length * 0.7))) palBank = -1
+  }
+
   const byKey = new Map(maps.map((m) => [`${m.group}.${m.map}`, m]))
 
   const parseEvents = (m: Gen2MapRec) => {
@@ -196,6 +279,7 @@ export function buildGen2Maps(
     const e = tilesets + ts * TILESET_ENTRY
     const gfxOff = toFile(bytes[e], rom.readU16LE(e + 1))
     const meta = toFile(bytes[e + 3], rom.readU16LE(e + 4))
+    const palMap = palBank >= 0 ? toFile(palBank, rom.readU16LE(e + 13)) : -1
     let gfx = gfxCache.get(gfxOff)
     if (!gfx) {
       try {
@@ -205,11 +289,12 @@ export function buildGen2Maps(
       }
       gfxCache.set(gfxOff, gfx)
     }
-    return { gfx, meta }
+    return { gfx, meta, palMap }
   }
 
-  const renderBlockGrid = (ts: number, blockIds: ArrayLike<number>, perRow: number): RenderedImage => {
-    const { gfx, meta } = tilesetInfo(ts)
+  const renderBlockGrid = (ts: number, env: number, blockIds: ArrayLike<number>, perRow: number): RenderedImage => {
+    const { gfx, meta, palMap } = tilesetInfo(ts)
+    const palSet = palSetFor(env)
     const tileCount = Math.floor(gfx.length / 16)
     const rows = Math.ceil(blockIds.length / perRow)
     const width = perRow * 32
@@ -224,10 +309,15 @@ export function buildGen2Maps(
           const rawId = bytes[def + tyy * 4 + txx]
           const id = rawId < tileCount ? rawId : rawId & 0x7f
           const t = decodeTile2bpp(gfx, Math.min(id, Math.max(0, tileCount - 1)) * 16)
+          let colors = GB_SHADES
+          if (palMap >= 0) {
+            const nib = (bytes[palMap + (rawId >> 1)] >> ((rawId & 1) * 4)) & 7
+            colors = palSet[nib] as [number, number, number][]
+          }
           for (let y = 0; y < 8; y++) {
             for (let x = 0; x < 8; x++) {
               const o = ((by + tyy * 8 + y) * width + bx + txx * 8 + x) * 4
-              const [r, g, b] = GB_SHADES[t[y * 8 + x]]
+              const [r, g, b] = colors[t[y * 8 + x]]
               pixels[o] = r
               pixels[o + 1] = g
               pixels[o + 2] = b
@@ -254,13 +344,13 @@ export function buildGen2Maps(
     render(key) {
       const m = byKey.get(key)!
       const ids = bytes.subarray(m.blocksOff, m.blocksOff + m.width * m.height)
-      return renderBlockGrid(m.tileset, ids, m.width)
+      return renderBlockGrid(m.tileset, m.environment, ids, m.width)
     },
     renderBlocks(key, perRow) {
       const m = byKey.get(key)!
       const count = 128
       const ids = Array.from({ length: count }, (_, i) => i)
-      return { ...renderBlockGrid(m.tileset, ids, perRow), perRow, count }
+      return { ...renderBlockGrid(m.tileset, m.environment, ids, perRow), perRow, count }
     },
     cell(key, x, y) {
       const m = byKey.get(key)!
@@ -333,5 +423,5 @@ export function buildGen2Maps(
       rom.revertRange(m.blocksOff, m.width * m.height)
     },
   }
-  return { module, groups: groupCount, tilesets, count: maps.length }
+  return { module, groups: groupCount, tilesets, count: maps.length, palBank }
 }
