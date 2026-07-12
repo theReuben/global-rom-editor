@@ -513,16 +513,16 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     rom.writeU16LE(o, v & 0xffff)
     rom.writeU16LE(o + 2, (v >>> 16) & 0xffff)
   }
-  const growMsgEntry = (bankIndex: number, entry: number, text: string): boolean => {
-    if (!msgFile || !msgSubs) return false
-    const s = msgSubs.find((x) => x.index === bankIndex)
-    if (!s) return false
-    const newBank = rebuildMsgBank(bytes, s.offset, s.length, entry, text)
-    if (!newBank) return false
-    const newNarc = rebuildNarcWithSubfile(bytes, msgFile.start, bankIndex, newBank)
-    if (!newNarc) return false
-    let dest = msgFile.start
-    if (newNarc.length > msgFile.end - msgFile.start) {
+  /**
+   * Replace one subfile in a NARC file, relocating the whole NARC into
+   * end-of-ROM padding when it grows (FAT retarget + used-size + header
+   * CRC). Returns the file's new location, or null when it can't fit.
+   */
+  const replaceNarcSub = (file: NdsFile, subIndex: number, data: Uint8Array): NdsFile | null => {
+    const newNarc = rebuildNarcWithSubfile(bytes, file.start, subIndex, data)
+    if (!newNarc) return null
+    let dest = file.start
+    if (newNarc.length > file.end - file.start) {
       // Free space must sit beyond every live FAT entry (read fresh —
       // an earlier growth may already have moved a file out here).
       let maxEnd = 0
@@ -532,21 +532,146 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
       let padStart = bytes.length
       while (padStart > maxEnd && (bytes[padStart - 1] === 0xff || bytes[padStart - 1] === 0)) padStart--
       dest = (Math.max(padStart, maxEnd) + 0x1ff) & ~0x1ff
-      if (dest + newNarc.length > bytes.length) return false
+      if (dest + newNarc.length > bytes.length) return null
     }
     rom.writeBlock(dest, newNarc)
-    const fat = header.fatOffset + msgFile.id * 8
+    const fat = header.fatOffset + file.id * 8
     writeU32(fat, dest)
     writeU32(fat + 4, dest + newNarc.length)
     if (dest + newNarc.length > readU32(0x80)) writeU32(0x80, dest + newNarc.length)
     fixNdsHeaderCrc(rom)
-    msgFile = { ...msgFile, start: dest, end: dest + newNarc.length }
-    msgSubs = parseNarc(bytes, dest)
+    return { ...file, start: dest, end: dest + newNarc.length }
+  }
+
+  const growMsgEntry = (bankIndex: number, entry: number, text: string): boolean => {
+    if (!msgFile || !msgSubs) return false
+    const s = msgSubs.find((x) => x.index === bankIndex)
+    if (!s) return false
+    const newBank = rebuildMsgBank(bytes, s.offset, s.length, entry, text)
+    if (!newBank) return false
+    const moved = replaceNarcSub(msgFile, bankIndex, newBank)
+    if (!moved) return false
+    msgFile = moved
+    msgSubs = parseNarc(bytes, moved.start)
     if (!msgSubs) return false
     speciesBank = msgSubs.find((x) => x.index === msgCfg!.species) ?? null
     trainerBank = msgSubs.find((x) => x.index === msgCfg!.trainers) ?? null
     movesBank = msgSubs.find((x) => x.index === msgCfg!.moves) ?? null
     return true
+  }
+
+  // Evolutions (evo.narc / a/0/3/4): per species, 7 entries of
+  // {u16 method, u16 param, u16 target} (pokeheartgold
+  // pokemon_types_def.h struct Evolution + MAX_EVOS_PER_POKE).
+  // Learnsets (wotbl.narc / a/0/3/3): u16s of (level << 9) | move,
+  // 0xFFFF-terminated (pokemon.h LEVEL_UP_LEARNSET_*).
+  const GEN4_EVO_METHODS: SelectOption[] = [
+    { value: 0, label: '— none —' },
+    { value: 1, label: 'Friendship' },
+    { value: 2, label: 'Friendship (day)' },
+    { value: 3, label: 'Friendship (night)' },
+    { value: 4, label: 'Level up' },
+    { value: 5, label: 'Trade' },
+    { value: 6, label: 'Trade holding item' },
+    { value: 7, label: 'Use item' },
+    { value: 8, label: 'Level, Atk > Def' },
+    { value: 9, label: 'Level, Atk = Def' },
+    { value: 10, label: 'Level, Atk < Def' },
+    { value: 11, label: 'Level (personality lo)' },
+    { value: 12, label: 'Level (personality hi)' },
+    { value: 13, label: 'Level (Ninjask)' },
+    { value: 14, label: 'Level (Shedinja)' },
+    { value: 15, label: 'Beauty' },
+    { value: 16, label: 'Use item (male)' },
+    { value: 17, label: 'Use item (female)' },
+    { value: 18, label: 'Item held (day)' },
+    { value: 19, label: 'Item held (night)' },
+    { value: 20, label: 'Knows move' },
+    { value: 21, label: 'Species in party' },
+    { value: 22, label: 'Level (male)' },
+    { value: 23, label: 'Level (female)' },
+    { value: 24, label: 'Level at Mt. Coronet' },
+    { value: 25, label: 'Level at Eterna Forest' },
+    { value: 26, label: 'Level at Route 217' },
+  ]
+  let evoFile = findNdsFile(files, '/poketool/personal/evo.narc') ?? findNdsFile(files, '/a/0/3/4')
+  const evoSubs = evoFile && fullLayout ? parseNarc(bytes, evoFile.start) : null
+  let evolutions: GameAdapter['evolutions'] = null
+  if (evoSubs && evoSubs.length > 100 && (evoSubs.find((s) => s.index === 1)?.length ?? 0) >= 42) {
+    const subFor = (id: number) => evoSubs.find((s) => s.index === id) ?? null
+    evolutions = {
+      methods: GEN4_EVO_METHODS,
+      read(id) {
+        const s = subFor(id)
+        if (!s) return []
+        const out = []
+        for (let slot = 0; slot < 7; slot++) {
+          const o = s.offset + slot * 6
+          out.push({ method: rom.readU16LE(o), param: rom.readU16LE(o + 2), target: rom.readU16LE(o + 4) })
+        }
+        return out
+      },
+      write(id, slot, field, value) {
+        const s = subFor(id)
+        if (!s || slot < 0 || slot >= 7) return
+        const o = s.offset + slot * 6
+        if (field === 'method') rom.writeU16LE(o, value)
+        else if (field === 'param') rom.writeU16LE(o + 2, value)
+        else if (field === 'target') rom.writeU16LE(o + 4, value)
+      },
+      revert(id) {
+        const s = subFor(id)
+        if (s) rom.revertRange(s.offset, s.length)
+      },
+    }
+  }
+
+  let wotblFile = findNdsFile(files, '/poketool/personal/wotbl.narc') ?? findNdsFile(files, '/a/0/3/3')
+  let wotblSubs = wotblFile && fullLayout ? parseNarc(bytes, wotblFile.start) : null
+  let learnsets: GameAdapter['learnsets'] = null
+  if (wotblSubs && wotblSubs.length > 100) {
+    learnsets = {
+      read(id) {
+        const s = wotblSubs!.find((x) => x.index === id)
+        if (!s) return []
+        const out = []
+        for (let o = s.offset; o + 2 <= s.offset + s.length; o += 2) {
+          const v = rom.readU16LE(o)
+          if (v === 0xffff) break
+          out.push({ level: v >> 9, move: v & 0x1ff })
+        }
+        return out
+      },
+      write(id, entries) {
+        if (!wotblFile || !wotblSubs) return false
+        const s = wotblSubs.find((x) => x.index === id)
+        if (!s) return false
+        const clean = entries
+          .filter((e) => e.level >= 1 && e.level <= 100 && e.move >= 1 && e.move <= 0x1ff)
+          .slice(0, 40)
+          .sort((a, b) => a.level - b.level)
+        const words = [...clean.map((e) => (e.level << 9) | e.move), 0xffff]
+        if (words.length * 2 <= s.length) {
+          // Fits in place; pad the tail with terminators.
+          words.forEach((w, i) => rom.writeU16LE(s.offset + i * 2, w))
+          for (let o = words.length * 2; o + 2 <= s.length; o += 2) {
+            rom.writeU16LE(s.offset + o, 0xffff)
+          }
+          return true
+        }
+        // Grow the subfile: rebuild + relocate the wotbl NARC.
+        const data = new Uint8Array(words.length * 2)
+        words.forEach((w, i) => {
+          data[i * 2] = w & 0xff
+          data[i * 2 + 1] = (w >> 8) & 0xff
+        })
+        const moved = replaceNarcSub(wotblFile, id, data)
+        if (!moved) return false
+        wotblFile = moved
+        wotblSubs = parseNarc(bytes, moved.start)
+        return wotblSubs !== null
+      },
+    }
   }
 
   // Move data (MoveTbl, 16 bytes/move — verified against pokeplatinum
@@ -762,8 +887,8 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     hasShinySprites: pokegra !== null,
     importSpeciesSprite: null,
     importSpeciesSpriteBack: null,
-    evolutions: null,
-    learnsets: null,
+    evolutions,
+    learnsets,
     typeChart: null,
     // Msg-bank rename: written in place when the new name fits the
     // entry's original allocation; otherwise the bank is rebuilt and

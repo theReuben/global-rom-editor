@@ -927,11 +927,22 @@ export function makeGen4Rom(): Uint8Array {
     graSubs.push(real ? buildNclr(0x001f) : new Uint8Array(0)) // normal: red
     graSubs.push(real ? buildNclr(0x03e0) : new Uint8Array(0)) // shiny: green
   }
+  // evo.narc: 44-byte subfiles (7 × {method, param, target} u16s + pad);
+  // Bulbasaur evolves at 16 (EVO_LEVEL = 4) into dex 2.
+  const evoSubs: Uint8Array[] = []
+  for (let i = 0; i < 150; i++) evoSubs.push(new Uint8Array(44))
+  put(evoSubs[1], 0, u16s(4, 16, 2))
+  // wotbl.narc: (level<<9)|move u16s, 0xFFFF end.
+  const wotblSubs: Uint8Array[] = []
+  for (let i = 0; i < 150; i++) wotblSubs.push(Uint8Array.from(u16s(0xffff)))
+  wotblSubs[1] = Uint8Array.from(u16s((1 << 9) | 33, (4 << 9) | 45, 0xffff))
   return makeNdsRom('CPUE', [
     { path: 'poketool/personal/pl_personal.narc', content: buildNarc(entries) },
     { path: 'poketool/waza/pl_waza_tbl.narc', content: buildNarc(moves) },
     { path: 'msgdata/pl_msg.narc', content: buildNarc(msgSubs) },
     { path: 'poketool/pokegra/pl_pokegra.narc', content: buildNarc(graSubs) },
+    { path: 'poketool/personal/evo.narc', content: buildNarc(evoSubs) },
+    { path: 'poketool/personal/wotbl.narc', content: buildNarc(wotblSubs) },
   ])
 }
 

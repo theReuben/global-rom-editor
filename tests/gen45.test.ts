@@ -65,6 +65,34 @@ describe('Gen 4 adapter (Platinum-style)', () => {
     expect(re.species[0].name).toBe('Bulbasaur') // species bank untouched
   })
 
+  it('edits evolutions and learnsets, growing via NARC relocation', () => {
+    const a = load()
+    const evo = a.evolutions!
+    const ls = a.learnsets!
+    expect(evo.read(1)[0]).toEqual({ method: 4, param: 16, target: 2 })
+    expect(evo.read(1)).toHaveLength(7)
+    expect(ls.read(1)).toEqual([
+      { level: 1, move: 33 },
+      { level: 4, move: 45 },
+    ])
+    evo.write(1, 0, 'param', 36)
+    evo.write(1, 1, 'method', 7) // add a stone evolution in slot 1
+    evo.write(1, 1, 'param', 95)
+    evo.write(1, 1, 'target', 3)
+    // Learnset grows past its 6-byte subfile → wotbl NARC relocates.
+    expect(
+      ls.write(1, [...ls.read(1), { level: 20, move: 75 }, { level: 32, move: 80 }]),
+    ).toBe(true)
+    const re = buildAdapter(new Rom('platinum.nds', a.rom.bytes)).adapter!
+    expect(re.evolutions!.read(1)[0].param).toBe(36)
+    expect(re.evolutions!.read(1)[1]).toEqual({ method: 7, param: 95, target: 3 })
+    expect(re.learnsets!.read(1)).toHaveLength(4)
+    expect(re.learnsets!.read(1)[3]).toEqual({ level: 32, move: 80 })
+    expect(re.learnsets!.read(2)).toEqual([]) // neighbours untouched
+    evo.revert(1)
+    expect(evo.read(1)[0].param).toBe(16)
+  })
+
   it('renders descrambled sprites with shiny palettes', () => {
     const a = load()
     expect(a.speciesSprite).not.toBeNull()
