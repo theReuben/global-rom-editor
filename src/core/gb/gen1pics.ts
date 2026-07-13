@@ -19,6 +19,7 @@
 import type { Rom } from '../rom'
 import type { RenderedImage } from '../games/schema'
 import { decodeTile2bpp } from '../tiles'
+import { findGbBankFreeSpace } from '../freespace'
 
 const GB_SHADES: [number, number, number][] = [
   [255, 255, 255],
@@ -54,6 +55,10 @@ class BitReader {
     let n = 0
     while (count--) n = (n << 1) | this.read()
     return n
+  }
+  /** Index of the last byte the reader has touched. */
+  endByte(): number {
+    return this.byte
   }
 }
 
@@ -112,10 +117,15 @@ function uncompressPlane(plane: Uint8Array, width: number): void {
 }
 
 /**
- * Decompress a Gen 1 pic at `off`. Returns row-major 2bpp tile data
- * plus the square width in tiles, or throws on malformed data.
+ * Decompress a Gen 1 pic at `off`. Returns row-major 2bpp tile data,
+ * the square width in tiles, and the compressed byte length consumed
+ * (used for the in-place fit check on import), or throws on malformed
+ * data.
  */
-export function gen1PicDecompress(data: Uint8Array, off: number): { tiles: Uint8Array; width: number } {
+export function gen1PicDecompress(
+  data: Uint8Array,
+  off: number,
+): { tiles: Uint8Array; width: number; byteLength: number } {
   const r = new BitReader(data, off, Math.min(data.length, off + 0x1000))
   const width = r.readInt(4)
   const height = r.readInt(4)
@@ -149,7 +159,185 @@ export function gen1PicDecompress(data: Uint8Array, off: number): { tiles: Uint8
       }
     }
   }
-  return { tiles: out, width }
+  return { tiles: out, width, byteLength: r.endByte() - off + 1 }
+}
+
+/* ------------------------------------------------------- compressor ---- */
+
+const GRAY_ENCODE = [
+  [0x0, 0x1, 0x3, 0x2, 0x6, 0x7, 0x5, 0x4, 0xc, 0xd, 0xf, 0xe, 0xa, 0xb, 0x9, 0x8],
+  [0x8, 0x9, 0xb, 0xa, 0xe, 0xf, 0xd, 0xc, 0x4, 0x5, 0x7, 0x6, 0x2, 0x3, 0x1, 0x0],
+]
+
+class BitWriter {
+  bytes: number[] = [0]
+  private bit = 7
+  private byte = 0
+  write(b: number) {
+    if (++this.bit === 8) {
+      this.byte++
+      this.bit = 0
+    }
+    while (this.bytes.length <= this.byte) this.bytes.push(0)
+    this.bytes[this.byte] |= b << (7 - this.bit)
+  }
+  size() {
+    return this.byte + 1
+  }
+  /**
+   * Bit position, monotonic in (byte, bit) — the reference tool compares
+   * candidates on this, not the byte count, so two encodings that round
+   * up to the same byte length can still be ordered.
+   */
+  bits() {
+    return this.byte * 8 + this.bit
+  }
+}
+
+function transposeTiles(data: Uint8Array, width: number): void {
+  const n = width * width
+  for (let i = 0; i < n; i++) {
+    const j = (i * width + Math.floor(i / width)) % n
+    if (i < j) {
+      for (let k = 0; k < 16; k++) {
+        const t = data[i * 16 + k]
+        data[i * 16 + k] = data[j * 16 + k]
+        data[j * 16 + k] = t
+      }
+    }
+  }
+}
+
+function compressPlane(plane: Uint8Array, width: number): void {
+  const ramSize = width * width * 8
+  let nybbleLo = 0
+  for (let i = 0; i < ramSize; i++) {
+    const m = i % width
+    if (!m) nybbleLo = 0
+    const j = Math.floor(i / width) + m * width * 8
+    const nybbleHi = (plane[j] >> 4) & 0xf
+    const codeHi = GRAY_ENCODE[nybbleLo & 1][nybbleHi]
+    nybbleLo = plane[j] & 0xf
+    const codeLo = GRAY_ENCODE[nybbleHi & 1][nybbleLo]
+    plane[j] = (codeHi << 4) | codeLo
+  }
+}
+
+function rleEncodeNumber(w: BitWriter, nIn: number): void {
+  let n = nIn + 1
+  let v = n + 1
+  v |= v >> 1
+  v |= v >> 2
+  v |= v >> 4
+  v |= v >> 8
+  v |= v >> 16
+  v -= v >> 1
+  v--
+  const number = n - v
+  let bitCount = -1
+  while (v) {
+    v >>= 1
+    bitCount++
+  }
+  for (let j = 0; j < bitCount; j++) w.write(1)
+  w.write(0)
+  for (let j = bitCount; j >= 0; j--) w.write((number >> j) & 1)
+}
+
+function interpretCompress(
+  planes: [Uint8Array, Uint8Array],
+  mode: number,
+  order: number,
+  width: number,
+): { data: Uint8Array; bits: number } {
+  const ramSize = width * width * 8
+  const rams = [Uint8Array.from(planes[order]), Uint8Array.from(planes[order ^ 1])]
+  if (mode !== 0) for (let i = 0; i < ramSize; i++) rams[1][i] ^= rams[0][i]
+  compressPlane(rams[0], width)
+  if (mode !== 1) compressPlane(rams[1], width)
+
+  const w = new BitWriter()
+  w.bytes[0] = (width << 4) | width
+  w.write(order)
+  for (let plane = 0; plane < 2; plane++) {
+    let type = 0
+    let nums = 0
+    let groups: number[] = []
+    for (let x = 0; x < width; x++) {
+      for (let bit = 0; bit < 8; bit += 2) {
+        for (let y = 0, byte = x * width * 8; y < width * 8; y++, byte++) {
+          const group = (rams[plane][byte] >> (6 - bit)) & 3
+          if (group) {
+            if (type === 0) w.write(1)
+            else if (type === 1) rleEncodeNumber(w, nums)
+            type = 2
+            groups.push(group)
+            nums = 0
+          } else {
+            if (type === 0) w.write(0)
+            else if (type === 1) nums++
+            else {
+              for (const g of groups) {
+                w.write((g >> 1) & 1)
+                w.write(g & 1)
+              }
+              w.write(0)
+              w.write(0)
+            }
+            type = 1
+            groups = []
+          }
+        }
+      }
+    }
+    if (type === 1) rleEncodeNumber(w, nums)
+    else {
+      for (const g of groups) {
+        w.write((g >> 1) & 1)
+        w.write(g & 1)
+      }
+    }
+    if (!plane) {
+      if (mode === 0) w.write(0)
+      else {
+        w.write(1)
+        w.write(mode - 1)
+      }
+    }
+  }
+  return { data: Uint8Array.from(w.bytes.slice(0, w.size())), bits: w.bits() }
+}
+
+/**
+ * Compress row-major 2bpp tile data into a Gen 1 pic — a faithful port
+ * of pokered tools/pkmncompress.c compress(): tries all mode/order
+ * combinations and keeps the one with the fewest bits (not bytes —
+ * the reference compares bit lengths, so a shorter bit encoding wins
+ * even when it rounds to the same byte count). Output matches the
+ * reference tool byte for byte.
+ */
+export function gen1PicCompress(tiles: Uint8Array, width: number): Uint8Array {
+  const ramSize = width * width * 8
+  const data = Uint8Array.from(tiles)
+  transposeTiles(data, width)
+  const planes: [Uint8Array, Uint8Array] = [new Uint8Array(ramSize), new Uint8Array(ramSize)]
+  for (let i = 0; i < ramSize; i++) {
+    planes[0][i] = data[i * 2]
+    planes[1][i] = data[i * 2 + 1]
+  }
+  let best: Uint8Array | null = null
+  let bestBits = Infinity
+  for (let mode = 0; mode < 3; mode++) {
+    for (let order = 0; order < 2; order++) {
+      if (mode === 0 && order === 0) continue
+      const out = interpretCompress(planes, mode, order, width)
+      if (out.bits < bestBits) {
+        bestBits = out.bits
+        best = out.data
+      }
+    }
+  }
+  return best!
 }
 
 export function buildGen1Sprites(
@@ -160,6 +348,8 @@ export function buildGen1Sprites(
 ): {
   front: (id: number) => RenderedImage | null
   back: (id: number) => RenderedImage | null
+  importFront: (id: number, image: RenderedImage) => string | null
+  importBack: (id: number, image: RenderedImage) => string | null
 } | null {
   const bytes = rom.bytes
   const romBanks = Math.max(2, Math.floor(bytes.length / 0x4000))
@@ -297,8 +487,91 @@ export function buildGen1Sprites(
     return { pixels, width: widthPx, height: widthPx }
   }
 
+  /**
+   * Replace a species' pic with a custom image. Each pixel snaps to the
+   * nearest of the species' four SGB palette colors (Gen 1 palettes are
+   * shared palette *classes*, so they're never rewritten — only the
+   * 2bpp pixels change), the tiles are re-encoded and compressed with
+   * the reference-exact compressor, then written in place when the new
+   * stream fits or relocated to trailing free space of the SAME bank
+   * (front and back share it) with the bank-local pointer retargeted.
+   */
+  const importPic = (dex: number, front: boolean, image: RenderedImage): string | null => {
+    if (dex < 1 || dex > count) return 'Unknown species'
+    const bank = bankOf.get(dex)
+    if (bank === undefined) return 'Could not locate this sprite in the ROM'
+    const cur = resolve(dex, front)
+    if (!cur) return 'Could not read the original sprite'
+    const w = cur.width
+    const px = w * 8
+    if (image.width !== px || image.height !== px) {
+      return `This sprite must be ${px}×${px} pixels`
+    }
+
+    // Snap each pixel to the nearest of the four palette colors.
+    const pal = colorsFor(dex)
+    const idx = new Uint8Array(px * px)
+    for (let i = 0; i < px * px; i++) {
+      if (image.pixels[i * 4 + 3] < 128) {
+        idx[i] = 0 // transparent → the background color (index 0)
+        continue
+      }
+      const r = image.pixels[i * 4]
+      const g = image.pixels[i * 4 + 1]
+      const b = image.pixels[i * 4 + 2]
+      let best = 0
+      let bestDist = Infinity
+      for (let c = 0; c < 4; c++) {
+        const dr = r - pal[c][0]
+        const dg = g - pal[c][1]
+        const db = b - pal[c][2]
+        const d = dr * dr + dg * dg + db * db
+        if (d < bestDist) {
+          bestDist = d
+          best = c
+        }
+      }
+      idx[i] = best
+    }
+
+    // Row-major 2bpp tiles (the order gen1PicDecompress produced).
+    const tiles = w * w
+    const data = new Uint8Array(tiles * 16)
+    for (let t = 0; t < tiles; t++) {
+      const tx = (t % w) * 8
+      const ty = Math.floor(t / w) * 8
+      for (let y = 0; y < 8; y++) {
+        let lo = 0
+        let hi = 0
+        for (let x = 0; x < 8; x++) {
+          const v = idx[(ty + y) * px + tx + x]
+          lo = (lo << 1) | (v & 1)
+          hi = (hi << 1) | (v >> 1)
+        }
+        data[t * 16 + y * 2] = lo
+        data[t * 16 + y * 2 + 1] = hi
+      }
+    }
+    const packed = gen1PicCompress(data, w)
+
+    const base = statsOffsetFor(dex)
+    const ptrSlot = base + (front ? 11 : 13)
+    const oldOff = bank * 0x4000 + rom.readU16LE(ptrSlot) - 0x4000
+    let dest = oldOff
+    if (packed.length > cur.byteLength) {
+      const free = findGbBankFreeSpace(bytes, bank, packed.length)
+      if (free === null) return 'No free space in the sprite bank for an image this size'
+      dest = free
+    }
+    rom.writeBytes(dest, packed)
+    rom.writeU16LE(ptrSlot, (dest % 0x4000) + 0x4000)
+    return null
+  }
+
   return {
     front: (id) => render(id, true),
     back: (id) => render(id, false),
+    importFront: (id, image) => importPic(id, true, image),
+    importBack: (id, image) => importPic(id, false, image),
   }
 }

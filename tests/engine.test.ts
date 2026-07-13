@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { lz77Compress, lz77Decompress, lz77CompressedSize } from '../src/core/gba/lz77'
+import { gen1PicCompress, gen1PicDecompress } from '../src/core/gb/gen1pics'
 import {
   decodeTile2bpp,
   encodeTile2bpp,
@@ -46,6 +47,34 @@ describe('GBA LZ77', () => {
 
   it('rejects non-LZ77 data', () => {
     expect(() => lz77Decompress(new Uint8Array([0x99, 0, 0, 0]))).toThrow()
+  })
+})
+
+describe('Gen 1 pic codec', () => {
+  // The compressor is validated byte-exact against pokered's own
+  // pkmncompress tool separately (needs real pics); here we cover the
+  // property that matters for editing: compress → decompress is exact
+  // for any 2bpp tile grid, across widths and content patterns.
+  const grids = (width: number): Uint8Array[] => {
+    const size = width * width * 16
+    return [
+      new Uint8Array(size), // all zero → maximally compressible
+      new Uint8Array(size).fill(0xff), // all set
+      new Uint8Array(size).map((_, i) => (i * 2654435761) & 0xff), // noisy
+      new Uint8Array(size).map((_, i) => (Math.floor(i / 16) & 1) * 0xaa), // striped tiles
+    ]
+  }
+  it('round-trips assorted tile grids at every sprite width', () => {
+    for (const width of [1, 3, 5, 7]) {
+      for (const data of grids(width)) {
+        const packed = gen1PicCompress(data, width)
+        const out = gen1PicDecompress(packed, 0)
+        expect(out.width).toBe(width)
+        expect(same(out.tiles, data)).toBe(true)
+        // The decoder reports how many bytes the stream consumed.
+        expect(out.byteLength).toBe(packed.length)
+      }
+    }
   })
 })
 

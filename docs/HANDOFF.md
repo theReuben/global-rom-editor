@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-165 tests green; `npm test` and `npm run build` must stay that way.
+167 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -305,8 +305,22 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    distinguishes the shiny table; validated against the map-file
    addresses on built Emerald + FireRed). Gen 1 sprites (custom RLE
    + SGB colors), Gen 2 sprites (lz3 + shiny palettes) and Gen 4
-   sprites (pokegra NCGR + LCRNG descramble): all SHIPPED, display
-   only — importing beyond Gen 3 would need lz3/RLE compressors.
+   sprites (pokegra NCGR + LCRNG descramble): all SHIPPED. Gen 1 AND
+   Gen 2 sprite IMPORT also ship: gen1PicCompress (src/core/gb/
+   gen1pics.ts) is a faithful port of pokered tools/pkmncompress.c
+   compress() — it tries every mode/order combo and keeps the fewest
+   BITS (not bytes; two encodings can share a byte length), so it's
+   byte-exact against the reference tool on all 304 real Red pics.
+   Gen 1 import snaps pixels to the nearest of the species' four SGB
+   palette colors (palettes are shared palette *classes*, never
+   rewritten), re-encodes column-major 2bpp, compresses, and writes
+   in place (gen1PicDecompress now returns byteLength) or relocates to
+   the SAME bank's trailing free space with the bank-local pointer
+   retargeted — front and back share the mon's bank, so the content
+   bank-resolution stays valid. Validated on built Red + Yellow:
+   import front/back, reload with zero new warnings, all 151 still
+   render, imported art pixel-exact. Only DS sprite import remains
+   (needs the NCGR re-scramble).
 4. **Gen 4 text codec: SHIPPED (read-only).** `src/core/nds/msgdata.ts`
    decodes msg banks: u16 count + u16 key header; per-entry
    {u32 offset,u32 length} XORed with `key*765*(n+1) & 0xFFFF`
@@ -345,12 +359,12 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
   (no decomp; PKHeX reads pre-extracted resources, not ROM bytes).
 - Gen 5 sprites: B/W NCGRs are 96x96 and unscrambled per community
   docs — needs a verifiable reference before shipping.
-- Gen 4
-  TM->move labels (table lives in the compressed arm9 — hard),
-  Gen 1/2 sprite IMPORT (needs RLE/lz3 compressors), DS map editing
-  (out of scope), Gen 1/Gen 4 sprite import, Gen 4 evolutions can't be byte-validated until a
-  real evo.narc surfaces (struct is source-verified; wotbl was
-  validated against the repo's real prebuilt binary).
+- Gen 4 TM->move labels (table lives in the compressed arm9 — hard),
+  DS sprite import (needs the NCGR re-scramble) and DS map editing
+  (both out of near-term scope). Gen 4 evolutions can't be
+  byte-validated until a real evo.narc surfaces (struct is
+  source-verified; wotbl was validated against the repo's real
+  prebuilt binary).
 
 ## Legal posture
 

@@ -129,6 +129,30 @@ describe('Gen 1 adapter', () => {
     expect(a.speciesSprite!(151)).not.toBeNull() // Mew's separate entry
   })
 
+  it('imports a custom Gen 1 pic (reference-exact compressor, SGB palette snap)', () => {
+    const a = load()
+    expect(a.importSpeciesSprite).not.toBeNull()
+    // The fixture pic is 1×1 tile → an 8×8 image is required.
+    const px = 8
+    const pixels = new Uint8ClampedArray(px * px * 4)
+    for (let i = 0; i < px * px; i++) pixels[i * 4 + 3] = 255 // opaque, black
+    pixels[(px * px - 1) * 4] = 255 // bottom-right pixel white
+    pixels[(px * px - 1) * 4 + 1] = 255
+    pixels[(px * px - 1) * 4 + 2] = 255
+    expect(a.importSpeciesSprite!(1, { pixels: pixels.slice(0, 4 * 4), width: 2, height: 2 })).toContain('8×8')
+    expect(a.importSpeciesSprite!(1, { pixels, width: px, height: px })).toBeNull()
+
+    const re = buildAdapter(new Rom('red.gb', a.rom.bytes)).adapter!
+    const img = re.speciesSprite!(1)!
+    // Black corner snaps to the darkest palette color, white corner to
+    // the near-white color 0.
+    expect(img.pixels[0]).toBeLessThan(64)
+    const last = (px * px - 1) * 4
+    expect(img.pixels[last]).toBeGreaterThan(200)
+    // A species that wasn't imported still renders its original pic.
+    expect(re.speciesSprite!(2)!.pixels[0]).toBe(255)
+  })
+
   it('edits the type chart (in place, remove frees room to add)', () => {
     const a = load()
     const tc = a.typeChart!
