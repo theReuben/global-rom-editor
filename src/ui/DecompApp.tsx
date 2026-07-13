@@ -3,8 +3,13 @@ import {
   parseSpeciesInfo,
   numericValue,
   setNumericField,
+  setConstantField,
+  constantsIn,
+  parseConstants,
+  prettyConstant,
   prettySpeciesName,
   NUMERIC_FIELDS,
+  CONST_FIELDS,
   INFO_FIELDS,
 } from '../decomp/speciesInfo'
 
@@ -17,6 +22,8 @@ export interface DecompFile {
 export interface DecompProject {
   dirName: string
   files: DecompFile[]
+  /** Constant names per prefix (TYPE_, ABILITY_, …) from the tree's headers. */
+  constants: Record<string, string[]>
 }
 
 /** Minimal typings for the File System Access API (Chromium). */
@@ -82,7 +89,32 @@ export async function openDecompProject(): Promise<DecompProject | null> {
     throw new Error('No species data files found in this folder.')
   }
   files.sort((a, b) => a.name.localeCompare(b.name))
-  return { dirName: dir.name, files }
+
+  // Dropdown options come from the tree's own constants headers, so
+  // expansion forks with extra types/abilities/items enumerate fully.
+  const constants: Record<string, string[]> = {}
+  const loadConstants = async (paths: string[], prefixes: string[]) => {
+    let text = ''
+    for (const path of paths) {
+      try {
+        const parts = path.split('/')
+        const parent = await dig(dir, parts.slice(0, -1))
+        const handle = await parent.getFileHandle(parts[parts.length - 1])
+        text += (await (await handle.getFile()).text()) + '\n'
+      } catch {
+        /* header not present in this fork */
+      }
+    }
+    for (const prefix of prefixes) {
+      const names = parseConstants(text, prefix)
+      if (names.length > 0) constants[prefix] = names
+    }
+  }
+  await loadConstants(['include/constants/pokemon.h'], ['TYPE_', 'EGG_GROUP_', 'GROWTH_'])
+  await loadConstants(['include/constants/abilities.h'], ['ABILITY_'])
+  await loadConstants(['include/constants/items.h'], ['ITEM_'])
+
+  return { dirName: dir.name, files, constants }
 }
 
 export function DecompApp({ project, onClose }: { project: DecompProject; onClose: () => void }) {
@@ -108,15 +140,20 @@ export function DecompApp({ project, onClose }: { project: DecompProject; onClos
 
   const current = species[selected]
 
+  const apply = (next: string | null) => {
+    if (!current || next === null) return
+    setTexts((t) => t.map((old, i) => (i === current.fileIndex ? next : old)))
+    setDirtyFiles((d) => new Set(d).add(current.fileIndex))
+    setEdits((e) => e + 1)
+    setStatus(null)
+  }
   const write = (key: string, value: number) => {
     if (!current) return
-    const next = setNumericField(texts[current.fileIndex], current.entry, key, value)
-    if (next !== null) {
-      setTexts((t) => t.map((old, i) => (i === current.fileIndex ? next : old)))
-      setDirtyFiles((d) => new Set(d).add(current.fileIndex))
-      setEdits((e) => e + 1)
-      setStatus(null)
-    }
+    apply(setNumericField(texts[current.fileIndex], current.entry, key, value))
+  }
+  const writeConst = (key: string, prefix: string, slot: number, value: string) => {
+    if (!current) return
+    apply(setConstantField(texts[current.fileIndex], current.entry, key, prefix, slot, value))
   }
 
   const save = async () => {
@@ -218,7 +255,32 @@ export function DecompApp({ project, onClose }: { project: DecompProject; onClos
                   </div>
                 </section>
                 <section className="card">
-                  <h3>Other properties (read-only for now)</h3>
+                  <h3>Typing, abilities & properties</h3>
+                  <div className="field-grid">
+                    {CONST_FIELDS.flatMap((spec) => {
+                      const raw = current.entry.fields.get(spec.key)
+                      const options = project.constants[spec.prefix]
+                      if (raw === undefined || !options) return []
+                      return constantsIn(raw, spec.prefix).map((value, slot) => (
+                        <label className="field" key={`${spec.key}-${slot}`}>
+                          <span className="field-label">
+                            {spec.slotLabels[slot] ?? `${spec.label} ${slot + 1}`}
+                          </span>
+                          <select
+                            value={value}
+                            onChange={(e) => writeConst(spec.key, spec.prefix, slot, e.target.value)}
+                          >
+                            {!options.includes(value) && <option value={value}>{prettyConstant(value, spec.prefix)}</option>}
+                            {options.map((name) => (
+                              <option key={name} value={name}>
+                                {prettyConstant(name, spec.prefix)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ))
+                    })}
+                  </div>
                   <table className="info-table">
                     <tbody>
                       {INFO_FIELDS.filter((k) => current.entry.fields.has(k)).map((k) => (
@@ -230,8 +292,7 @@ export function DecompApp({ project, onClose }: { project: DecompProject; onClos
                     </tbody>
                   </table>
                   <p className="muted">
-                    Constant-expression fields become editable dropdowns in a later release. Edits
-                    keep the file's formatting, so your git diff stays clean.
+                    Edits keep the file's formatting — your git diff stays a one-line change.
                   </p>
                 </section>
               </>

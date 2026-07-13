@@ -107,3 +107,18 @@ export function relocate(
   for (let i = 0; i < oldLength; i++) rom.writeU8(oldOffset + i, fill)
   return dest
 }
+
+/**
+ * Free space inside one Game Boy bank (0x4000 window): the trailing
+ * run of 0x00 or 0xFF padding at the end of the bank. GB data is
+ * addressed bank-locally, so relocated tables must stay in their bank.
+ */
+export function findGbBankFreeSpace(bytes: Uint8Array, bank: number, length: number): number | null {
+  const end = Math.min((bank + 1) * 0x4000, bytes.length)
+  const fill = bytes[end - 1]
+  if (fill !== 0x00 && fill !== 0xff) return null
+  let start = end
+  while (start > bank * 0x4000 && bytes[start - 1] === fill) start--
+  start += 8 // margin after the last data byte
+  return end - start >= length ? start : null
+}

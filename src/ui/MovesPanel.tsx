@@ -51,6 +51,14 @@ export function MovesPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: 
       </div>
     )
   }
+  if (adapter.moveFields.length === 0) {
+    return (
+      <div className="panel-message">
+        Move names were read from this game's text banks and appear in the trainer editor —
+        editing move data itself for this game is still on the roadmap.
+      </div>
+    )
+  }
 
   const data = adapter.readMove(selected)
   const write = (key: string, value: (typeof data)[string]) => {

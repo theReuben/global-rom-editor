@@ -7,12 +7,13 @@
  * index space (1–411; 252–276 are unused placeholders).
  */
 import { Rom } from '../rom'
-import { findVerified } from '../scan'
+import { findByVote, findVerified } from '../scan'
 import { gen3Bytes, gen3Codec } from '../text'
 import { buildGen3MapModule } from '../gba/maps'
 import { buildTrainerModule } from '../gba/trainers'
 import { buildWildModule } from '../gba/wild'
-import { buildEvolutions, buildLearnsets, buildTypeChart } from '../gba/species-extras'
+import { buildEvolutions, buildLearnsets, buildTypeChart, buildTmhmCompat, TMHM_BITS } from '../gba/species-extras'
+import { buildSpriteViewer } from '../gba/sprites'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
 import type {
   EntryHandle,
@@ -59,6 +60,22 @@ function countNames(bytes: Uint8Array, off: number, entryLen: number, cap: numbe
 // HP,ATK,DEF,SPD,SAT,SDF, Grass(12), Poison(3), catch, base EXP — Bulbasaur.
 const BULBASAUR = [45, 49, 49, 45, 65, 65, 12, 3, 45, 64]
 const IVYSAUR = [60, 62, 63, 60, 80, 80, 12, 3, 45, 141]
+// Redundant stats anchors spread across the dex (bytes verified
+// identical on built Emerald and FireRed). Each hit votes for a table
+// base; two agreeing anchors win, so editing any one anchor species --
+// even Bulbasaur -- can no longer break re-discovery on reload.
+const STATS_ANCHORS: { dex: number; sig: number[] }[] = [
+  { dex: 1, sig: BULBASAUR },
+  { dex: 2, sig: IVYSAUR },
+  { dex: 25, sig: [35, 55, 30, 90, 50, 40, 13, 13, 190, 82] }, // Pikachu
+  { dex: 113, sig: [250, 5, 5, 50, 35, 105, 0, 0, 30, 255] }, // Chansey
+  { dex: 150, sig: [106, 110, 90, 130, 154, 90, 14, 14, 3, 220] }, // Mewtwo
+]
+
+/** Locate the stats table (entry 0 = dummy) by anchor majority vote. */
+function findStatsTable(bytes: Uint8Array): number | null {
+  return findByVote(bytes, STATS_ANCHORS.map((a) => ({ index: a.dex, pattern: a.sig })), STATS_ENTRY)
+}
 // effect, power, type, accuracy, pp, effect chance, target, priority — Pound.
 const POUND = [0, 40, 0, 100, 35, 0, 0, 0]
 const KARATE_CHOP = [-1, 50, 1, 100, 25] // effect id varies; rest is fixed
@@ -94,17 +111,24 @@ const EV_STATS: [string, number][] = [
 
 export function tryBuildGen3(rom: Rom, gameName: string, platform: string): GameAdapter | null {
   const bytes = rom.bytes
-  const bulbaOff = findVerified(bytes, BULBASAUR, [{ delta: STATS_ENTRY, pattern: IVYSAUR }])
-  if (bulbaOff === null) return null
-  const statsOff = bulbaOff - STATS_ENTRY // entry 0 is a dummy
+  const statsOff = findStatsTable(bytes) // entry 0 is a dummy
+  if (statsOff === null) return null
 
   const warnings: string[] = []
   const regions: TableRegion[] = []
 
-  const bulbaName = findVerified(bytes, [...gen3Bytes('BULBASAUR'), 0xff], [
-    { delta: NAME_LEN, pattern: [...gen3Bytes('IVYSAUR'), 0xff] },
-  ])
-  const namesOff = bulbaName === null ? null : bulbaName - NAME_LEN
+  // Names too are found by vote so renaming an anchor species can't
+  // break reload (anchor bytes verified on built Emerald + FireRed).
+  const namesOff = findByVote(
+    bytes,
+    [
+      { index: 1, pattern: [...gen3Bytes('BULBASAUR'), 0xff] },
+      { index: 2, pattern: [...gen3Bytes('IVYSAUR'), 0xff] },
+      { index: 25, pattern: [...gen3Bytes('PIKACHU'), 0xff] },
+      { index: 150, pattern: [...gen3Bytes('MEWTWO'), 0xff] },
+    ],
+    NAME_LEN,
+  )
   // Table sizes come from the ROM itself, so expanded hacks (1000+
   // species) get their full rosters instead of the vanilla counts. The
   // name scan can overshoot into neighbouring text, so trailing entries
@@ -123,8 +147,19 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     regions.push({ name: 'Pokémon names', offset: namesOff, length: (SPECIES_COUNT + 1) * NAME_LEN })
   }
 
-  const poundOff = findVerified(bytes, POUND, [{ delta: MOVE_ENTRY, pattern: KARATE_CHOP }])
-  const moveOff = poundOff === null ? null : poundOff - MOVE_ENTRY
+  // Move rows for Tackle/Thunderbolt/Psychic extracted from the built
+  // ROMs (identical in Emerald and FireRed) join Pound as vote anchors.
+  const moveOff = findByVote(
+    bytes,
+    [
+      { index: 1, pattern: POUND },
+      { index: 2, pattern: KARATE_CHOP },
+      { index: 33, pattern: [0, 35, 0, 95, 35, 0, 0, 0] }, // Tackle
+      { index: 85, pattern: [6, 95, 13, 100, 15, 10, 0, 0] }, // Thunderbolt
+      { index: 94, pattern: [72, 90, 14, 100, 10, 10, 0, 0] }, // Psychic
+    ],
+    MOVE_ENTRY,
+  )
 
   const poundName = findVerified(bytes, [...gen3Bytes('POUND'), 0xff], [
     { delta: MOVE_NAME_LEN, pattern: [...gen3Bytes('KARATE CHOP'), 0xff] },
@@ -189,6 +224,17 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
   if (lsResult) {
     regions.push({ name: 'Learnset pointers', offset: lsResult.offset, length: (SPECIES_COUNT + 1) * 4 })
   }
+  const tmhm = buildTmhmCompat(rom)
+  if (tmhm) {
+    regions.push({ name: 'TM/HM compatibility', offset: tmhm.offset, length: (SPECIES_COUNT + 1) * 8 })
+  }
+  let spriteViewer: ReturnType<typeof buildSpriteViewer> = null
+  try {
+    spriteViewer = buildSpriteViewer(rom, SPECIES_COUNT)
+  } catch {
+    spriteViewer = null
+  }
+
   const chartResult = buildTypeChart(rom)
   if (chartResult) {
     regions.push({ name: 'Type chart', offset: chartResult.offset, length: chartResult.module.entries().length * 3 + 6 })
@@ -298,6 +344,15 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     { key: 'eggGroup2', label: 'Egg group 2', kind: 'select', options: EGG_GROUPS, group: 'breeding' },
   ]
 
+  if (tmhm) {
+    const tmLabel = (i: number) =>
+      i < 50 ? `TM${String(i + 1).padStart(2, '0')}` : `HM${String(i - 49).padStart(2, '0')}`
+    const flagLabels = Array.from({ length: TMHM_BITS }, (_, i) =>
+      tmhm.tmMoves ? `${tmLabel(i)} ${moveName(tmhm.tmMoves[i])}` : tmLabel(i),
+    )
+    speciesFields.push({ key: 'tmhm', label: 'TM / HM compatibility', kind: 'flags', flagLabels, group: 'tmhm' })
+  }
+
   const moveFields: FieldSpec[] = [
     { key: 'power', label: 'Power', kind: 'number', min: 0, max: 255 },
     { key: 'type', label: 'Type', kind: 'type' },
@@ -359,6 +414,11 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     trainerModule,
     wildModule,
     itemOptions,
+    speciesSprite: spriteViewer ? (id, shiny) => spriteViewer!.front(id, shiny) : null,
+    speciesSpriteBack: spriteViewer?.back ? (id, shiny) => spriteViewer!.back!(id, shiny) : null,
+    hasShinySprites: spriteViewer?.hasShiny ?? false,
+    importSpeciesSprite: spriteViewer ? (id, image) => spriteViewer!.importFront(id, image) : null,
+    importSpeciesSpriteBack: spriteViewer?.importBack ? (id, image) => spriteViewer!.importBack!(id, image) : null,
     evolutions: evoResult?.module ?? null,
     learnsets: lsResult?.module ?? null,
     typeChart: chartResult?.module ?? null,
@@ -372,10 +432,15 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
       out.item2 = rom.readU16LE(base + 14)
       const ev = rom.readU16LE(base + 10)
       for (const [key, idx] of EV_STATS) out[key] = (ev >> (idx * 2)) & 3
+      if (tmhm) out.tmhm = tmhm.read(id)
       return out
     },
 
     writeSpeciesField(id, key, value) {
+      if (key === 'tmhm' && Array.isArray(value) && tmhm) {
+        tmhm.write(id, value as boolean[])
+        return
+      }
       if (typeof value !== 'number') return
       const base = statsBase(id)
       if (key === 'item1') return rom.writeU16LE(base + 12, value)
@@ -402,6 +467,7 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
 
     revertSpecies(id) {
       rom.revertRange(statsBase(id), STATS_ENTRY)
+      if (tmhm) tmhm.revert(id)
       if (namesOff !== null) rom.revertRange(namesOff + id * NAME_LEN, NAME_LEN)
       refreshHandle(id)
     },

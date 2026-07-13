@@ -1,8 +1,115 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FieldSpec, GameAdapter } from '../core/games/schema'
 import { EntryList } from './EntryList'
 import { FieldEditor } from './FieldEditor'
 import { EvolutionCard, LearnsetCard } from './SpeciesExtras'
+
+function OneSprite({
+  render,
+  importSprite,
+  label,
+  onEdit,
+}: {
+  render: () => ReturnType<NonNullable<GameAdapter['speciesSprite']>>
+  importSprite: ((image: { pixels: Uint8ClampedArray; width: number; height: number }) => string | null) | null
+  label: string
+  onEdit: () => void
+}) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    const img = render()
+    const canvas = ref.current
+    if (!canvas) return
+    if (!img) {
+      canvas.width = 0
+      return
+    }
+    canvas.width = img.width
+    canvas.height = img.height
+    canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(img.pixels), img.width, img.height), 0, 0)
+  }, [render, version])
+
+  const importFile = async (file: File) => {
+    try {
+      const bitmap = await createImageBitmap(file)
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+      const result = importSprite!({ pixels: data.data, width: data.width, height: data.height })
+      setError(result)
+      if (!result) {
+        setVersion((v) => v + 1)
+        onEdit()
+      }
+    } catch {
+      setError("Couldn't read that image file.")
+    }
+  }
+
+  return (
+    <div className="sprite-view">
+      <canvas ref={ref} className="mon-sprite" title={label} />
+      {importSprite && (
+        <>
+          <button className="ghost sprite-import" onClick={() => fileRef.current?.click()}>
+            Import {label}…
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) importFile(f)
+              e.target.value = ''
+            }}
+          />
+          {error && <span className="name-hint invalid-hint">{error}</span>}
+        </>
+      )}
+    </div>
+  )
+}
+
+function SpriteView({ adapter, id, onEdit }: { adapter: GameAdapter; id: number; onEdit: () => void }) {
+  const [shiny, setShiny] = useState(false)
+  if (!adapter.speciesSprite) return null
+  return (
+    <>
+      <OneSprite
+        key={`f${id}${shiny}`}
+        label="front"
+        render={() => adapter.speciesSprite!(id, shiny)}
+        importSprite={adapter.importSpeciesSprite ? (img) => adapter.importSpeciesSprite!(id, img) : null}
+        onEdit={onEdit}
+      />
+      {adapter.speciesSpriteBack && (
+        <OneSprite
+          key={`b${id}${shiny}`}
+          label="back"
+          render={() => adapter.speciesSpriteBack!(id, shiny)}
+          importSprite={
+            adapter.importSpeciesSpriteBack ? (img) => adapter.importSpeciesSpriteBack!(id, img) : null
+          }
+          onEdit={onEdit}
+        />
+      )}
+      {adapter.hasShinySprites && (
+        <label className="shiny-toggle">
+          <input type="checkbox" checked={shiny} onChange={(e) => setShiny(e.target.checked)} />
+          <span>✨ Shiny</span>
+        </label>
+      )}
+    </>
+  )
+}
 
 const GROUP_TITLES: Record<string, string> = {
   stats: 'Base stats',
@@ -112,7 +219,10 @@ export function SpeciesPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
       />
       <div className="detail" key={selected}>
         <div className="detail-header">
-          <NameEditor adapter={adapter} id={selected} onEdit={onEdit} />
+          <div className="detail-title-row">
+            <SpriteView adapter={adapter} id={selected} onEdit={onEdit} />
+            <NameEditor adapter={adapter} id={selected} onEdit={onEdit} />
+          </div>
           <button className="ghost" onClick={() => { adapter.revertSpecies(selected); onEdit() }}>
             Revert this Pokémon
           </button>

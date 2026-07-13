@@ -99,6 +99,20 @@ export interface GameAdapter {
   wildModule: WildModule | null
   /** Item id → name options, when item names could be read from the ROM. */
   itemOptions: SelectOption[] | null
+  /** Front sprite renderer, when the sprite tables were found. */
+  speciesSprite: ((id: number, shiny?: boolean) => RenderedImage | null) | null
+  /** Back sprite renderer (null = table not found for this game). */
+  speciesSpriteBack: ((id: number, shiny?: boolean) => RenderedImage | null) | null
+  /** True when a shiny palette exists (sprite renderers accept shiny). */
+  hasShinySprites: boolean
+  /**
+   * Replace a species' front sprite (64×64, ≤16 colors). Returns an
+   * error message or null on success. Null when importing isn't
+   * supported for this game. Front and back share one palette, so the
+   * most recent import defines the colors for both.
+   */
+  importSpeciesSprite: ((id: number, image: RenderedImage) => string | null) | null
+  importSpeciesSpriteBack: ((id: number, image: RenderedImage) => string | null) | null
 }
 
 /* -------------------------------------------------------------- trainers */
@@ -106,12 +120,21 @@ export interface GameAdapter {
 export interface PartyMon {
   species: number
   level: number
-  /** IV strength 0-255 (scales all IVs). */
-  iv: number
+  /** IV strength 0-255 (scales all IVs); null when the game has none. */
+  iv: number | null
   /** Held item id; null when this trainer's party has no item slots. */
   item: number | null
   /** Four move ids; null when the party uses default level-up moves. */
   moves: number[] | null
+}
+
+/** Which trainer sections the UI should show; missing keys default to true. */
+export interface TrainerFeatures {
+  /** Class / sprite / gender / music / battle-type fields. */
+  identity?: boolean
+  ai?: boolean
+  items?: boolean
+  partySize?: boolean
 }
 
 export interface TrainerData {
@@ -131,6 +154,10 @@ export interface TrainerData {
 export interface TrainerModule {
   entries: EntryHandle[]
   nameLength: number
+  /** Shown instead of the name editor when nameLength is 0. */
+  nameHint?: string
+  /** Section visibility for the UI; omitted = show everything. */
+  features?: TrainerFeatures
   /** Class id → name, when class names could be read from the ROM. */
   classOptions: SelectOption[] | null
   read(id: number): TrainerData
@@ -152,6 +179,11 @@ export interface EvolutionEntry {
 
 export interface EvolutionModule {
   methods: SelectOption[]
+  /**
+   * Methods whose param is an item id (shown as an item dropdown when
+   * itemOptions exist). Defaults to Gen 3's use-item/trade-item pair.
+   */
+  itemParamMethods?: number[]
   read(id: number): EvolutionEntry[]
   write(id: number, slot: number, field: string, value: number): void
   revert(id: number): void

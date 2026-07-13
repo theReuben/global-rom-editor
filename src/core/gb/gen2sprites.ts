@@ -1,0 +1,387 @@
+/**
+ * Gen 2 (G/S/C) Pokémon sprite display.
+ *
+ * PokemonPicPointers (pokecrystal/pokegold data/pokemon/pic_pointers.asm):
+ * 6 bytes per species — front {bank, ptr u16} then back {bank, ptr u16},
+ * lz3-compressed 2bpp tiles in column-major order. The stored bank byte
+ * is game-specific nonsense (Crystal subtracts PICS_FIX=0x36 and maps
+ * through a bank list; Gold stores it raw with three remapped values),
+ * so instead of replicating each game's FixPicBank we resolve banks by
+ * content: the right bank is the one where the pic lz3-decompresses to
+ * exactly tiles×16 bytes (front size from the stats dimensions byte,
+ * backs are always 6×6). A delta between stored and real bank is voted
+ * across species and per-stored-bank exceptions are searched and cached.
+ *
+ * PokemonPalettes: 8 bytes per species {normal c1, c2, shiny c1, c2}
+ * as RGB555 — colors 0/3 are implicit white/black. Located by anchor
+ * majority vote (rows for dex 1/25/131, byte-identical in built Gold
+ * and Crystal).
+ */
+import type { Rom } from '../rom'
+import type { RenderedImage } from '../games/schema'
+import { decodeTile2bpp } from '../tiles'
+import { lz3Compress, lz3CompressedLength, lz3Decompress, lz3TryDecompress } from './lz3'
+import { findByVote } from '../scan'
+import { findGbBankFreeSpace } from '../freespace'
+
+const PAL_ANCHORS = [
+  { index: 1, pattern: [236, 47, 95, 25, 148, 47, 95, 25] },
+  { index: 25, pattern: [93, 23, 218, 0, 63, 2, 84, 44] },
+  { index: 131, pattern: [188, 54, 8, 114, 191, 125, 112, 125] },
+]
+
+function toFile(bank: number, local: number): number {
+  return bank * 0x4000 + local - 0x4000
+}
+
+export function buildGen2Sprites(
+  rom: Rom,
+  statsOff: number,
+  statsEntry: number,
+  count: number,
+): {
+  front: (id: number, shiny: boolean) => RenderedImage | null
+  back: (id: number, shiny: boolean) => RenderedImage | null
+  importFront: (id: number, image: RenderedImage) => string | null
+  importBack: (id: number, image: RenderedImage) => string | null
+  hasPalettes: boolean
+  tableOff: number
+} | null {
+  const bytes = rom.bytes
+  const romBanks = Math.max(2, Math.floor(bytes.length / 0x4000))
+
+  const dimsOf = (id: number) => bytes[statsOff + (id - 1) * statsEntry + 17]
+  const frontTiles = (id: number) => {
+    const d = dimsOf(id)
+    return (d >> 4) * (d & 0x0f)
+  }
+
+  // Crystal front pics decompress to the base sprite PLUS animation
+  // frame tiles, so "decodes to at least tiles×16" is the size check;
+  // rendering uses the first tiles×16 bytes (frame 0). The strict
+  // decoder demands a real LZ_END terminator — zero-filled banks
+  // "decompress" to plausible sizes by running off the end otherwise.
+  const decodesTo = (off: number, tiles: number): boolean => {
+    if (off < 0 || off + 2 > bytes.length || tiles < 1 || tiles > 64) return false
+    // Cap garbage decodes early — no real pic (base + animation frames)
+    // comes close to 16× its base size.
+    const out = lz3TryDecompress(bytes, off, tiles * 16 * 16)
+    return out !== null && out.length >= tiles * 16 && out.length % 16 === 0
+  }
+
+  // 1. Table candidates: `count` 6-byte entries of two bank-local
+  //    pointers each (cheap structural prefilter). A few 0xFF filler
+  //    entries are allowed — Unown's pics live in their own table and
+  //    its slot here is blank.
+  const isFiller = (off: number) =>
+    bytes[off] === 0xff && bytes[off + 1] === 0xff && bytes[off + 2] === 0xff
+  const candidates: number[] = []
+  outer: for (let o = 0; o + count * 6 <= bytes.length; o++) {
+    let fillers = 0
+    for (let i = 0; i < count * 2; i++) {
+      if (isFiller(o + i * 3)) {
+        if (++fillers > 8) continue outer
+        continue
+      }
+      const p = rom.readU16LE(o + i * 3 + 1)
+      if (p < 0x4000 || p >= 0x8000 || bytes[o + i * 3] > 0x7f) continue outer
+    }
+    candidates.push(o)
+    if (candidates.length > 8) break
+  }
+
+  // 2. Confirm by voting for a stored→real bank delta over the first
+  //    species' front pics (sizes must match the stats dims byte).
+  let tableOff = -1
+  let delta = 0
+  for (const T of candidates) {
+    const votes = new Map<number, number>()
+    let considered = 0
+    for (let id = 1; id <= Math.min(count, 24); id++) {
+      const tiles = frontTiles(id)
+      if (tiles < 1 || tiles > 64) continue
+      considered++
+      const stored = bytes[T + (id - 1) * 6]
+      const ptr = rom.readU16LE(T + (id - 1) * 6 + 1)
+      for (let b = 1; b < romBanks; b++) {
+        if (decodesTo(toFile(b, ptr), tiles)) {
+          votes.set(b - stored, (votes.get(b - stored) ?? 0) + 1)
+        }
+      }
+    }
+    for (const [d, n] of votes) {
+      if (n >= considered * 0.6 && n >= 8) {
+        tableOff = T
+        delta = d
+        break
+      }
+    }
+    if (tableOff >= 0) break
+  }
+  if (tableOff < 0) return null
+
+  // Per-stored-bank exceptions (Gold remaps three values): resolved by
+  // scanning all banks once and cached.
+  const bankCache = new Map<number, number>()
+  const resolveBank = (stored: number, ptr: number, tiles: number): number => {
+    if (decodesTo(toFile(stored + delta, ptr), tiles)) return stored + delta
+    const hit = bankCache.get(stored)
+    if (hit !== undefined && decodesTo(toFile(hit, ptr), tiles)) return hit
+    for (let b = 1; b < romBanks; b++) {
+      if (decodesTo(toFile(b, ptr), tiles)) {
+        bankCache.set(stored, b)
+        return b
+      }
+    }
+    return -1
+  }
+
+  // 3. Palettes by anchor vote (row = dex*8, row 0 is the 000 dummy).
+  const palOff = findByVote(bytes, PAL_ANCHORS, 8)
+  const colors = (id: number, shiny: boolean): [number, number, number][] => {
+    const shades: [number, number, number][] = [
+      [255, 255, 255],
+      [170, 170, 170],
+      [85, 85, 85],
+      [0, 0, 0],
+    ]
+    if (palOff === null) return shades
+    const row = palOff + id * 8 + (shiny ? 4 : 0)
+    for (const [slot, off] of [[1, row], [2, row + 2]] as const) {
+      const v = rom.readU16LE(off)
+      const five = (x: number) => ((x & 31) << 3) | ((x & 31) >> 2)
+      shades[slot] = [five(v), five(v >> 5), five(v >> 10)]
+    }
+    return shades
+  }
+
+  // Unown's slot in the main table is filler — its 26 per-form pic
+  // entries live in UnownPicPointers. Discover that table by content:
+  // a 26-entry run whose fronts decode (via the voted delta) to
+  // Unown's dims and whose backs decode too. Form A is displayed.
+  let unownTable = -1
+  let unownBank = -1
+  const findUnownTable = (id: number): number => {
+    if (unownTable !== -1) return unownTable
+    unownTable = -2 // searched, absent
+    const tiles = frontTiles(id)
+    if (tiles < 1) return unownTable
+    // Structural prefilter (26 pointer pairs with small bank bytes),
+    // then two content strategies: (A) Crystal spreads the forms over
+    // many banks and the main table's delta applies per entry;
+    // (B) Gold stores one shared remapped bank byte, so sweep for the
+    // single real bank where every form decodes.
+    const romBankCount = Math.max(2, Math.floor(bytes.length / 0x4000))
+    outer: for (let o = 0; o + 26 * 6 <= bytes.length; o++) {
+      if (o >= tableOff && o < tableOff + count * 6) continue
+      for (let f = 0; f < 26; f++) {
+        const e = o + f * 6
+        const fp = rom.readU16LE(e + 1)
+        const bp = rom.readU16LE(e + 4)
+        if (bytes[e] > 0x60 || bytes[e + 3] > 0x60) continue outer
+        if (fp < 0x4000 || fp >= 0x8000 || bp < 0x4000 || bp >= 0x8000) continue outer
+      }
+      // Strategy A: stored + delta decodes every form.
+      let deltaHits = 0
+      for (let f = 0; f < 26; f++) {
+        const e = o + f * 6
+        if (
+          decodesTo(toFile(bytes[e] + delta, rom.readU16LE(e + 1)), tiles) &&
+          decodesTo(toFile(bytes[e + 3] + delta, rom.readU16LE(e + 4)), 36)
+        )
+          deltaHits++
+      }
+      if (deltaHits === 26) {
+        unownTable = o
+        return unownTable
+      }
+      // Strategy B: one shared bank, entries all carry the same byte.
+      if (bytes[o] === bytes[o + 3] && bytes.subarray(o, o + 26 * 6).every((_, i) => i % 3 !== 0 || bytes[o + i] === bytes[o])) {
+        bank: for (let b = 1; b < romBankCount; b++) {
+          for (let f = 0; f < 26; f++) {
+            const e = o + f * 6
+            if (!decodesTo(toFile(b, rom.readU16LE(e + 1)), tiles)) continue bank
+            if (!decodesTo(toFile(b, rom.readU16LE(e + 4)), 36)) continue bank
+          }
+          unownTable = o
+          unownBank = b
+          return unownTable
+        }
+      }
+    }
+    return unownTable
+  }
+
+  const render = (id: number, front: boolean, shiny: boolean): RenderedImage | null => {
+    if (id < 1 || id > count) return null
+    let entry = tableOff + (id - 1) * 6 + (front ? 0 : 3)
+    let forcedBank = -1
+    if (isFiller(entry)) {
+      const t = findUnownTable(id)
+      if (t < 0) return null
+      entry = t + (front ? 0 : 3) // form A
+      forcedBank = unownBank // -1 when the per-entry delta applies
+    }
+    const d = front ? dimsOf(id) : 0x66 // backs are always 6×6
+    const w = d >> 4
+    const h = d & 0x0f
+    const tiles = w * h
+    const bank =
+      forcedBank >= 0 ? forcedBank : resolveBank(bytes[entry], rom.readU16LE(entry + 1), tiles)
+    if (bank < 0) return null
+    let data: Uint8Array
+    try {
+      data = lz3Decompress(bytes, toFile(bank, rom.readU16LE(entry + 1)))
+    } catch {
+      return null
+    }
+    const pal = colors(id, shiny)
+    const width = w * 8
+    const height = h * 8
+    const pixels = new Uint8ClampedArray(width * height * 4)
+    for (let t = 0; t < tiles; t++) {
+      // Column-major: tile t sits at column t/h, row t%h.
+      const tx = Math.floor(t / h) * 8
+      const ty = (t % h) * 8
+      const tile = decodeTile2bpp(data, t * 16)
+      for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+          const o = ((ty + y) * width + tx + x) * 4
+          const [r, g, b] = pal[tile[y * 8 + x]]
+          pixels[o] = r
+          pixels[o + 1] = g
+          pixels[o + 2] = b
+          pixels[o + 3] = 255
+        }
+      }
+    }
+    return { pixels, width, height }
+  }
+
+  /**
+   * Replace a species' pic with a quantized image. Pixels bucket by
+   * luminance into the four palette slots; slots 1 and 2 recolor the
+   * species' normal AND shiny palette from the image. The 2bpp data is
+   * lz3-compressed in place when it fits, else relocated to bank free
+   * space with the pointer's stored bank byte rewritten as real−delta
+   * (round-trip verified, since some banks are game-remapped).
+   */
+  const importPic = (id: number, front: boolean, image: RenderedImage): string | null => {
+    if (id < 1 || id > count) return 'Unknown species'
+    const entry = tableOff + (id - 1) * 6 + (front ? 0 : 3)
+    if (isFiller(entry)) return "Unown's pics can't be replaced yet"
+    const d = front ? dimsOf(id) : 0x66
+    const w = d >> 4
+    const h = d & 0x0f
+    const px = w * 8
+    if (image.width !== px || image.height !== h * 8) {
+      return `This sprite must be ${px}×${h * 8} pixels`
+    }
+
+    // Quantize by luminance into 4 buckets and pick mid colors.
+    const idx = new Uint8Array(px * px)
+    const sums = [
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+    ]
+    for (let i = 0; i < px * px; i++) {
+      const r = image.pixels[i * 4]
+      const g = image.pixels[i * 4 + 1]
+      const b = image.pixels[i * 4 + 2]
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b
+      const v = lum >= 192 ? 0 : lum >= 128 ? 1 : lum >= 64 ? 2 : 3
+      idx[i] = v
+      if (v === 1 || v === 2) {
+        sums[v - 1][0] += r
+        sums[v - 1][1] += g
+        sums[v - 1][2] += b
+        sums[v - 1][3]++
+      }
+    }
+
+    // 2bpp tiles in the column-major order render() expects.
+    const tiles = w * h
+    const data = new Uint8Array(tiles * 16)
+    for (let t = 0; t < tiles; t++) {
+      const tx = Math.floor(t / h) * 8
+      const ty = (t % h) * 8
+      for (let y = 0; y < 8; y++) {
+        let lo = 0
+        let hi = 0
+        for (let x = 0; x < 8; x++) {
+          const v = idx[(ty + y) * px + tx + x]
+          lo = (lo << 1) | (v & 1)
+          hi = (hi << 1) | (v >> 1)
+        }
+        data[t * 16 + y * 2] = lo
+        data[t * 16 + y * 2 + 1] = hi
+      }
+    }
+
+    // Preserve the original decompressed length (Crystal fronts carry
+    // animation frames) by repeating the base frame.
+    const oldBank = resolveBank(bytes[entry], rom.readU16LE(entry + 1), tiles)
+    if (oldBank < 0) return 'Could not locate the original sprite'
+    const oldOff = toFile(oldBank, rom.readU16LE(entry + 1))
+    const origLen = lz3Decompress(bytes, oldOff).length
+    let full = data
+    if (origLen > data.length) {
+      full = new Uint8Array(origLen)
+      for (let i = 0; i < origLen; i++) full[i] = data[i % data.length]
+    }
+    const packed = lz3Compress(full)
+
+    let dest = oldOff
+    let destBank = oldBank
+    if (packed.length > lz3CompressedLength(bytes, oldOff)) {
+      dest = -1
+      const romBankCount = Math.max(2, Math.floor(bytes.length / 0x4000))
+      for (let b = romBankCount - 1; b >= 1 && dest < 0; b--) {
+        const stored = b - delta
+        if (stored < 0 || stored > 0xff) continue
+        const cand = findGbBankFreeSpace(bytes, b, packed.length)
+        if (cand !== null) {
+          dest = cand
+          destBank = b
+        }
+      }
+      if (dest < 0) return 'No free space for the new sprite'
+    }
+    rom.writeBytes(dest, packed)
+    rom.writeU8(entry, destBank - delta)
+    rom.writeU16LE(entry + 1, (dest % 0x4000) + 0x4000)
+    bankCache.clear()
+    // The stored bank must round-trip through content resolution —
+    // some raw bank values are remapped by the game's FixPicBank.
+    if (resolveBank(bytes[entry], rom.readU16LE(entry + 1), tiles) !== destBank) {
+      rom.revertRange(entry, 3)
+      rom.revertRange(dest, packed.length)
+      bankCache.clear()
+      return 'The target bank is not addressable in this game'
+    }
+
+    // Recolor the palette (normal + shiny) from the image's midtones.
+    if (palOff !== null) {
+      const toBgr = (s: number[]) => {
+        const n = Math.max(1, s[3])
+        return ((s[0] / n) >> 3) | (((s[1] / n) >> 3) << 5) | (((s[2] / n) >> 3) << 10)
+      }
+      const c1 = sums[0][3] ? toBgr(sums[0]) : 0x56b5
+      const c2 = sums[1][3] ? toBgr(sums[1]) : 0x294a
+      for (const base of [palOff + id * 8, palOff + id * 8 + 4]) {
+        rom.writeU16LE(base, c1)
+        rom.writeU16LE(base + 2, c2)
+      }
+    }
+    return null
+  }
+
+  return {
+    front: (id, shiny) => render(id, true, shiny),
+    back: (id, shiny) => render(id, false, shiny),
+    importFront: (id, image) => importPic(id, true, image),
+    importBack: (id, image) => importPic(id, false, image),
+    hasPalettes: palOff !== null,
+    tableOff,
+  }
+}

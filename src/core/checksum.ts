@@ -1,5 +1,6 @@
 import type { Rom } from './rom'
 import { detectPlatform } from './detect'
+import { isNdsRom } from './nds/nds'
 
 /**
  * Fix cartridge header/global checksums after editing, so real hardware
@@ -11,7 +12,24 @@ export function fixChecksums(rom: Rom): void {
     fixGbChecksums(rom)
   } else if (platform === 'GBA') {
     fixGbaHeaderChecksum(rom)
+  } else if (isNdsRom(rom.bytes)) {
+    fixNdsHeaderCrc(rom)
   }
+}
+
+/**
+ * NDS header CRC-16 (poly 0xA001, init 0xFFFF, over bytes 0x000-0x15D,
+ * stored at 0x15E) — algorithm from pokeheartgold tools/fixrom/fixrom.c.
+ */
+export function fixNdsHeaderCrc(rom: Rom): void {
+  let crc = 0xffff
+  for (let i = 0; i < 0x15e; i++) {
+    crc ^= rom.bytes[i]
+    for (let b = 0; b < 8; b++) {
+      crc = crc & 1 ? (crc >> 1) ^ 0xa001 : crc >> 1
+    }
+  }
+  rom.writeU16LE(0x15e, crc)
 }
 
 function fixGbChecksums(rom: Rom): void {

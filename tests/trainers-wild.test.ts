@@ -130,6 +130,104 @@ describe('Gen 1 wild encounters', () => {
   })
 })
 
+describe('Gen 1 trainer parties', () => {
+  const loadGen1 = () => buildAdapter(new Rom('red.gb', makeGen1Rom())).adapter!
+
+  it('discovers the class pointer table via the Youngster anchor', () => {
+    const t = loadGen1().trainerModule!
+    expect(t).not.toBeNull()
+    // 3 Youngsters + 1 Bug Catcher + 1 Lass; classes 3+ are empty.
+    expect(t.entries).toHaveLength(5)
+    expect(t.entries[0].name).toBe('Youngster #1')
+    expect(t.entries[3].name).toBe('Bug Catcher #1')
+    expect(t.entries[4].name).toBe('Lass #1')
+    expect(t.classOptions![24].label).toBe('Rival 1')
+    expect(t.features).toMatchObject({ identity: false, items: false })
+  })
+
+  it('reads both party list formats with dex-translated species', () => {
+    const t = loadGen1().trainerModule!
+    // Special format: per-mon levels.
+    const special = t.party(3)
+    expect(special).toHaveLength(2)
+    expect(special[0]).toMatchObject({ species: 1, level: 5, iv: null, item: null, moves: null })
+    expect(special[1]).toMatchObject({ species: 2, level: 7 })
+    // Fixed format: one shared level for the whole party.
+    const fixed = t.party(4)
+    expect(fixed).toHaveLength(2)
+    expect(fixed[0]).toMatchObject({ species: 1, level: 20 })
+    expect(fixed[1]).toMatchObject({ species: 1, level: 20 })
+    expect(t.read(4).partySize).toBe(2)
+    expect(t.read(4).maxPartySize).toBe(6) // growth relocates the class block
+  })
+
+  it('grows a party by relocating the class block to bank padding', () => {
+    const a = loadGen1()
+    const t = a.trainerModule!
+    t.write(4, 'partySize', 4) // Lass #1: 2 -> 4 (block must relocate)
+    const party = t.party(4)
+    expect(party).toHaveLength(4)
+    expect(party[2]).toMatchObject({ species: 1, level: 20 }) // duplicated last mon
+    expect(party[3]).toMatchObject({ species: 1, level: 20 })
+    // Edits still land after the move.
+    t.writePartyField(4, 3, 'species', 2)
+    expect(t.party(4)[3].species).toBe(2)
+
+    // A fresh scan of the edited bytes must find the relocated class.
+    const re = buildAdapter(new Rom('red.gb', a.rom.bytes)).adapter!
+    const rt = re.trainerModule!
+    expect(rt.entries).toHaveLength(5)
+    expect(rt.party(4)).toHaveLength(4)
+    expect(rt.party(4)[3].species).toBe(2)
+    expect(rt.party(3)).toHaveLength(2) // other classes untouched
+
+    // Shrink back in place and revert fully.
+    t.write(4, 'partySize', 1)
+    expect(t.party(4)).toHaveLength(1)
+    t.revert(4)
+    expect(t.party(4)).toHaveLength(2)
+    expect(a.rom.changedByteCount).toBe(0)
+  })
+
+  it('edits species and levels in place and reverts', () => {
+    const a = loadGen1()
+    const t = a.trainerModule!
+    t.writePartyField(3, 1, 'species', 1) // dex 1 -> internal 10
+    t.writePartyField(3, 0, 'level', 9)
+    expect(t.party(3)[1].species).toBe(1)
+    expect(t.party(3)[0].level).toBe(9)
+    // Fixed format: the level byte is shared by every slot.
+    t.writePartyField(4, 1, 'level', 33)
+    expect(t.party(4)[0].level).toBe(33)
+    // Level 0 would terminate the list, so it clamps to 1.
+    t.writePartyField(3, 0, 'level', 0)
+    expect(t.party(3)[0].level).toBe(1)
+    t.revert(3)
+    t.revert(4)
+    expect(t.party(3)[1].species).toBe(2)
+    expect(t.party(3)[0].level).toBe(5)
+    expect(t.party(4)[0].level).toBe(20)
+    expect(a.rom.changedByteCount).toBe(0)
+  })
+
+  it('re-discovers the table after the anchor trainer itself is edited', () => {
+    const a = loadGen1()
+    const t = a.trainerModule!
+    // Youngster #1 IS the discovery anchor — clobber its whole party.
+    t.writePartyField(0, 0, 'species', 1)
+    t.writePartyField(0, 1, 'species', 2)
+    t.writePartyField(0, 0, 'level', 99)
+    // Reload from the edited bytes: the self-referencing pointer-table
+    // fallback must still find everything.
+    const re = buildAdapter(new Rom('red.gb', a.rom.bytes)).adapter!
+    const rt = re.trainerModule!
+    expect(rt).not.toBeNull()
+    expect(rt.entries).toHaveLength(5)
+    expect(rt.party(0)[0]).toMatchObject({ species: 1, level: 99 })
+    expect(rt.party(3)[0]).toMatchObject({ species: 1, level: 5 })
+  })
+})
+
 describe('Gen 3 wild encounters', () => {
   it('discovers encounter tables cross-checked against maps', () => {
     const w = load().wildModule!
@@ -161,6 +259,100 @@ describe('Gen 3 wild encounters', () => {
     w.revert('0.0')
     expect(w.groups('0.0')[0].rate).toBe(20)
     expect(w.groups('0.0')[0].slots[0].species).toBe(1)
+  })
+})
+
+describe('Gen 2 trainer parties', () => {
+  const loadGen2 = async () => {
+    const { makeGen2Rom } = await import('./fixtures')
+    return buildAdapter(new Rom('crystal.gbc', makeGen2Rom())).adapter!
+  }
+
+  it('discovers the class table via the Falkner anchor and derives the count', async () => {
+    const t = (await loadGen2()).trainerModule!
+    expect(t).not.toBeNull()
+    expect(t.entries).toHaveLength(67) // 1+1+2+1 + 62 filler classes
+    expect(t.entries[0].name).toBe('FALKNER')
+    expect(t.entries[0].label).toBe('FALKNER (LEADER #1)')
+    expect(t.entries[2].name).toBe('JOEY')
+    expect(t.entries[2].label).toBe('JOEY (LEADER #1)') // class 3 is a LEADER in the fixture names
+    expect(t.entries[3].name).toBe('MIKEY')
+    expect(t.read(3).partySize).toBe(2)
+  })
+
+  it('reads all party formats: moves, plain, item+moves', async () => {
+    const t = (await loadGen2()).trainerModule!
+    // TRAINERTYPE_MOVES (Falkner): moves array, no item.
+    const falkner = t.party(0)
+    expect(falkner).toHaveLength(2)
+    expect(falkner[0]).toEqual({ species: 16, level: 7, iv: null, item: null, moves: [33, 189, 0, 0] })
+    expect(falkner[1].moves).toEqual([33, 189, 16, 0])
+    // TRAINERTYPE_NORMAL (Mikey): neither.
+    expect(t.party(3)[1]).toEqual({ species: 19, level: 4, iv: null, item: null, moves: null })
+    // TRAINERTYPE_ITEM_MOVES (Red): both.
+    expect(t.party(4)[0]).toEqual({ species: 25, level: 30, iv: null, item: 3, moves: [33, 45, 85, 87] })
+  })
+
+  it('edits levels, species, items, moves and names in place', async () => {
+    const a = await loadGen2()
+    const t = a.trainerModule!
+    t.writePartyField(4, 0, 'species', 250)
+    t.writePartyField(4, 0, 'level', 88)
+    t.writePartyField(4, 0, 'item', 12)
+    t.writePartyField(4, 0, 'move2', 200)
+    expect(t.party(4)[0]).toMatchObject({ species: 250, level: 88, item: 12, moves: [33, 45, 200, 87] })
+    // NORMAL trainers reject item/move writes (no such bytes).
+    t.writePartyField(2, 0, 'item', 5)
+    t.writePartyField(2, 0, 'move0', 5)
+    expect(t.party(2)[0]).toMatchObject({ item: null, moves: null })
+    // Same-footprint rename: shorter name pads with spaces.
+    expect(t.setName(0, 'ZAP')).toBe(true)
+    expect(t.entries[0].name).toBe('ZAP')
+    expect(t.setName(0, 'TOOLONGNAME')).toBe(false) // 11 > FALKNER's 7 bytes
+    t.revert(4)
+    t.revert(0)
+    expect(t.party(4)[0].species).toBe(25)
+    expect(t.entries[0].name).toBe('FALKNER')
+    expect(a.rom.changedByteCount).toBe(0)
+  })
+
+  it('grows and shrinks parties by rebuilding the class group', async () => {
+    const a = await loadGen2()
+    const t = a.trainerModule!
+    expect(t.read(0).maxPartySize).toBe(6)
+    t.write(0, 'partySize', 5) // Falkner 2 -> 5: group must relocate
+    const party = t.party(0)
+    expect(party).toHaveLength(5)
+    expect(party[4].species).toBe(17) // duplicated Pidgeotto
+    expect(party[4].moves).toEqual([33, 189, 16, 0])
+    t.writePartyField(0, 4, 'species', 251)
+    expect(t.party(0)[4].species).toBe(251)
+    expect(t.entries[0].name).toBe('FALKNER') // name survived the rebuild
+
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    expect(re.trainerModule!.entries).toHaveLength(67)
+    expect(re.trainerModule!.party(0)).toHaveLength(5)
+    expect(re.trainerModule!.party(1)).toHaveLength(2) // Whitney untouched
+
+    t.write(0, 'partySize', 1)
+    expect(t.party(0)).toHaveLength(1)
+    t.revert(0)
+    expect(t.party(0)).toHaveLength(2)
+    expect(a.rom.changedByteCount).toBe(0)
+  })
+
+  it('re-discovers the table after the anchor trainer itself is edited', async () => {
+    const a = await loadGen2()
+    const t = a.trainerModule!
+    t.writePartyField(0, 0, 'species', 130)
+    t.writePartyField(0, 0, 'level', 62)
+    t.setName(0, 'MAX')
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    const rt = re.trainerModule!
+    expect(rt).not.toBeNull()
+    expect(rt.entries).toHaveLength(67)
+    expect(rt.entries[0].name).toBe('MAX')
+    expect(rt.party(0)[0]).toMatchObject({ species: 130, level: 62 })
   })
 })
 

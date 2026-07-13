@@ -64,6 +64,141 @@ describe('Gen 3 learnsets', () => {
   })
 })
 
+describe('Gen 3 TM/HM compatibility', () => {
+  it('discovers the table and reads flags', () => {
+    const a = load()
+    const field = a.speciesFields.find((f) => f.key === 'tmhm')
+    expect(field).toBeDefined()
+    expect(field!.flagLabels![0]).toContain('TM01')
+    const flags = a.readSpecies(1).tmhm as boolean[]
+    expect(flags).toHaveLength(58)
+    expect(flags[5]).toBe(true) // TM06 Toxic
+    expect(flags[0]).toBe(false) // TM01 Focus Punch
+    expect(flags[50]).toBe(true) // HM01 Cut
+    expect(flags[51]).toBe(false) // HM02 Fly
+  })
+
+  it('writes and reverts flags', () => {
+    const a = load()
+    const flags = (a.readSpecies(1).tmhm as boolean[]).slice()
+    flags[0] = true
+    flags[5] = false
+    a.writeSpeciesField(1, 'tmhm', flags)
+    const after = a.readSpecies(1).tmhm as boolean[]
+    expect(after[0]).toBe(true)
+    expect(after[5]).toBe(false)
+    a.revertSpecies(1)
+    expect((a.readSpecies(1).tmhm as boolean[])[5]).toBe(true)
+  })
+})
+
+describe('anchor self-edit resilience (extras)', () => {
+  it('re-discovers evolutions, learnsets and TM bits after Bulbasaur edits', () => {
+    const a = load()
+    // The documented caveat scenario: change the anchor species' own
+    // evolution, learnset and TM flags, then reload.
+    a.evolutions!.write(1, 0, 'param', 40)
+    a.evolutions!.write(1, 0, 'target', 6)
+    a.learnsets!.write(1, [{ level: 5, move: 20 }])
+    const flags = a.readSpecies(1).tmhm as boolean[]
+    ;(flags as boolean[])[0] = !flags[0]
+    a.writeSpeciesField(1, 'tmhm', flags)
+
+    const re = buildAdapter(new Rom('firered.gba', a.rom.bytes)).adapter!
+    expect(re.evolutions).not.toBeNull()
+    expect(re.learnsets).not.toBeNull()
+    expect(re.evolutions!.read(1)[0]).toMatchObject({ param: 40, target: 6 })
+    expect(re.learnsets!.read(1)).toEqual([{ level: 5, move: 20 }])
+    expect(re.readSpecies(1).tmhm).toBeDefined()
+  })
+})
+
+describe('Gen 3 sprites', () => {
+  it('discovers the self-tagged sprite tables and renders front + back', () => {
+    const a = load()
+    expect(a.speciesSprite).not.toBeNull()
+    const img = a.speciesSprite!(1)!
+    expect(img.width).toBe(64)
+    expect(img.height).toBe(64)
+    expect([img.pixels[0], img.pixels[1], img.pixels[2], img.pixels[3]]).toEqual([255, 0, 0, 255])
+    // Both tables are single-frame here, so ROM order decides: the
+    // second table is the back (green in the fixture).
+    expect(a.speciesSpriteBack).not.toBeNull()
+    const back = a.speciesSpriteBack!(1)!
+    expect([back.pixels[0], back.pixels[1], back.pixels[2]]).toEqual([0, 255, 0])
+    // Shiny palette: same pixels, blue instead of red.
+    expect(a.hasShinySprites).toBe(true)
+    const shiny = a.speciesSprite!(1, true)!
+    expect([shiny.pixels[0], shiny.pixels[1], shiny.pixels[2]]).toEqual([0, 0, 255])
+  })
+
+  it('imports a back sprite independently of the front', () => {
+    const a = load()
+    expect(a.importSpeciesSpriteBack).not.toBeNull()
+    const pixels = new Uint8ClampedArray(64 * 64 * 4)
+    for (let p = 0; p < 64 * 64; p++) {
+      pixels[p * 4 + 2] = 255 // solid blue
+      pixels[p * 4 + 3] = 255
+    }
+    // Solid color: every pixel maps to the transparent background slot.
+    expect(a.importSpeciesSpriteBack!(1, { pixels, width: 64, height: 64 })).toBeNull()
+    const back = a.speciesSpriteBack!(1)!
+    expect(back.pixels[3]).toBe(0) // slot 0 renders transparent
+    // A fresh scan still classifies both tables.
+    const re = buildAdapter(new Rom('firered.gba', a.rom.bytes)).adapter!
+    expect(re.speciesSpriteBack).not.toBeNull()
+  })
+
+  const testImage = () => {
+    // Transparent border, red left half, green right half.
+    const pixels = new Uint8ClampedArray(64 * 64 * 4)
+    for (let y = 8; y < 56; y++) {
+      for (let x = 8; x < 56; x++) {
+        const o = (y * 64 + x) * 4
+        if (x < 32) pixels[o] = 255
+        else pixels[o + 1] = 255
+        pixels[o + 3] = 255
+      }
+    }
+    return { pixels, width: 64, height: 64 }
+  }
+
+  it('rejects wrong sizes and too many colors', () => {
+    const a = load()
+    expect(a.importSpeciesSprite).not.toBeNull()
+    expect(a.importSpeciesSprite!(1, { pixels: new Uint8ClampedArray(32 * 32 * 4), width: 32, height: 32 }))
+      .toMatch(/64×64/)
+    const noisy = new Uint8ClampedArray(64 * 64 * 4)
+    for (let p = 0; p < 64 * 64; p++) {
+      noisy[p * 4] = (p * 8) & 0xff // ~32 distinct red levels
+      noisy[p * 4 + 3] = 255
+    }
+    expect(a.importSpeciesSprite!(1, { pixels: noisy, width: 64, height: 64 })).toMatch(/colors/)
+  })
+
+  it('imports a sprite, relocating the compressed data when it grows', () => {
+    const a = load()
+    expect(a.importSpeciesSprite!(1, testImage())).toBeNull()
+    const at = (img: { pixels: Uint8ClampedArray }, x: number, y: number) => {
+      const o = (y * 64 + x) * 4
+      return [img.pixels[o], img.pixels[o + 1], img.pixels[o + 2], img.pixels[o + 3]]
+    }
+    const img = a.speciesSprite!(1)!
+    expect(at(img, 0, 0)[3]).toBe(0) // border transparent
+    expect(at(img, 16, 16)).toEqual([255, 0, 0, 255]) // red half
+    expect(at(img, 48, 16)).toEqual([0, 255, 0, 255]) // green half
+    expect(a.rom.changedByteCount).toBeGreaterThan(0)
+
+    // Acid test: a fresh scan of the edited bytes must still find the
+    // sprite tables and decode the imported image.
+    const re = buildAdapter(new Rom('firered.gba', a.rom.bytes)).adapter!
+    expect(re.speciesSprite).not.toBeNull()
+    const reImg = re.speciesSprite!(1)!
+    expect(at(reImg, 16, 16)).toEqual([255, 0, 0, 255])
+    expect(at(reImg, 48, 16)).toEqual([0, 255, 0, 255])
+  })
+})
+
 describe('Gen 3 type chart', () => {
   it('discovers and reads matchups', () => {
     const chart = load().typeChart!

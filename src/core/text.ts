@@ -58,6 +58,9 @@ const GEN12_PAIRS: [number, string][] = [
   [0xef, '♂'],
   [0xf5, '♀'],
   [0xba, 'é'],
+  // Multi-character glyphs (decode-only; encode walks single characters).
+  [0x4a, 'PKMN'],
+  [0x54, 'POKé'],
 ]
 
 const gen12Maps = buildMaps(GEN12_PAIRS)

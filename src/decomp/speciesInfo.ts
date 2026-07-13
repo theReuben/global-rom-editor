@@ -36,8 +36,103 @@ export const NUMERIC_FIELDS: { key: string; label: string; max: number }[] = [
   { key: 'friendship', label: 'Base friendship', max: 255 },
 ]
 
-/** Fields shown read-only (constant expressions, edited as text later). */
-export const INFO_FIELDS = ['types', 'abilities', 'growthRate', 'genderRatio', 'eggGroups', 'itemCommon', 'itemRare']
+/** Fields shown read-only (constant expressions we don't edit yet). */
+export const INFO_FIELDS = ['genderRatio', 'bodyColor', 'safariZoneFleeRate']
+
+/** Constant-expression fields edited as dropdowns. */
+export interface ConstFieldSpec {
+  key: string
+  label: string
+  /** Identifier prefix of the constants used in this field. */
+  prefix: string
+  /** Names for each slot when the field holds a list. */
+  slotLabels: string[]
+}
+
+export const CONST_FIELDS: ConstFieldSpec[] = [
+  { key: 'types', label: 'Types', prefix: 'TYPE_', slotLabels: ['Type 1', 'Type 2'] },
+  { key: 'abilities', label: 'Abilities', prefix: 'ABILITY_', slotLabels: ['Ability 1', 'Ability 2', 'Hidden ability'] },
+  { key: 'eggGroups', label: 'Egg groups', prefix: 'EGG_GROUP_', slotLabels: ['Egg group 1', 'Egg group 2'] },
+  { key: 'growthRate', label: 'Level curve', prefix: 'GROWTH_', slotLabels: ['Level curve'] },
+  { key: 'itemCommon', label: 'Wild held item (common)', prefix: 'ITEM_', slotLabels: ['Item'] },
+  { key: 'itemRare', label: 'Wild held item (rare)', prefix: 'ITEM_', slotLabels: ['Item'] },
+]
+
+/** Constants with this prefix inside a raw field value, in order. */
+export function constantsIn(raw: string, prefix: string): string[] {
+  const out: string[] = []
+  const re = /[A-Z][A-Z0-9_]*/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(raw)) !== null) {
+    if (m[0].startsWith(prefix)) out.push(m[0])
+  }
+  return out
+}
+
+/**
+ * Replace the slot-th `prefix…` constant of a field with a new
+ * constant, preserving all surrounding formatting (macros, spacing,
+ * comments). Returns the updated file text, or null if not found.
+ */
+export function setConstantField(
+  text: string,
+  entry: DecompSpecies,
+  key: string,
+  prefix: string,
+  slot: number,
+  value: string,
+): string | null {
+  if (!value.startsWith(prefix) || !/^[A-Z][A-Z0-9_]*$/.test(value)) return null
+  const body = text.slice(entry.start, entry.end)
+  const fieldRe = new RegExp(`(\\.${key}\\s*=\\s*)(${FIELD_VALUE_SRC})`)
+  const m = fieldRe.exec(body)
+  if (!m) return null
+  const valOff = m.index + m[1].length
+  const idRe = /[A-Z][A-Z0-9_]*/g
+  let n = 0
+  let id: RegExpExecArray | null
+  while ((id = idRe.exec(m[2])) !== null) {
+    if (!id[0].startsWith(prefix)) continue
+    if (n === slot) {
+      const abs = entry.start + valOff + id.index
+      return text.slice(0, abs) + value + text.slice(abs + id[0].length)
+    }
+    n++
+  }
+  return null
+}
+
+/**
+ * Collect `PREFIX…` constant names from a header, in definition order.
+ * Handles both `#define TYPE_FIRE 10` (vanilla) and enum members
+ * `TYPE_FIRE = 11,` (pokeemerald-expansion). Counters like TYPE_COUNT
+ * are skipped.
+ */
+export function parseConstants(headerText: string, prefix: string): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const push = (name: string) => {
+    if (name.endsWith('_COUNT') || name.includes('_COUNT_') || seen.has(name)) return
+    seen.add(name)
+    out.push(name)
+  }
+  const defineRe = new RegExp(`^\\s*#define\\s+(${prefix}[A-Z0-9_]+)[\\s(]`, 'gm')
+  const enumRe = new RegExp(`^\\s*(${prefix}[A-Z0-9_]+)(?:\\s*=\\s*[A-Za-z0-9_+\\- ]+)?\\s*,\\s*(?://.*)?$`, 'gm')
+  let m: RegExpExecArray | null
+  while ((m = defineRe.exec(headerText)) !== null) push(m[1])
+  while ((m = enumRe.exec(headerText)) !== null) push(m[1])
+  return out
+}
+
+/** "ABILITY_SOLAR_POWER" → "Solar Power" (prefix stripped). */
+export function prettyConstant(name: string, prefix: string): string {
+  return prettySpeciesName(name.startsWith(prefix) ? name.slice(prefix.length) : name)
+}
+
+// A field value: brace list, macro call, or a plain token — covers
+// `{ TYPE_GRASS, TYPE_POISON }`, `MON_TYPES(TYPE_GRASS, TYPE_POISON)`,
+// `PERCENT_FEMALE(87.5)` and simple numbers/constants.
+const FIELD_VALUE_SRC = String.raw`\{[^}]*\}|[A-Za-z_0-9]+\([^)]*\)|[^,\n]+`
 
 export function parseSpeciesInfo(text: string): DecompSpecies[] {
   const out: DecompSpecies[] = []
@@ -59,7 +154,7 @@ export function parseSpeciesInfo(text: string): DecompSpecies[] {
     const end = i - 1
     const body = text.slice(start, end)
     const fields = new Map<string, string>()
-    const fieldRe = /\.([A-Za-z_0-9]+)\s*=\s*([^,\n]+(?:\{[^}]*\})?[^,\n]*)/g
+    const fieldRe = new RegExp(`\\.([A-Za-z_0-9]+)\\s*=\\s*(${FIELD_VALUE_SRC})`, 'g')
     let f: RegExpExecArray | null
     while ((f = fieldRe.exec(body)) !== null) {
       fields.set(f[1], f[2].trim().replace(/\\$/, '').trim())

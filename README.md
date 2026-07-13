@@ -10,29 +10,32 @@ edit with normal forms and sliders, save — and share your hack as a patch.
 | Feature | Gen 1 (R/B/Y) | Gen 2 (G/S/C) | Gen 3 (R/S/E/FR/LG) | Gen 4/5 (DS) |
 | --- | :-: | :-: | :-: | :-: |
 | Base stats, types, catch rate, EXP yield | ✅ | ✅ | ✅ | ✅ |
-| Pokémon renaming | ✅ | ✅ | ✅ | — |
-| Level curve (growth rate) | ✅ | ✅ | ✅ | ✅ Gen 4 |
-| TM/HM compatibility (checkbox grid) | ✅ | ✅ | 🔜 | ✅ Gen 4 |
-| Starting moves | ✅ | — | 🔜 | — |
-| Wild held items, gender ratio, egg groups, hatch cycles | — | ✅ | ✅ | ✅ Gen 4 |
-| Abilities (named, read from the ROM) | — | — | ✅ | ✅ Gen 4 |
-| EV yields | — | — | ✅ | ✅ Gen 4 |
-| Move power / accuracy / PP / type / effect / priority / flags | ✅ | ✅ | ✅ | — |
-| Move renaming | 🔜 | 🔜 | ✅ | — |
-| Map viewer & block painting (scene editing) | 🔜 | 🔜 | ✅ | — |
+| Pokémon renaming | ✅ | ✅ | ✅ | ✅ Gen 4 (any length — the msg archive relocates when a name outgrows its slot) |
+| Level curve (growth rate) | ✅ | ✅ | ✅ | ✅ |
+| TM/HM compatibility (checkbox grid) | ✅ | ✅ | ✅ | ✅ |
+| Starting moves / level-up learnsets | ✅ | ✅ | ✅ | ✅ Gen 4 |
+| Evolutions & type effectiveness chart | ✅ | ✅ | ✅ | ✅ Gen 4 evolutions |
+| Front + back sprite display (with shiny toggle) | ✅ (SGB colors) | ✅ | ✅ | ✅ Gen 4 |
+| Custom sprite importing, front and back (PNG, auto-relocation) | ✅ | ✅ | ✅ | — |
+| Wild held items, gender ratio, egg groups, hatch cycles | — | ✅ | ✅ | ✅ |
+| Abilities (named, read from the ROM) | — | — | ✅ | ✅ (+hidden in Gen 5) |
+| EV yields | — | — | ✅ | ✅ |
+| Move power / accuracy / PP / type / effect / priority / flags | ✅ | ✅ | ✅ | ✅ Gen 4 |
+| Move renaming | ✅ | ✅ | ✅ | ✅ Gen 4 (any length) |
+| Map viewer & block painting (scene editing) | ✅ | ✅ (full CGB color) | ✅ | — |
 | Movement permission (collision) editing | — | — | ✅ | — |
-| NPC / warp / sign editing | 🔜 | 🔜 | ✅ | — |
-| Trainer editing (class, AI, items, full parties) | 🔜 | 🔜 | ✅ | — |
-| Wild encounter editing (time-of-day in Gen 2) | ✅ R/B/Y | ✅ Crystal | ✅ | 🔜 |
-| Item names read from the ROM (dropdowns everywhere) | — | — | ✅ | — |
+| NPC / warp / sign editing | ✅ (edit in place) | ✅ (edit in place) | ✅ | — |
+| Trainer editing (class, AI, items, full parties) | ✅ parties (grow to 6) | ✅ parties+names (grow to 6) | ✅ | ✅ Gen 4 (named) |
+| Wild encounter editing (time-of-day in Gen 2/HGSS; grass/surf/rods/radio/swarms in Gen 4) | ✅ | ✅ | ✅ | ✅ D/P/Pt/HGSS |
+| Item names read from the ROM (dropdowns everywhere) | ✅ | ✅ | ✅ | ✅ Gen 4 |
 | Map resizing (relocated into free space) | — | — | ✅ | — |
 | Brand-new maps (duplicate into a fresh bank slot) | — | — | ✅ | — |
-| Add / remove NPCs, warps and signs | — | — | ✅ | — |
+| Add / remove NPCs, warps and signs | ✅ | ✅ | ✅ | — |
 | Visual script builder (messages, Y/N questions, items, Pokémon, trainer battles, flags) | — | — | ✅ | — |
-| Decomp project editing (species stats, experimental) | — | — | ✅ | — |
+| Decomp project editing (stats + types/abilities/egg groups dropdowns) | — | — | ✅ | — |
 | Save edited ROM with fixed checksums | ✅ | ✅ | ✅ | ✅ |
-| Export edits as an IPS patch | ✅ | ✅ | ✅ | — |
-| Apply community IPS patches | ✅ | ✅ | ✅ | — |
+| Export edits as an IPS, UPS or BPS patch | ✅ | ✅ | ✅ | ✅ UPS/BPS |
+| Apply community IPS / UPS / BPS patches | ✅ | ✅ | ✅ | ✅ |
 
 Everything runs **entirely client-side** — ROMs never leave the user's device.
 The editor is an installable PWA: after the first visit it works fully
@@ -124,15 +127,23 @@ Yes/No questions (with bail-out) and single trainer battles. All of it
 verified on a real Emerald ROM: the edited ROM re-scans cleanly and the
 new map is discovered like any original one.
 
-In rough build order:
+**Since then, the whole Gen 1/2 suite caught up** — maps with events
+(view, edit, add, remove), CGB-color rendering for Gen 2, evolutions,
+learnsets, the type chart and sprite display (authentic SGB colors in
+Gen 1, per-species + shiny palettes in Gen 2) — every byte format
+verified against ROMs built from the pret decompilations. Gen 4 gained
+any-length renaming (the msg archive relocates via a FAT retarget),
+move data + move renaming, evolutions, learnsets and descrambled
+sprite display, validated against NARCs built with the decomp's own
+asset pipeline.
 
-1. **Gen 1/2 map & trainer editing**; Gold/Silver wild anchors; Gen 5
-   full personal layout verification; Gen 4 trainers/encounters
-   (per-version NARCs) and the Gen 4 text codec for names.
-2. **Deeper decomp editing** — types/abilities/items as dropdowns,
-   trainers and encounters from source, project-wide save.
-3. Level-up learnsets, evolutions, type chart, starters, sprite
-   importing, item/text editing, UPS/BPS patches.
+Still open, in rough order:
+
+1. Gen 5 beyond personal data (moves, trainers, wild — needs a
+   verifiable byte-format source; no Gen 5 decomp exists).
+2. Sprite importing for Gen 4 (Gen 1 and Gen 2 shipped — the RLE and
+   lz3 compressors now exist; DS sprites need the NCGR re-scramble).
+3. Starters, item/text editing.
 
 ## What about 1000+ Pokémon, Megas, Tera, Z-moves?
 
