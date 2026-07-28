@@ -382,10 +382,29 @@ export function makeGen2Rom(): Uint8Array {
   const filler = (g: number, m: number) => [g, m, 4, 4, 4, ...Array.from({ length: 21 }, () => [5, 16]).flat()]
   let w = 0x2ab00
   const putw = (b: number[]) => { put(rom, w, b); w += b.length }
-  putw([3, 2, 5, 5, 5, ...morn, ...morn, ...nite]) // Sprout Tower 2F anchor
-  putw(filler(10, 1))
-  putw(filler(10, 2))
-  putw(filler(10, 3))
+  // Johto grass blocks: the five voting anchors (indices 0, 2, 5, 8
+  // and 14 — see JOHTO_GRASS_ANCHORS) plus filler. Only the anchor
+  // blocks carry real signature bytes.
+  // head4 must reproduce bytes 5-8 of the real anchor patterns exactly,
+  // or that anchor simply won't vote.
+  const anchorBlock = (g: number, m: number, rate: number, head4: number[]) => {
+    const rest = Array.from({ length: 5 }, () => [5, 16]).flat() // 5 more pairs
+    const row = [...head4, ...rest]
+    return [g, m, rate, rate, rate, ...row, ...row, ...nite]
+  }
+  const johto: number[][] = []
+  johto[0] = [3, 2, 5, 5, 5, ...morn, ...morn, ...nite] // Sprout Tower 2F
+  johto[2] = anchorBlock(3, 5, 5, [20, 19, 21, 19])
+  johto[5] = anchorBlock(3, 8, 5, [20, 19, 21, 19])
+  johto[8] = anchorBlock(3, 11, 5, [20, 19, 21, 19])
+  johto[14] = anchorBlock(3, 27, 15, [5, 201, 5, 201])
+  // 45 blocks: enough for the five anchors AND for the structural
+  // fallback (which needs a run of at least 40) to be exercised.
+  let spareAt = 0
+  for (let i = 0; i < 45; i++) {
+    if (!johto[i]) johto[i] = filler(10, ++spareAt)
+    putw(johto[i])
+  }
   putw([0xff]) // end Johto grass
   putw([11, 1, 10, 15, 194, 20, 195, 15, 194]) // Johto water
   putw([0xff])

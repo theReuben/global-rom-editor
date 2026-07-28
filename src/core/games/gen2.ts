@@ -65,14 +65,30 @@ const GRASS_BLOCK = 47 // group, map, 3 rates, 3 × 7 (level, species)
 const WATER_BLOCK = 9 // group, map, rate, 3 × (level, species)
 const TIME_NAMES = ['Grass (morning)', 'Grass (day)', 'Grass (night)']
 
-// Sprout Tower 2F — the first Johto grass block, byte-identical in
-// Gold, Silver and Crystal (verified against pokegold and pokecrystal).
-const SPROUT_RATES_MORN_DAY = [
-  5, 5, 5,
-  3, 19, 4, 19, 5, 19, 3, 19, 6, 19, 5, 19, 5, 19,
-  3, 19, 4, 19, 5, 19, 3, 19, 6, 19, 5, 19, 5, 19,
+/**
+ * Johto grass blocks used as discovery anchors, each keyed by its index
+ * in JohtoGrassWildMons (fixed 47-byte stride, so index → offset holds
+ * even where the games' data differs).
+ *
+ * These are 9-byte prefixes — {group, map, 3 rates, 2 encounter pairs} —
+ * verified byte-identical in built Gold and Crystal AND occurring
+ * exactly once in each. The leading group/map pair is what makes them
+ * unique: an anchor of encounter bytes alone is NOT, because Sprout
+ * Tower 2F and 3F have identical tables. That ambiguity is what used to
+ * disable wild editing on every real Gold/Silver/Crystal ROM —
+ * findVerified requires exactly one verifying hit and got two.
+ *
+ * Five spread anchors vote (see findByVote), so editing any one map's
+ * encounters — including the rate bytes inside these very patterns —
+ * still leaves a majority to re-find the table on reload.
+ */
+const JOHTO_GRASS_ANCHORS = [
+  { index: 0, pattern: [3, 2, 5, 5, 5, 3, 19, 4, 19] }, // Sprout Tower 2F
+  { index: 2, pattern: [3, 5, 5, 5, 5, 20, 19, 21, 19] }, // map 3.5
+  { index: 5, pattern: [3, 8, 5, 5, 5, 20, 19, 21, 19] }, // map 3.8
+  { index: 8, pattern: [3, 11, 5, 5, 5, 20, 19, 21, 19] }, // map 3.11
+  { index: 14, pattern: [3, 27, 15, 15, 15, 5, 201, 5, 201] }, // map 3.27
 ]
-const SPROUT_NITE = [3, 92, 4, 92, 5, 92] // Gastly at night
 
 interface Gen2WildArea {
   key: string
@@ -80,11 +96,11 @@ interface Gen2WildArea {
   water: number | null
 }
 
+/** Blocks a structural candidate must chain before we believe it. */
+const MIN_GRASS_RUN = 40
+
 function buildGen2Wild(rom: Rom): { module: WildModule; offset: number; count: number } | null {
   const bytes = rom.bytes
-  const anchor = findVerified(bytes, SPROUT_RATES_MORN_DAY, [{ delta: 31, pattern: SPROUT_NITE }])
-  if (anchor === null) return null
-  const start = anchor - 2 // group/map bytes precede the rates
 
   const plausible = (p: number, block: number): boolean => {
     if (bytes[p] === 0xff || bytes[p] < 1 || bytes[p] > 26 || bytes[p + 1] < 1 || bytes[p + 1] > 120) return false
@@ -94,6 +110,39 @@ function buildGen2Wild(rom: Rom): { module: WildModule; offset: number; count: n
     }
     return true
   }
+
+  /**
+   * Fallback for when too few anchors survived the user's edits. Every
+   * cross-game-identical block sits in the first 15 of the table, so the
+   * anchors are unavoidably clustered in early Johto — exactly the maps
+   * a rebalancing hack is most likely to rewrite. Chain 47-byte blocks
+   * instead: starting inside the table yields a shorter run, so the
+   * longest chain is the real start.
+   */
+  const scanStructurally = (): number | null => {
+    let best: number | null = null
+    let bestRun = 0
+    for (let p = 0; p + GRASS_BLOCK * MIN_GRASS_RUN < bytes.length; p++) {
+      if (!plausible(p, GRASS_BLOCK)) continue
+      let n = 0
+      let q = p
+      while (n < 200 && plausible(q, GRASS_BLOCK)) {
+        q += GRASS_BLOCK
+        n++
+      }
+      if (bytes[q] !== 0xff) continue // a real table ends with 0xFF
+      if (n >= MIN_GRASS_RUN && n > bestRun) {
+        best = p
+        bestRun = n
+      }
+      p += n * GRASS_BLOCK - 1 // shorter same-run starts can't beat it
+    }
+    return best
+  }
+
+  // The anchors sit at block starts, so the winning base IS the table.
+  const start = findByVote(bytes, JOHTO_GRASS_ANCHORS, GRASS_BLOCK) ?? scanStructurally()
+  if (start === null) return null
 
   const areas = new Map<string, Gen2WildArea>()
   const area = (key: string): Gen2WildArea => {

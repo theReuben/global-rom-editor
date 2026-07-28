@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-205 tests green; `npm test` and `npm run build` must stay that way.
+207 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -559,10 +559,43 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    species/moves/evolutions/learnsets/sprites/maps still found
    afterwards.
 
-   Unrelated pre-existing finding: freshly built pokecrystal/pokegold
-   master both warn "Couldn't locate wild encounter data" even though
-   the Gen 2 wild tests pass on the fixture. Not touched here — worth a
-   look on its own.
+   (The wild-encounter warning noted here previously turned out to be a
+   real bug — fixed in item 10.)
+
+10. **Gen 2 wild encounters: FIXED (was silently disabled on every
+   real ROM).** Discovery used one `findVerified` anchor built from
+   Sprout Tower 2F's encounter bytes. Sprout Tower 2F and 3F have
+   BYTE-IDENTICAL tables, so the pattern matched twice; `findVerified`
+   returns null unless exactly one candidate verifies, so it returned
+   null — and the adapter fell back to "Couldn't locate wild encounter
+   data" on built Gold AND Crystal. The fixture happened to contain only
+   one matching block, so the tests passed while every real ROM lost
+   wild editing. Lesson: a signature has to be checked for UNIQUENESS
+   against a real ROM, not just for presence.
+
+   Now `findByVote` over five 9-byte anchors — {group, map, 3 rates, 2
+   encounter pairs} at JohtoGrassWildMons indices 0, 2, 5, 8 and 14
+   (stride 47, so index → offset holds even where the games differ).
+   The leading group/map pair is what disambiguates 2F from 3F. All five
+   are verified byte-identical in built Gold + Crystal and occur exactly
+   once in each.
+
+   Only 11 of 61 Johto grass blocks are identical across the two games
+   (Crystal rewrote the rest), and all 11 sit in the first 15 — so the
+   anchors are unavoidably CLUSTERED in early Johto, exactly what an
+   encounter-rebalancing hack rewrites first. Editing 4 of the 5 does
+   drop voting below its 2-vote threshold, so there is a structural
+   fallback: chain 47-byte blocks that all pass the plausibility check
+   and require a run of >= 40 ending in 0xFF, longest run wins.
+   Verified on both ROMs that wrecking ALL FIVE anchors still re-finds
+   the table at exactly the .sym address with all 114 areas.
+
+   Validated on built Crystal + Gold: table found at 0x2a5e9 / 0x2ab35
+   per .sym, 114 areas, zero warnings; editing an anchor map, then four
+   anchor maps, then all five, still reloads cleanly; water areas read;
+   species/moves/egg moves/evolutions/maps all still discovered; revert
+   byte-perfect. The Gen 2 fixture now carries 45 grass blocks so both
+   the voting path and the >= 40-block fallback are exercised.
 
 ## What's genuinely left (checked 2026-07-12)
 
