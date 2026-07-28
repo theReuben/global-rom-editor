@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-198 tests green; `npm test` and `npm run build` must stay that way.
+205 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -440,9 +440,8 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    src/get_egg.c, MAX_EGG_MOVES = 16, 2045-word array) but its list is
    an UNEXTRACTED narc — NARC id 231 sits between a/2/2/8 and a/2/3/0,
    so `/a/2/2/9` — with no buildable ground truth here. Left disabled
-   rather than shipped on a source-only reading. Gen 1/2 are untouched
-   (Gen 1 has no breeding; Gen 2's format is a different pointer-table
-   shape and would need pokecrystal built to validate).
+   rather than shipped on a source-only reading. Gen 1 has no breeding;
+   Gen 2 egg moves: SHIPPED, see item 9.
 
 7. **Gen 3 item editor: SHIPPED** (`src/core/gba/items.ts`, Items tab).
    44-byte `gItems` entries, layout confirmed against built Emerald +
@@ -518,6 +517,52 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    descriptions re-save and read back identical, editing a shared
    placeholder leaves its siblings untouched, unsupported characters are
    refused, and revert is byte-perfect.
+
+9. **Gen 2 egg moves: SHIPPED** (`src/core/gb/eggmoves.ts`). A totally
+   different shape from Gen 3's flat array: `EggMovePointers` is 251
+   dex-order bank-local u16s, each pointing at a run of move-id bytes
+   terminated by 0xFF. Pointers and lists share ONE bank — `GetEggMove`
+   reads list bytes with a fixed `BANK("Egg Moves")` — so relocations
+   must stay inside it. The game's reader has no length cap (it loops to
+   the 0xFF); real lists top out at 8, and writes are capped at 12.
+
+   Discovery mirrors evosmoves.ts (the lists are editable, so no byte
+   signature would survive): longest run of same-bank pointers whose
+   targets all parse, cross-checked by requiring the referenced lists to
+   tile >= 80% of the span they cover.
+
+   TWO hazards come from the shared empty list. Most species have no egg
+   moves and share one pointer to a lone 0xFF (146 of 251 in Crystal,
+   145 in Gold):
+   - Writing "in place" to a shared list would hand egg moves to every
+     species pointing at it, so a shared target ALWAYS relocates. Only
+     an unshared list that still fits is written in place.
+   - That lone 0xFF is the last live byte in the bank, so
+     findGbBankFreeSpace happily offers it as padding. The destination
+     is floored past every live list — the same trap evosmoves.ts hits
+     with its all-zero blobs. Clearing a species points it back at the
+     shared empty list rather than burning bank space on another 0xFF.
+
+   Bank space is TIGHT: bank 8 has only ~177 free bytes in Crystal and
+   ~453 in Gold, so a bulk grow succeeds for roughly 7 (Crystal) / 20
+   (Gold) species before writes start refusing. That is inherent to the
+   ROM layout, not a defect — writes fail cleanly and the UI surfaces
+   it. Everything stays discoverable and revert is byte-perfect.
+
+   Validated on built Crystal + Gold: discovery lands on the
+   `EggMovePointers` address from each .sym exactly (0x23b11 / 0x239fe);
+   counts match the decomp (105 species with egg moves in Crystal, 106
+   in Gold — Crystal removed Charm/Steel Wing/Sweet Scent/Lovely Kiss,
+   and Gold's Bulbasaur correctly still has Charm); in-place edits,
+   shrinks, granting moves to a species that had none (siblings verified
+   untouched), clearing, bank exhaustion and revert all behave, with
+   species/moves/evolutions/learnsets/sprites/maps still found
+   afterwards.
+
+   Unrelated pre-existing finding: freshly built pokecrystal/pokegold
+   master both warn "Couldn't locate wild encounter data" even though
+   the Gen 2 wild tests pass on the fixture. Not touched here — worth a
+   look on its own.
 
 ## What's genuinely left (checked 2026-07-12)
 
