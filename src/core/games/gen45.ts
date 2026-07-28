@@ -119,10 +119,13 @@ const GEN5_TM_FLAGS = 101 // TM01-95 then HM01-06
 
 /* --------------------------------------------------- trainers (Gen 4) */
 
-// TrainerHeader (trdata.narc, one subfile per trainer), verified against
-// pret/pokeplatinum struct_defs/trainer_data.h:
-//   monDataType u8, class u8, sprite u8, partySize u8,
-//   items u16[4], aiMask u32, battleType u32   (20 bytes)
+// TrainerHeader (trdata.narc, one subfile per trainer). 20 bytes, and
+// byte-validated against the real HGSS trdata compiled from
+// pokeheartgold's trainers.json (see docs/HANDOFF.md):
+//   monDataType u8, class u8, unk_2 u8, partySize u8,
+//   items u16[4], aiMask u32, battleType u32
+// Byte 2 is NOT a sprite id — the decomp exposes it only as
+// TRATTR_UNK2 and the trainer's sprite comes from its class.
 // Party entries (trpoke.narc): ivScale u16, level u16, species u16
 // [, item u16][, moves u16[4]], cbSeal u16 — 8/10/16/18 bytes by type.
 const TR_ENTRY_SIZES = [8, 16, 10, 18]
@@ -162,6 +165,9 @@ export function buildGen4Trainers(
 
   return {
     entries,
+    // Gen 4 has no per-trainer sprite, gender or encounter music: the
+    // sprite comes from the class, and header byte 2 is TRATTR_UNK2.
+    features: { appearance: false },
     nameLength: names?.rename ? 10 : 0,
     nameHint: names?.trainers.length
       ? 'Read from the message banks — names are not editable in this ROM.'

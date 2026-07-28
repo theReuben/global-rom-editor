@@ -332,6 +332,17 @@ describe('Gen 4 trainers (trdata/trpoke)', () => {
     return buildGen4Trainers(rom, parseNarc(rom.bytes, 0)!, parseNarc(rom.bytes, trdata.length + 32)!)
   }
 
+  it('hides the sprite, gender and music fields Gen 4 does not have', () => {
+    // Gen 4 derives the trainer sprite from the class and has no
+    // per-trainer gender or encounter music, so the UI must not offer
+    // them. Header byte 2 is TRATTR_UNK2 in the decomp, not a sprite id
+    // — it is still read into `pic`, just no longer presented as one.
+    const t = make()
+    expect(t.features?.appearance).toBe(false)
+    // Class and battle type ARE real, so the identity block still shows.
+    expect(t.features?.identity).not.toBe(false)
+  })
+
   it('reads headers and typed parties', () => {
     const t = make()
     expect(t.entries).toHaveLength(2)

@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-210 tests green; `npm test` and `npm run build` must stay that way.
+211 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -227,6 +227,15 @@ Wrap the result with `buildNarc()` and a NitroFS shell
 `buildAdapter` reads it exactly as it would a retail ROM. The game code
 must be the full FOUR characters ('IPKE', not 'IPK') or detection fails.
 
+The trainer party table is ASSEMBLY, not C. `arm-none-eabi-as` accepts
+it after two MWAS-isms are translated — `.rodata` -> `.section .rodata`
+and `@object` -> `%object` (`@` starts a comment in ARM asm) — and
+`trainer_data.h` is stripped in favour of `constants/trainers.h`. Do NOT
+re-derive the per-trainer party offsets from npoke × entrySize: trainer
+0 is a blank dummy that occupies 8 bytes despite npoke 0, so the count
+drifts. Read the real boundaries from the `gTrainerPoke_N` symbols with
+`arm-none-eabi-nm -n`.
+
 Validated this way on 2026-07-28, all against real HGSS data:
 
 - **Move data** — the repo's prebuilt `waza_tbl.narc`. 471 subfiles,
@@ -253,6 +262,27 @@ Validated this way on 2026-07-28, all against real HGSS data:
   trigger is a map flag and HGSS reuses the ids for its own areas, so
   the editor labels the MECHANIC (magnetic field / Moss Rock / Ice
   Rock) rather than a Sinnoh location.
+
+- **Wild encounters** — compiled from `gs_enc_data.json` with
+  `-DENC_HEARTGOLD`. 142 areas × 0xC4. **12,241 comparisons, ZERO
+  mismatches** across land (3 times of day), surf, rock smash, all
+  three rods and their rates. The JSON encodes version splits as
+  `{HEARTGOLD, SOULSILVER}` — resolve them rather than skipping, or the
+  species comparison silently checks almost nothing.
+- **Trainers** — trdata compiled from `trainers.json`, trpoke
+  assembled. 738 trainers. **8,077 comparisons, ZERO mismatches** over
+  class, party size, species, levels, held items and movesets.
+
+No reader defects were found in any of the five tables (~88,000 field
+comparisons total). One inaccuracy was: header byte 2 of a Gen 4
+trainer was labelled a sprite id and offered as "Sprite ID" in the UI.
+The decomp exposes it only as `TRATTR_UNK2`, and Gen 4 derives the
+sprite from the trainer CLASS; there is likewise no per-trainer gender
+or encounter music (both were hardcoded 0 with writes ignored). Those
+three controls were dead or misleading, so `TrainerFeatures` gained an
+`appearance` flag and the Gen 4 module sets it false. Gen 1/2 already
+hid the whole identity block; Gen 3 is unaffected and still shows all
+three, because it genuinely stores them.
 
 Still unbuildable here, and so still unvalidated: anything living in
 arm9 or an overlay (TM->move list), and all of Gen 5 (no decomp).

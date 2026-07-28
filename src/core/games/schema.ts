@@ -139,6 +139,14 @@ export interface PartyMon {
 export interface TrainerFeatures {
   /** Class / sprite / gender / music / battle-type fields. */
   identity?: boolean
+  /**
+   * Per-trainer sprite, gender and encounter music. Gen 3 stores all
+   * three; Gen 4 derives the sprite from the trainer class and has no
+   * per-trainer gender or music at all (byte 2 of its header is
+   * TRATTR_UNK2 in the decomp, not a sprite id), so it sets this false
+   * rather than offering controls that do nothing.
+   */
+  appearance?: boolean
   ai?: boolean
   items?: boolean
   partySize?: boolean
