@@ -444,6 +444,49 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    (Gen 1 has no breeding; Gen 2's format is a different pointer-table
    shape and would need pokecrystal built to validate).
 
+7. **Gen 3 item editor: SHIPPED** (`src/core/gba/items.ts`, Items tab).
+   44-byte `gItems` entries, layout confirmed against built Emerald +
+   FireRed rather than read off the header (they agree):
+   `0 name[14], 14 itemId u16, 16 price u16, 18 holdEffect,
+   19 holdEffectParam, 20 description*, 24 importance,
+   25 registrability, 26 pocket, 27 type, 28 fieldUseFunc*,
+   32 battleUsage (33-35 pad), 36 battleUseFunc*, 40 secondaryId
+   (41-43 pad)`.
+
+   The item table was already being found via a MASTER BALL/ULTRA BALL
+   name signature — which this editor would break, since it makes those
+   names editable. Discovery is now structural: every entry stores its
+   own index at +14, so a run of `u16(base + i*44 + 14) === i` (>= 100,
+   with valid description pointers) identifies the table however many
+   items have been renamed. The old name anchor still runs as an
+   independent cross-check and raises a warning if the two disagree.
+   Unused ids (52-62 in Emerald) are REAL table members carrying
+   itemId 0 and a shared placeholder description — they're kept in the
+   run so later indices stay aligned.
+
+   Pocket numbering genuinely differs by family, so labels are picked
+   per game code: R/S/E = Items 1, Poké Balls 2, TMs 3, Berries 4, Key
+   Items 5 (pokeemerald include/constants/item.h); FR/LG = Items 1, Key
+   Items 2, Poké Balls 3, TM Case 4, Berry Pouch 5 (pokefirered
+   include/constants/global.h).
+
+   Validated on both built ROMs: discovery lands on the `gItems` .map
+   address exactly; Emerald reads 377 items (last OLD SEA MAP), FireRed
+   375 (last SAPPHIRE); known prices check out (Ultra Ball 1200, Great
+   Ball 600, Potion 300); field writes, renames, per-item revert and
+   `revertAll` all round-trip with zero warnings; and renaming MASTER
+   BALL — or all of the first 60 items — still re-discovers the table.
+
+   NOT shipped: description editing. Item descriptions use charmap
+   bytes the editor's `gen3Codec` lacks — 0x57/0x58/0x59 are the
+   composite glyphs BL/OC/K (so `<55><56><57><58><59>` spells
+   "POKéBLOCK"), plus 0x5B '%', 0xF0 ':' and 0x2D '&'. Adding them is
+   not a pure win: `gen3Codec` builds its encode map from the same
+   pairs list, and 0x59 -> 'K' is a single character that would hijack
+   encoding of the letter K (correctly 0xC5). Descriptions need a
+   decode-only channel in the codec first; until then editing them
+   would silently mangle every Pokéblock/berry string.
+
 ## What's genuinely left (checked 2026-07-12)
 
 - Gen 5 move data + trainers + wild: blocked on a verifiable source

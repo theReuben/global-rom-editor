@@ -527,11 +527,34 @@ function addClassNames(rom: Uint8Array): void {
   rom[table - 13] = 0x01 // undecodable byte stops the backward walk
 }
 
-/** Item table: 44-byte entries starting with a 14-byte name. */
+/**
+ * Item table: 44-byte entries starting with a 14-byte name. Each entry
+ * stores its own index at +14 and a description pointer at +20 — that
+ * self-referencing shape is what discovery keys on (names are editable,
+ * so they can't be the anchor). Entry 20 is a placeholder slot
+ * (itemId 0) like the unused ids in the real games.
+ */
 function addItemData(rom: Uint8Array): void {
   const items = 0x3a0000
+  const desc = 0x3a4000
+  put(rom, desc, [...gen3Bytes('A TEST ITEM.'), 0xff])
   const names = ['??????????', 'MASTER BALL', 'ULTRA BALL', 'POTION']
-  names.forEach((n, i) => put(rom, items + i * 44, gen3Name(n, 14)))
+  for (let i = 0; i < 120; i++) {
+    const o = items + i * 44
+    put(rom, o, gen3Name(names[i] ?? `ITEM${i}`, 14))
+    put(rom, o + 14, u16s(i === 20 ? 0 : i)) // itemId (20 = unused slot)
+    put(rom, o + 16, u16s(i * 10)) // price
+    rom[o + 18] = i % 7 // holdEffect
+    rom[o + 19] = i % 5 // holdEffectParam
+    put(rom, o + 20, ptr(desc))
+    rom[o + 24] = 0 // importance
+    rom[o + 26] = (i % 5) + 1 // pocket
+    rom[o + 27] = i % 3 // type
+    put(rom, o + 28, ptr(desc)) // fieldUseFunc (any valid pointer)
+    rom[o + 32] = i % 3 // battleUsage
+    put(rom, o + 36, ptr(desc)) // battleUseFunc
+    rom[o + 40] = i % 4 // secondaryId
+  }
 }
 
 /**

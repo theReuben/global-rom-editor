@@ -386,3 +386,83 @@ describe('Gen 3 egg moves', () => {
     expect([...rom.bytes]).toEqual([...source])
   })
 })
+
+describe('Gen 3 items', () => {
+  const items = () => load().itemModule!
+
+  it('discovers the table structurally and reads the 44-byte entry', () => {
+    const a = load()
+    expect(a.itemModule).not.toBeNull()
+    const m = a.itemModule!
+    expect(m.entries).toHaveLength(120)
+    expect(m.entries[1].name).toBe('MASTER BALL')
+    expect(m.entries[3].name).toBe('POTION')
+    const potion = m.read(3)
+    expect(potion.price).toBe(30)
+    expect(potion.holdEffect).toBe(3)
+    expect(potion.holdEffectParam).toBe(3)
+    expect(potion.pocket).toBe(4)
+    expect(potion.secondaryId).toBe(3)
+    expect(a.regions.find((r) => r.name === 'Item data')!.offset).toBe(0x3a0000)
+  })
+
+  it('writes fields and reads them back from a reloaded ROM', () => {
+    const a = load()
+    const m = a.itemModule!
+    m.write(2, 'price', 4321)
+    m.write(2, 'pocket', 1)
+    m.write(2, 'battleUsage', 2)
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    const back = re.itemModule!.read(2)
+    expect(back.price).toBe(4321)
+    expect(back.pocket).toBe(1)
+    expect(back.battleUsage).toBe(2)
+    expect(re.itemModule!.read(3).price).toBe(30) // neighbour untouched
+  })
+
+  it('renames items and keeps the name in the dropdown options', () => {
+    const a = load()
+    expect(a.itemModule!.setName(1, 'CLAUDE BALL')).toBe(true)
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    expect(re.itemModule!.entries[1].name).toBe('CLAUDE BALL')
+    expect(re.itemOptions!.find((o) => o.value === 1)!.label).toBe('CLAUDE BALL')
+  })
+
+  it('re-discovers the table after the old name anchor is renamed', () => {
+    const a = load()
+    // MASTER BALL / ULTRA BALL used to be the discovery signature.
+    a.itemModule!.setName(1, 'AAA')
+    a.itemModule!.setName(2, 'BBB')
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    expect(re.itemModule).not.toBeNull()
+    expect(re.regions.find((r) => r.name === 'Item data')!.offset).toBe(0x3a0000)
+    expect(re.itemModule!.entries[3].name).toBe('POTION')
+  })
+
+  it('rejects names it cannot encode and leaves the old one', () => {
+    const m = items()
+    expect(m.setName(1, '★★★')).toBe(false)
+    expect(m.setName(1, '')).toBe(false)
+    expect(m.entries[1].name).toBe('MASTER BALL')
+  })
+
+  it('reverts a single item without touching its neighbours', () => {
+    const a = load()
+    const m = a.itemModule!
+    m.write(2, 'price', 999)
+    m.setName(2, 'CHANGED')
+    m.write(3, 'price', 111)
+    m.revert(2)
+    expect(m.read(2).price).toBe(20)
+    expect(m.entries[2].name).toBe('ULTRA BALL')
+    expect(m.read(3).price).toBe(111) // the other edit survives
+  })
+
+  it('keeps placeholder slots addressable so later indices stay aligned', () => {
+    const m = items()
+    // Entry 20 carries itemId 0 in the fixture, like the real unused ids.
+    expect(m.entries[20]).toBeDefined()
+    expect(m.entries[21].name).toBe('ITEM21')
+    expect(m.read(21).price).toBe(210)
+  })
+})

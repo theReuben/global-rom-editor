@@ -885,6 +885,7 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     evolutions: evosMoves?.evolutions ?? null,
     learnsets: evosMoves?.learnsets ?? null,
     eggMoves: null,
+    itemModule: null,
     typeChart: typeChart?.module ?? null,
     speciesNameLength: namesOff !== null ? NAME_LEN : null,
 

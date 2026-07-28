@@ -15,6 +15,7 @@ import { buildWildModule } from '../gba/wild'
 import { buildEvolutions, buildLearnsets, buildTypeChart, buildTmhmCompat, TMHM_BITS } from '../gba/species-extras'
 import { buildSpriteViewer } from '../gba/sprites'
 import { buildGen3EggMoves } from '../gba/eggmoves'
+import { buildGen3Items } from '../gba/items'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
 import type {
   EntryHandle,
@@ -196,24 +197,27 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     warnings.push("Couldn't verify the map data structures — map editing is disabled for this ROM.")
   }
 
-  // Item names: 44-byte item entries starting with a 14-byte name.
+  // Item data: 44-byte entries starting with a 14-byte name. Discovery
+  // is structural (every entry stores its own index) because the item
+  // editor makes the names editable — a name anchor would break the
+  // moment someone renamed MASTER BALL. The name anchor is still used
+  // as an independent cross-check.
+  const itemGameCode = String.fromCharCode(...bytes.subarray(0xac, 0xb0)).replace(/[^ -~]/g, '')
+  const items = buildGen3Items(rom, itemGameCode)
   let itemOptions: SelectOption[] | null = null
-  const masterBall = findVerified(bytes, [...gen3Bytes('MASTER BALL'), 0xff], [
-    { delta: 44, pattern: [...gen3Bytes('ULTRA BALL'), 0xff] },
-  ])
-  if (masterBall !== null) {
-    const itemsOff = masterBall - 44
-    itemOptions = [{ value: 0, label: '— none —' }]
-    for (let i = 1; i < 500; i++) {
-      const name = gen3Codec.decode(bytes.subarray(itemsOff + i * 44, itemsOff + i * 44 + 14))
-      if (name.length < 1 || name.length > 14 || /\?{3,}/.test(name)) {
-        if (i > 300) break // past the real table
-        itemOptions.push({ value: i, label: `Item #${i}` })
-        continue
-      }
-      itemOptions.push({ value: i, label: name })
+  if (items) {
+    const masterBall = findVerified(bytes, [...gen3Bytes('MASTER BALL'), 0xff], [
+      { delta: 44, pattern: [...gen3Bytes('ULTRA BALL'), 0xff] },
+    ])
+    if (masterBall !== null && masterBall - 44 !== items.offset) {
+      warnings.push("The item table's name anchor and structure disagree — item editing may be unreliable.")
     }
-    regions.push({ name: 'Item data', offset: itemsOff, length: itemOptions.length * 44 })
+    itemOptions = [{ value: 0, label: '— none —' }]
+    for (let i = 1; i < items.count; i++) {
+      const name = items.module.entries[i]?.name ?? ''
+      itemOptions.push({ value: i, label: name.length > 0 && !/\?{3,}/.test(name) ? name : `Item #${i}` })
+    }
+    regions.push({ name: 'Item data', offset: items.offset, length: items.count * 44 })
   }
 
   // Evolutions, learnsets and the type chart — each optional.
@@ -427,6 +431,7 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     evolutions: evoResult?.module ?? null,
     learnsets: lsResult?.module ?? null,
     eggMoves: eggMoves?.module ?? null,
+    itemModule: items?.module ?? null,
     typeChart: chartResult?.module ?? null,
     speciesNameLength: namesOff !== null ? NAME_LEN - 1 : null,
 

@@ -6,6 +6,7 @@
  * Adding support for a new game = writing one adapter, zero UI changes.
  */
 import type { Rom } from '../rom'
+import type { ItemModule } from '../gba/items'
 
 export type FieldKind =
   | 'number' // plain numeric byte/word
@@ -49,6 +50,8 @@ export interface TableRegion {
   offset: number
   length: number
 }
+
+export type { ItemModule }
 
 export interface GameAdapter {
   /** e.g. "Pokémon FireRed (BPRE)". */
@@ -95,6 +98,8 @@ export interface GameAdapter {
   learnsets: LearnsetModule | null
   /** Egg move editing (null = not supported / not found). */
   eggMoves: EggMoveModule | null
+  /** Item data editing (null = not supported / not found). */
+  itemModule: ItemModule | null
   /** Type effectiveness chart editing (null = not supported / not found). */
   typeChart: TypeChartModule | null
   /** Wild encounter editing, when supported for this game (null = not yet). */
