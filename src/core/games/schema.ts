@@ -93,6 +93,8 @@ export interface GameAdapter {
   evolutions: EvolutionModule | null
   /** Level-up learnset editing (null = not supported / not found). */
   learnsets: LearnsetModule | null
+  /** Egg move editing (null = not supported / not found). */
+  eggMoves: EggMoveModule | null
   /** Type effectiveness chart editing (null = not supported / not found). */
   typeChart: TypeChartModule | null
   /** Wild encounter editing, when supported for this game (null = not yet). */
@@ -198,6 +200,19 @@ export interface LearnsetModule {
   read(id: number): LearnsetEntry[]
   /** Replace the whole list; relocates to free space when it grows. */
   write(id: number, entries: LearnsetEntry[]): boolean
+}
+
+export interface EggMoveModule {
+  /** Most moves per species the game will read back. */
+  maxMoves: number
+  read(id: number): number[]
+  /**
+   * Replace the whole list; an empty list drops the species from the
+   * table. Relocates when the table outgrows its footprint.
+   */
+  write(id: number, moves: number[]): boolean
+  /** Species that currently have egg moves, in table order. */
+  species(): number[]
 }
 
 export interface TypeChartEntry {

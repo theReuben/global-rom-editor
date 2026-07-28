@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FieldSpec, GameAdapter } from '../core/games/schema'
 import { EntryList } from './EntryList'
 import { FieldEditor } from './FieldEditor'
-import { EvolutionCard, LearnsetCard } from './SpeciesExtras'
+import { EggMoveCard, EvolutionCard, LearnsetCard } from './SpeciesExtras'
 
 function OneSprite({
   render,
@@ -244,6 +244,7 @@ export function SpeciesPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
 
         {adapter.evolutions && <EvolutionCard adapter={adapter} speciesId={selected} onEdit={onEdit} />}
         {adapter.learnsets && <LearnsetCard adapter={adapter} speciesId={selected} onEdit={onEdit} />}
+        {adapter.eggMoves && <EggMoveCard adapter={adapter} speciesId={selected} onEdit={onEdit} />}
 
         {[...groups.entries()]
           .filter(([g]) => g !== 'stats')

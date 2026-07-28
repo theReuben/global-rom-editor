@@ -14,6 +14,7 @@ import { buildTrainerModule } from '../gba/trainers'
 import { buildWildModule } from '../gba/wild'
 import { buildEvolutions, buildLearnsets, buildTypeChart, buildTmhmCompat, TMHM_BITS } from '../gba/species-extras'
 import { buildSpriteViewer } from '../gba/sprites'
+import { buildGen3EggMoves } from '../gba/eggmoves'
 import { EGG_GROUPS, GEN3_GROWTH, GEN3_TYPES, GENDER_RATIOS } from './data'
 import type {
   EntryHandle,
@@ -224,6 +225,10 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
   if (lsResult) {
     regions.push({ name: 'Learnset pointers', offset: lsResult.offset, length: (SPECIES_COUNT + 1) * 4 })
   }
+  const eggMoves = buildGen3EggMoves(rom, SPECIES_COUNT, MOVE_COUNT)
+  if (eggMoves) {
+    regions.push({ name: 'Egg moves', offset: eggMoves.offset, length: eggMoves.length })
+  }
   const tmhm = buildTmhmCompat(rom)
   if (tmhm) {
     regions.push({ name: 'TM/HM compatibility', offset: tmhm.offset, length: (SPECIES_COUNT + 1) * 8 })
@@ -421,6 +426,7 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     importSpeciesSpriteBack: spriteViewer?.importBack ? (id, image) => spriteViewer!.importBack!(id, image) : null,
     evolutions: evoResult?.module ?? null,
     learnsets: lsResult?.module ?? null,
+    eggMoves: eggMoves?.module ?? null,
     typeChart: chartResult?.module ?? null,
     speciesNameLength: namesOff !== null ? NAME_LEN - 1 : null,
 

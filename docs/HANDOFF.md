@@ -401,14 +401,63 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    u16 is the ball capsule instead of padding), so buildGen4Trainers is
    reused unchanged.
 
+6. **Gen 3 egg moves: SHIPPED** (`src/core/gba/eggmoves.ts`).
+   `gEggMoves` is not a per-species table but ONE flat u16 array:
+   entries are a marker word `species + 20000` followed by that
+   species' move ids, whole array terminated by 0xFFFF, species with
+   no egg moves simply absent. The game linear-scans for the marker and
+   reads forward until the next word above 20000, so at most
+   EGG_MOVES_ARRAY_COUNT = 10 moves per species are reachable (real
+   data uses 1-8).
+
+   There is no stride to key on, so a signature would have to be one
+   species' moves — which breaks the moment that species is edited.
+   Discovery is therefore structural: every aligned word in the marker
+   range is tried as a table start, runs are parsed under strict rules
+   (strictly ascending species, move ids in 1..MOVE_COUNT, 0xFFFF
+   terminator), and candidates are taken longest-first. The second,
+   independent confirmation is that the game's 32-bit pointer to the
+   candidate must exist — length alone never decides. Because the
+   pointer is what confirms, MIN_ENTRIES can stay low (8), so deleting
+   most species' egg moves cannot shrink the table out of
+   discoverability; below the floor the module cleanly disappears
+   instead of guessing.
+
+   Writes rebuild the whole array (replace / insert in dex order /
+   drop on an empty list) and stay in place while it fits, relocating
+   via `relocate()` with pointer retarget when it grows.
+
+   Validated on built Emerald + FireRed, whose tables are byte-
+   identical: 165 entries / 2278 bytes, species 1-411, exactly ONE
+   pointer to the table in each ROM. Discovery lands on the `gEggMoves`
+   address from each .map file exactly; same-length edit, shrink,
+   species removal, and a bulk grow of 250 species (forcing relocation
+   to 0xdb7acc / 0x9ee1f8) all reload with zero warnings and read back
+   250/250, with species/moves/maps/learnsets/evolutions/type chart all
+   still discovered afterwards; `revertAll` is byte-perfect.
+
+   Gen 4 uses the same 20000-marker format (pokeheartgold
+   src/get_egg.c, MAX_EGG_MOVES = 16, 2045-word array) but its list is
+   an UNEXTRACTED narc — NARC id 231 sits between a/2/2/8 and a/2/3/0,
+   so `/a/2/2/9` — with no buildable ground truth here. Left disabled
+   rather than shipped on a source-only reading. Gen 1/2 are untouched
+   (Gen 1 has no breeding; Gen 2's format is a different pointer-table
+   shape and would need pokecrystal built to validate).
+
 ## What's genuinely left (checked 2026-07-12)
 
 - Gen 5 move data + trainers + wild: blocked on a verifiable source
   (no decomp; PKHeX reads pre-extracted resources, not ROM bytes).
 - Gen 5 sprites: B/W NCGRs are 96x96 and unscrambled per community
   docs — needs a verifiable reference before shipping.
-- Gen 4 TM->move labels (table lives in the compressed arm9 — hard)
-  and DS map editing (out of near-term scope). Gen 4 evolutions can't be
+- Gen 4 TM->move labels: `sTMHMMoves` is a `static const` in
+  pokeheartgold src/item.c, so it compiles into arm9 — which needs the
+  Metrowerks compiler we can't run, and the decomp ships no BLZ tool
+  either. No path to ground truth in this container; don't ship it on a
+  guess.
+- Gen 4 egg moves: format is source-verified but the list is an
+  unextracted NARC (/a/2/2/9) — see roadmap item 6.
+- DS map editing (out of near-term scope). Gen 4 evolutions can't be
   byte-validated until a real evo.narc surfaces (struct is
   source-verified; wotbl was validated against the repo's real
   prebuilt binary).

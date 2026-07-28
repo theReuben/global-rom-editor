@@ -77,6 +77,75 @@ export function LearnsetCard({
   )
 }
 
+/**
+ * Egg move editor card. Unlike the level-up learnset these are stored
+ * in one shared array, so a species with no egg moves simply has no
+ * entry — "+ Add move" creates one and removing the last drops it.
+ */
+export function EggMoveCard({
+  adapter,
+  speciesId,
+  onEdit,
+}: {
+  adapter: GameAdapter
+  speciesId: number
+  onEdit: () => void
+}) {
+  const module = adapter.eggMoves!
+  const [error, setError] = useState(false)
+  const moves = module.read(speciesId)
+
+  const apply = (next: number[]) => {
+    const ok = module.write(speciesId, next)
+    setError(!ok)
+    if (ok) onEdit()
+  }
+
+  return (
+    <section className="card">
+      <h3>
+        Egg moves{' '}
+        <span className="bst">
+          {moves.length} of {module.maxMoves}
+        </span>
+      </h3>
+      {moves.length === 0 && (
+        <p className="muted small">This species has no egg moves — breeding passes nothing down.</p>
+      )}
+      <div className="learnset-list">
+        {moves.map((move, i) => (
+          <div className="wild-slot" key={i}>
+            <select
+              value={move}
+              onChange={(ev) => apply(moves.map((m, j) => (j === i ? Number(ev.target.value) : m)))}
+            >
+              {!adapter.moves.some((m) => m.id === move) && <option value={move}>Move #{move}</option>}
+              {adapter.moves.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            <button className="ghost event-remove" onClick={() => apply(moves.filter((_, j) => j !== i))}>
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="button-row" style={{ marginTop: 10 }}>
+        <button
+          disabled={moves.length >= module.maxMoves}
+          onClick={() => apply([...moves, adapter.moves[0]?.id ?? 1])}
+        >
+          + Add move
+        </button>
+        {moves.length >= module.maxMoves && (
+          <span className="name-hint">The game only reads {module.maxMoves} egg moves per species.</span>
+        )}
+        {error && <span className="name-hint">Couldn't write (out of free space?).</span>}
+      </div>
+    </section>
+  )
+}
+
 /** Evolution editor card. */
 export function EvolutionCard({
   adapter,

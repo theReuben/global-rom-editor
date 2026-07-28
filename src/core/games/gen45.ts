@@ -890,6 +890,9 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     importSpeciesSpriteBack: pokegra ? (id, image) => pokegra!.importBack(id, image) : null,
     evolutions,
     learnsets,
+    // The Gen 4 egg move list is an unextracted NARC (/a/2/2/9) — no
+    // buildable ground truth here, so it stays off rather than guessed.
+    eggMoves: null,
     typeChart: null,
     // Msg-bank rename: written in place when the new name fits the
     // entry's original allocation; otherwise the bank is rebuilt and
