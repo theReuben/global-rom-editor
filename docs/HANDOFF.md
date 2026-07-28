@@ -477,15 +477,47 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    `revertAll` all round-trip with zero warnings; and renaming MASTER
    BALL — or all of the first 60 items — still re-discovers the table.
 
-   NOT shipped: description editing. Item descriptions use charmap
-   bytes the editor's `gen3Codec` lacks — 0x57/0x58/0x59 are the
-   composite glyphs BL/OC/K (so `<55><56><57><58><59>` spells
-   "POKéBLOCK"), plus 0x5B '%', 0xF0 ':' and 0x2D '&'. Adding them is
-   not a pure win: `gen3Codec` builds its encode map from the same
-   pairs list, and 0x59 -> 'K' is a single character that would hijack
-   encoding of the letter K (correctly 0xC5). Descriptions need a
-   decode-only channel in the codec first; until then editing them
-   would silently mangle every Pokéblock/berry string.
+   Description editing: SHIPPED, on top of the codec work in item 8.
+
+8. **Gen 3 charmap completed + decode-only channel: SHIPPED.**
+   `buildMaps` now takes a second `decodeOnly` list whose entries reach
+   the decode map only. That exists because Gen 3 composite glyphs
+   decompose into text that collides with real letters: charmap.txt has
+   `PKMN = 53 54` and `POKEBLOCK = 55 56 57 58 59`, so 0x57/0x58/0x59
+   render BL/OC/K — and a naive `0x59 -> 'K'` pair would hijack the
+   letter K, which must encode to 0xC5. First-wins ordering happened to
+   protect this already, but the explicit channel makes it robust to
+   reordering.
+
+   69 single-character glyphs were missing from GEN3_PAIRS and are now
+   transcribed from pokeemerald charmap.txt (English section, above
+   "@ Hiragana"): the accented capitals/lowercase, plus & + = ; ¿ ¡ Í %
+   ( ) â í < > · … “ ” ‘ ¥ × ▶ : Ä Ö Ü ä ö ü. 0xFF is the terminator,
+   NOT a printable '$', and is deliberately excluded. One intentional
+   deviation: charmap.txt calls 0xB4 '’', but we decode it as a plain
+   apostrophe (what people type) and accept both on encode.
+
+   New `gen3DecodeText` / `gen3EncodeText` handle running text rather
+   than fixed-width name fields, mapping the game's line break
+   (`'\n' = FE`) to and from "\n".
+
+   Validated on built Emerald + FireRed: all 377/375 item descriptions
+   now decode with ZERO unknown glyphs (previously several dozen bytes
+   fell through to '?'). Byte-exact re-encoding is 361/377 and 374/375
+   — every exception is a composite-glyph string, which decodes to more
+   characters than it encoded from (the 5-byte POKéBLOCK becomes 9
+   letters). That is not corruption: it displays identically and simply
+   needs more room, which the relocation path handles.
+
+   Item description editing rides on this. Writes go in place only when
+   the text fits AND no other item points at the same string — the
+   unused item ids all share one placeholder description, so editing one
+   of them relocates instead of silently rewriting its siblings.
+   Validated on both ROMs: shorter edits stay in place, longer ones
+   relocate and retarget with zero warnings on reload, POKéBLOCK
+   descriptions re-save and read back identical, editing a shared
+   placeholder leaves its siblings untouched, unsupported characters are
+   refused, and revert is byte-perfect.
 
 ## What's genuinely left (checked 2026-07-12)
 

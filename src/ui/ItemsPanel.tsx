@@ -47,6 +47,51 @@ function ItemNameEditor({
   )
 }
 
+function DescriptionEditor({
+  adapter,
+  id,
+  onEdit,
+}: {
+  adapter: GameAdapter
+  id: number
+  onEdit: () => void
+}) {
+  const module = adapter.itemModule!
+  const current = module.description(id)
+  const [draft, setDraft] = useState(current)
+  const [error, setError] = useState<string | null>(null)
+
+  const commit = () => {
+    if (draft === current) return
+    if (module.setDescription(id, draft)) {
+      setError(null)
+      onEdit()
+    } else {
+      setError("Couldn't write — unsupported characters, or no free space to move the text into.")
+      setDraft(current)
+    }
+  }
+
+  return (
+    <section className="card">
+      <h3>Description</h3>
+      <textarea
+        className={`desc-input ${error ? 'invalid' : ''}`}
+        rows={4}
+        value={draft}
+        onChange={(e) => {
+          setError(null)
+          setDraft(e.target.value)
+        }}
+        onBlur={commit}
+      />
+      <p className="muted small">
+        {error ?? 'Each line break is a new line in the game’s text box — keep lines short.'}
+      </p>
+    </section>
+  )
+}
+
 export function ItemsPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: () => void }) {
   const module = adapter.itemModule!
   const [selected, setSelected] = useState<number>(module.entries[1] ? 1 : 0)
@@ -92,6 +137,7 @@ export function ItemsPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: 
             ))}
           </div>
         </section>
+        <DescriptionEditor adapter={adapter} id={selected} onEdit={onEdit} />
       </div>
     </div>
   )

@@ -28,8 +28,8 @@
  */
 import type { Rom } from '../rom'
 import type { EntryHandle, FieldSpec, FieldValue, SelectOption } from '../games/schema'
-import { gen3Codec } from '../text'
-import { readGbaPointer } from '../freespace'
+import { gen3Codec, gen3DecodeText, gen3EncodeText } from '../text'
+import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 
 export const ITEM_ENTRY = 44
 const NAME_LEN = 14
@@ -103,6 +103,13 @@ export interface ItemModule {
   read(id: number): Record<string, FieldValue>
   write(id: number, key: string, value: FieldValue): void
   setName(id: number, name: string): boolean
+  /** Description text, with the game's line breaks as "\n". */
+  description(id: number): string
+  /**
+   * Rewrite the description. Writes in place only when it fits AND the
+   * string is this item's alone; otherwise relocates and retargets.
+   */
+  setDescription(id: number, text: string): boolean
   revert(id: number): void
 }
 
@@ -198,6 +205,50 @@ export function buildGen3Items(
     return true
   }
 
+  const descriptionAt = (id: number): { at: number; length: number } | null => {
+    const at = readGbaPointer(bytes, entryAt(id) + OFF.description)
+    if (at === null) return null
+    let end = at
+    while (end < bytes.length && bytes[end] !== 0xff) end++
+    return { at, length: end - at } // excluding the terminator
+  }
+
+  const description = (id: number): string => {
+    const d = descriptionAt(id)
+    return d ? gen3DecodeText(bytes.subarray(d.at, d.at + d.length)) : ''
+  }
+
+  /** True when another item points at the same string. */
+  const isShared = (id: number, at: number): boolean => {
+    for (let i = 0; i < count; i++) {
+      if (i === id) continue
+      if (readGbaPointer(bytes, entryAt(i) + OFF.description) === at) return true
+    }
+    return false
+  }
+
+  const setDescription = (id: number, text: string): boolean => {
+    if (id < 0 || id >= count) return false
+    const d = descriptionAt(id)
+    if (!d) return false
+    const encoded = gen3EncodeText(text)
+    if (!encoded) return false
+    const data = Uint8Array.from([...encoded, 0xff])
+    // Unused item slots all share one placeholder string, and the
+    // composite POKéBLOCK glyphs re-encode longer than they decoded, so
+    // both cases route through relocation instead of clobbering a
+    // neighbour's text or overrunning the original.
+    if (data.length <= d.length + 1 && !isShared(id, d.at)) {
+      rom.writeBytes(d.at, data)
+      return true
+    }
+    const dest = findFreeSpaceAtEnd(bytes, data.length)
+    if (dest === null) return false
+    rom.writeBytes(dest, data)
+    writeGbaPointer(rom, entryAt(id) + OFF.description, dest)
+    return true
+  }
+
   const revert = (id: number): void => {
     if (id < 0 || id >= count) return
     rom.revertRange(entryAt(id), ITEM_ENTRY)
@@ -212,6 +263,8 @@ export function buildGen3Items(
       read,
       write,
       setName,
+      description,
+      setDescription,
       revert,
     },
     offset: base,

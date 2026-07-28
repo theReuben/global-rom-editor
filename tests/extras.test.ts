@@ -466,3 +466,48 @@ describe('Gen 3 items', () => {
     expect(m.read(21).price).toBe(210)
   })
 })
+
+describe('Gen 3 item descriptions', () => {
+  it('reads a multi-line description', () => {
+    const m = load().itemModule!
+    expect(m.description(1)).toBe('Catches a POKéMON.\nSecond line.')
+  })
+
+  it('rewrites a shorter description in place', () => {
+    const a = load()
+    const m = a.itemModule!
+    expect(m.setDescription(1, 'Short.')).toBe(true)
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    expect(re.itemModule!.description(1)).toBe('Short.')
+    // Items 2 and 3 have their own strings and must be untouched.
+    expect(re.itemModule!.description(2)).toBe('Catches a POKéMON.\nSecond line.')
+  })
+
+  it('relocates and retargets when the description grows', () => {
+    const a = load()
+    const m = a.itemModule!
+    const long = 'A much longer description than\nthe original one, needing a new\nhome in free space.'
+    expect(m.setDescription(2, long)).toBe(true)
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    expect(re.itemModule!.description(2)).toBe(long)
+    expect(re.itemModule!.description(3)).toBe('Catches a POKéMON.\nSecond line.')
+    expect(re.itemModule!.read(2).price).toBe(20) // entry otherwise intact
+  })
+
+  it('never edits a string in place while other items share it', () => {
+    const a = load()
+    const m = a.itemModule!
+    // Items 4+ all point at the shared placeholder string.
+    const before = m.description(5)
+    expect(m.setDescription(4, 'Mine alone.')).toBe(true)
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    expect(re.itemModule!.description(4)).toBe('Mine alone.')
+    expect(re.itemModule!.description(5)).toBe(before)
+  })
+
+  it('refuses characters the game cannot display', () => {
+    const m = load().itemModule!
+    expect(m.setDescription(1, 'nope \u{1F600}')).toBe(false)
+    expect(m.description(1)).toBe('Catches a POKéMON.\nSecond line.')
+  })
+})

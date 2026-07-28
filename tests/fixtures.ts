@@ -536,8 +536,15 @@ function addClassNames(rom: Uint8Array): void {
  */
 function addItemData(rom: Uint8Array): void {
   const items = 0x3a0000
+  // One shared placeholder string (like the real unused ids) plus a
+  // private string for items 1-3, so both the in-place and the
+  // relocate-because-shared paths are reachable.
   const desc = 0x3a4000
   put(rom, desc, [...gen3Bytes('A TEST ITEM.'), 0xff])
+  const ownDesc = (i: number) => 0x3a4100 + i * 0x40
+  for (let i = 1; i <= 3; i++) {
+    put(rom, ownDesc(i), [...gen3Bytes('Catches a POKéMON.'), 0xfe, ...gen3Bytes('Second line.'), 0xff])
+  }
   const names = ['??????????', 'MASTER BALL', 'ULTRA BALL', 'POTION']
   for (let i = 0; i < 120; i++) {
     const o = items + i * 44
@@ -546,7 +553,7 @@ function addItemData(rom: Uint8Array): void {
     put(rom, o + 16, u16s(i * 10)) // price
     rom[o + 18] = i % 7 // holdEffect
     rom[o + 19] = i % 5 // holdEffectParam
-    put(rom, o + 20, ptr(desc))
+    put(rom, o + 20, ptr(i >= 1 && i <= 3 ? ownDesc(i) : desc))
     rom[o + 24] = 0 // importance
     rom[o + 26] = (i % 5) + 1 // pocket
     rom[o + 27] = i % 3 // type
