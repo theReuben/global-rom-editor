@@ -391,7 +391,45 @@ export function makeGen2Rom(): Uint8Array {
   putw([0xff])
   putw([0xff]) // empty Kanto grass
   putw([0xff]) // empty Kanto water
+
+  addEggMoves(rom)
   return rom
+}
+
+/**
+ * Egg moves in bank 8, mirroring pokecrystal: 251 dex-order bank-local
+ * pointers followed by the lists, with every species that has no egg
+ * moves sharing one pointer to a lone 0xFF terminator.
+ */
+function addEggMoves(rom: Uint8Array): void {
+  const table = 0x20000 // bank 8, address 0x4000
+  const sample: [number, number[]][] = [
+    [1, [113, 130, 219, 13, 80]],
+    [4, [187, 246, 157, 44, 200, 251]],
+    [7, [50, 174, 95]],
+    [10, [1, 2]],
+    [13, [3]],
+    [16, [4, 5, 6]],
+    [19, [7]],
+    [22, [8, 9]],
+    [25, [10, 11, 12]],
+    [28, [13]],
+    [31, [14, 15]],
+    [34, [16]],
+  ]
+  const listAt = new Map<number, number>()
+  let cursor = table + 251 * 2
+  for (const [dex, moves] of sample) {
+    listAt.set(dex, cursor)
+    put(rom, cursor, [...moves, 0xff])
+    cursor += moves.length + 1
+  }
+  const empty = cursor // the shared "no egg moves" terminator
+  rom[cursor] = 0xff
+  for (let dex = 1; dex <= 251; dex++) {
+    const off = listAt.get(dex) ?? empty
+    put(rom, table + (dex - 1) * 2, u16s((off % 0x4000) + 0x4000))
+  }
 }
 
 /* --------------------------------------------------------------- Gen 3 */

@@ -8,6 +8,7 @@ import { Rom } from '../rom'
 import { findGbBankFreeSpace } from '../freespace'
 import { buildGen2Maps } from '../gb/gen2maps'
 import { buildGbEvosMoves } from '../gb/evosmoves'
+import { buildGen2EggMoves } from '../gb/eggmoves'
 import { buildGbTypeChart } from '../gb/typechart'
 import { buildGen2Sprites } from '../gb/gen2sprites'
 import { findAll, findByVote, findVerified } from '../scan'
@@ -846,6 +847,13 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     regions.push({ name: 'Evolutions & learnsets', offset: evosMoves.tableOff, length: COUNT * 2 })
   }
 
+  // Egg moves (EggMovePointers, dex order — src/core/gb/eggmoves.ts).
+  // Gen 2 has 251 moves, the same count as species.
+  const eggMoves = buildGen2EggMoves(rom, { entries: COUNT, moveCount: COUNT })
+  if (eggMoves) {
+    regions.push({ name: 'Egg move pointers', offset: eggMoves.tableOff, length: eggMoves.length })
+  }
+
   // Sprites (front + back, per-species palettes with shiny variants).
   const sprites = buildGen2Sprites(rom, statsOff, STATS_ENTRY, COUNT)
   if (sprites) {
@@ -884,7 +892,7 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     importSpeciesSpriteBack: sprites ? (id, image) => sprites.importBack(id, image) : null,
     evolutions: evosMoves?.evolutions ?? null,
     learnsets: evosMoves?.learnsets ?? null,
-    eggMoves: null,
+    eggMoves: eggMoves?.module ?? null,
     itemModule: null,
     typeChart: typeChart?.module ?? null,
     speciesNameLength: namesOff !== null ? NAME_LEN : null,
