@@ -10,6 +10,11 @@ import {
   parseNarc,
   rebuildNarcWithSubfile,
 } from '../src/core/nds/nds'
+import {
+  descramblePokegraChar,
+  pokegraCharSeed,
+  scramblePokegraChar,
+} from '../src/core/nds/pokegra'
 import { buildNarc } from './fixtures'
 
 function put(buf: Uint8Array, off: number, bytes: ArrayLike<number>): void {
@@ -296,5 +301,53 @@ describe('NARC rebuilding', () => {
     // Total-size field matches the buffer.
     const total = out[8] | (out[9] << 8) | (out[10] << 16) | (out[11] << 24)
     expect(total).toBe(out.length)
+  })
+})
+
+describe('pokegra sprite scrambling', () => {
+  // The LCRNG walk is its own inverse for a given seed; the direction is
+  // all that differs between D/P ("back to front") and Pt/HGSS
+  // ("front to back") — see nitrogfx gfx.c Decode/Encode.
+  const sample = () =>
+    Uint8Array.from({ length: 6400 }, (_, i) => (i * 37 + (i >> 3)) & 0xff)
+
+  it('round-trips a scramble through descramble in both modes', () => {
+    for (const mode of ['dp', 'pt'] as const) {
+      const plain = sample()
+      // The anchor word must be zero — the loader recovers its seed there.
+      const anchor = mode === 'dp' ? plain.length - 2 : 0
+      plain[anchor] = 0
+      plain[anchor + 1] = 0
+
+      const scrambled = plain.slice()
+      scramblePokegraChar(scrambled, mode, 0x1234)
+      expect([...scrambled]).not.toEqual([...plain])
+      // The seed lands in the anchor word, exactly where the game reads it.
+      expect(pokegraCharSeed(scrambled, mode)).toBe(0x1234)
+
+      const back = scrambled.slice()
+      descramblePokegraChar(back, mode)
+      expect([...back]).toEqual([...plain])
+    }
+  })
+
+  it('descrambles any buffer to a zero anchor word', () => {
+    for (const mode of ['dp', 'pt'] as const) {
+      const data = sample()
+      const anchor = mode === 'dp' ? data.length - 2 : 0
+      descramblePokegraChar(data, mode)
+      expect(data[anchor] | data[anchor + 1]).toBe(0)
+    }
+  })
+
+  it('re-scrambling with the original seed reproduces the source bytes', () => {
+    for (const mode of ['dp', 'pt'] as const) {
+      const original = sample()
+      const seed = pokegraCharSeed(original, mode)
+      const plain = original.slice()
+      descramblePokegraChar(plain, mode)
+      scramblePokegraChar(plain, mode, seed)
+      expect([...plain]).toEqual([...original])
+    }
   })
 })

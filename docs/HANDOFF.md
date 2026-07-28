@@ -181,6 +181,18 @@ git clone --depth 1 https://github.com/pret/pokered   # and/or pokeyellow
 cd pokered && make -j$(nproc) red    # ~2 min → pokered.gbc (1 MiB)
 ```
 
+DS assets need no ARM compiler — the pokegra archive builds from the
+decomp's own PNGs with the plain-C asset tools, and `parseNarc` +
+`buildPokegra` accept the bare NARC (no .nds container needed), so the
+sprite path can be validated end to end against real data:
+
+```bash
+git clone --depth 1 https://github.com/pret/pokeheartgold   # ~264 MiB
+cd pokeheartgold && make -C tools/nitrogfx && make -C tools/nitroarc
+make files/poketool/pokegra/pokegra.narc -j$(nproc)   # ~1 min, 11.7 MiB
+# 2964 subfiles = 494 species × 6; feed it to buildPokegra with mode 'pt'
+```
+
 Expected on both: zero warnings; Emerald 411 species / 354 moves /
 518 maps / 854 trainers / 116 wild maps / 110 type matchups; FireRed
 411 / 354 / 425 / 718 / 124 / 110. After ANY write feature, re-run
@@ -319,8 +331,44 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    retargeted — front and back share the mon's bank, so the content
    bank-resolution stays valid. Validated on built Red + Yellow:
    import front/back, reload with zero new warnings, all 151 still
-   render, imported art pixel-exact. Only DS sprite import remains
-   (needs the NCGR re-scramble).
+   render, imported art pixel-exact.
+
+   **Gen 4 (DS) sprite import: SHIPPED** — sprite import now covers
+   every supported generation. The scramble walk is its own inverse for
+   a given seed, so `xorStream` (src/core/nds/pokegra.ts) serves both
+   directions; only the seed's origin differs. Reference: nitrogfx
+   `gfx.c` Decode/Encode — Encode runs the LCRNG backwards with the
+   inverse multiplier 4005161829 from the terminal state, which is
+   equivalent to walking forwards from the initial seed (what we do).
+   The loader takes its seed from the word the walk *starts* on, so
+   that word necessarily descrambles to zero: import forces it (four
+   corner pixels — frame 0's top-left for Pt/HGSS, the last pixels for
+   D/P), because a non-zero anchor decodes the whole sprite as noise.
+   Import reuses the slot's existing seed so unchanged art re-encodes
+   to the original bytes, keeping revert and IPS diffs clean. Char data
+   and the 16-color palette both keep their exact footprint, so the
+   write is in place — no NARC repack. Slot resolution is male-first
+   with a female fallback, matching the renderer (the Nidoran♀ line,
+   species 29-31, has an EMPTY male slot — a validation script that
+   assumes slot +3 will silently skip them).
+
+   Validated against the real HGSS `pokegra.narc` built here from
+   pokeheartgold assets with nitrogfx + nitroarc (2964 subfiles / 494
+   species): all 1812 NCGRs descramble to a zero anchor and re-scramble
+   byte-exactly with their recovered seed; importing into 60 species
+   and re-parsing the edited archive renders the imported art
+   pixel-exact 60/60, both animation frames carry it, no subfile
+   outside the edited species changes, and `revertAll` restores the
+   archive byte for byte. Facts confirmed against that archive (not
+   from memory): char data is always 6400 bytes / 20×10 tiles with the
+   "scanned" linear flag set; palette subfiles are 72 bytes with 16
+   BGR555 colors at TTLP+0x18. Known display quirk, shared with the
+   Gen 1/2/3 importers: the viewer renders palette slot 0 as white, so
+   re-importing a *displayed* sprite collapses genuine white pixels
+   into the transparent slot (Pikachu has real white at index 15 and a
+   lavender slot 0). Front and back share slot 4, so the sprite
+   imported last defines the colors of both; the shiny palette (slot 5)
+   is left untouched.
 4. **Gen 4 text codec: SHIPPED (read-only).** `src/core/nds/msgdata.ts`
    decodes msg banks: u16 count + u16 key header; per-entry
    {u32 offset,u32 length} XORed with `key*765*(n+1) & 0xFFFF`
@@ -359,9 +407,8 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
   (no decomp; PKHeX reads pre-extracted resources, not ROM bytes).
 - Gen 5 sprites: B/W NCGRs are 96x96 and unscrambled per community
   docs — needs a verifiable reference before shipping.
-- Gen 4 TM->move labels (table lives in the compressed arm9 — hard),
-  DS sprite import (needs the NCGR re-scramble) and DS map editing
-  (both out of near-term scope). Gen 4 evolutions can't be
+- Gen 4 TM->move labels (table lives in the compressed arm9 — hard)
+  and DS map editing (out of near-term scope). Gen 4 evolutions can't be
   byte-validated until a real evo.narc surfaces (struct is
   source-verified; wotbl was validated against the repo's real
   prebuilt binary).

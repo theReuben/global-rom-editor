@@ -707,7 +707,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     const file = findNdsFile(files, GRA_PATHS[code3].path)
     const subs = file ? parseNarc(bytes, file.start) : null
     if (subs && subs.length > 600) {
-      pokegra = buildPokegra(bytes, subs, GRA_PATHS[code3].mode, personal.length - 1)
+      pokegra = buildPokegra(rom, subs, GRA_PATHS[code3].mode, personal.length - 1)
     }
   }
 
@@ -886,8 +886,8 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     speciesSprite: pokegra ? (id, shiny) => pokegra!.front(id, shiny ?? false) : null,
     speciesSpriteBack: pokegra ? (id, shiny) => pokegra!.back(id, shiny ?? false) : null,
     hasShinySprites: pokegra !== null,
-    importSpeciesSprite: null,
-    importSpeciesSpriteBack: null,
+    importSpeciesSprite: pokegra ? (id, image) => pokegra!.importFront(id, image) : null,
+    importSpeciesSpriteBack: pokegra ? (id, image) => pokegra!.importBack(id, image) : null,
     evolutions,
     learnsets,
     typeChart: null,
