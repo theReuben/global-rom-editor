@@ -200,6 +200,63 @@ Expected on both: zero warnings; Emerald 411 species / 354 moves /
 the acid test that written structures are game-shaped. Never commit the
 built ROMs.
 
+## Building DS data without Metrowerks
+
+The blocker for DS validation was always "you can't build a DS ROM here".
+True, but irrelevant for MOST validation: the *data tables* build without
+MWCC. `jsonproc` emits plain C from the decomp's JSON, and
+`arm-none-eabi-gcc` compiles it — the NitroSDK headers are what need
+Metrowerks, not the data. Give it a shim with the struct under test
+copied verbatim from the decomp, and the compiler lays the bytes out for
+you:
+
+```bash
+cd pokeheartgold && make -C tools/jsonproc
+tools/jsonproc/jsonproc files/poketool/personal/personal.json \
+  files/poketool/personal/personal.json.txt /tmp/personal.c
+# shim.h: u8/u16/u32 typedefs + `struct BaseStats` copied from
+# include/pokemon_types_def.h + the constants/*.h includes
+grep -v '^#include "' /tmp/personal.c > personal_shim.c
+arm-none-eabi-gcc -c -O2 -I . -I pokeheartgold/include -include shim.h \
+  -o personal.o personal_shim.c
+arm-none-eabi-objcopy -O binary --only-section=.rodata personal.o personal.bin
+```
+
+Wrap the result with `buildNarc()` and a NitroFS shell
+(`makeNdsRomWithFile`, or a hand-built FNT for two files) and
+`buildAdapter` reads it exactly as it would a retail ROM. The game code
+must be the full FOUR characters ('IPKE', not 'IPK') or detection fails.
+
+Validated this way on 2026-07-28, all against real HGSS data:
+
+- **Move data** — the repo's prebuilt `waza_tbl.narc`. 471 subfiles,
+  16-byte entries. Offsets confirmed against `struct MoveTbl`
+  (include/move.h): effect u16 @0, category @2, power @3, type @4,
+  accuracy @5, pp @6, effectChance @7, range u16 @8, priority s8 @10.
+  14 public spot values exact (Pound 40/Normal/100/35; Whirlwind
+  priority -6; Quick Attack and Fake Out +1; Thunderbolt 95/10% ...)
+  and zero of the 470 moves has a field out of range.
+- **Personal/species** — compiled from `personal.json`. 508 entries ×
+  44 bytes. **57,291 fields compared across all 507 species, ZERO
+  mismatches**, including the 2-bit EV-yield bitfields at 0x0A-0x0B and
+  all 92 TM/HM flags per species. This table was previously only
+  source-verified.
+- **Evolutions** — compiled from `evo.json`. 508 × 44 bytes
+  (7 × {u16 method, param, target} + u16 pad). **10,353 fields across
+  493 species, ZERO mismatches.** Edit + reload round-trips, neighbours
+  intact, revert byte-perfect. Eevee exercises all seven slots
+  (Leafeon/Glaceon by method 25/26, three stones, happiness day/night);
+  Slowpoke branches level-37 vs trade-holding-King's-Rock.
+- **Evolution method labels** match `enum EvoMethod`
+  (include/constants/pokemon.h) one-for-one across all 27 values. Ids
+  24-26 are named CORONET/ETERNA/ROUTE217 in the decomp, but the
+  trigger is a map flag and HGSS reuses the ids for its own areas, so
+  the editor labels the MECHANIC (magnetic field / Moss Rock / Ice
+  Rock) rather than a Sinnoh location.
+
+Still unbuildable here, and so still unvalidated: anything living in
+arm9 or an overlay (TM->move list), and all of Gen 5 (no decomp).
+
 ## Signature uniqueness audit (run this when adding a signature)
 
 ```bash
@@ -424,9 +481,10 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    (any length — the NARC growth/relocation path ships as
    replaceNarcSub in gen45.ts). No DS ROM can be built in this
    container (the Metrowerks compiler isn't redistributable), but the
-   asset pipeline tools ARE plain C: nitrogfx + nitroarc built the
-   real HGSS pokegra.narc here, and the repo ships the real prebuilt
-   wotbl.narc — both used as ground truth. Gen 5 full personal
+   DATA TABLES can be — see "Building DS data without Metrowerks"
+   below. nitrogfx + nitroarc built the real HGSS pokegra.narc here,
+   the repo ships real prebuilt wotbl.narc and waza_tbl.narc, and
+   personal.narc + evo.narc were compiled from the decomp's JSON. Gen 5 full personal
    layout: SHIPPED (PKHeX-verified).
 5. **HGSS encounters + trainers: SHIPPED.** EncounterData = 0xC4-byte
    files (pret/pokeheartgold include/wild_encounter.h): 6 rate bytes +
@@ -648,10 +706,8 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
   guess.
 - Gen 4 egg moves: format is source-verified but the list is an
   unextracted NARC (/a/2/2/9) — see roadmap item 6.
-- DS map editing (out of near-term scope). Gen 4 evolutions can't be
-  byte-validated until a real evo.narc surfaces (struct is
-  source-verified; wotbl was validated against the repo's real
-  prebuilt binary).
+- DS map editing (out of near-term scope). (Gen 4 evolutions ARE now byte-validated — see
+  "Building DS data without Metrowerks".)
 
 ## Legal posture
 

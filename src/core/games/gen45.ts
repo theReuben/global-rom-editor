@@ -590,9 +590,13 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     { value: 21, label: 'Species in party' },
     { value: 22, label: 'Level (male)' },
     { value: 23, label: 'Level (female)' },
-    { value: 24, label: 'Level at Mt. Coronet' },
-    { value: 25, label: 'Level at Eterna Forest' },
-    { value: 26, label: 'Level at Route 217' },
+    // EVO_CORONET / EVO_ETERNA / EVO_ROUTE217 in the decomp, but the
+    // trigger is a map flag, not those specific maps — HGSS reuses the
+    // same ids for its own Magnet/Moss/Ice Rock areas, so the labels
+    // name the mechanic rather than a Sinnoh location.
+    { value: 24, label: 'Level in a magnetic field area' },
+    { value: 25, label: 'Level near a Moss Rock' },
+    { value: 26, label: 'Level near an Ice Rock' },
   ]
   let evoFile = findNdsFile(files, '/poketool/personal/evo.narc') ?? findNdsFile(files, '/a/0/3/4')
   const evoSubs = evoFile && fullLayout ? parseNarc(bytes, evoFile.start) : null
