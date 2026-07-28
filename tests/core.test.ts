@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Rom } from '../src/core/rom'
+import { findByVote, findVerified, scanDiagnostics } from '../src/core/scan'
 import { gen12Codec, gen3Codec, gen3Bytes, gen3DecodeText, gen3EncodeText } from '../src/core/text'
 import { createIps, applyIps } from '../src/core/ips'
 import { detectPlatform, readRomInfo } from '../src/core/detect'
@@ -131,5 +132,72 @@ describe('Gen 3 text codec', () => {
     expect(gen3EncodeText('\u{1F600}')).toBeNull()
     // 0xFF is the terminator, never a printable '$'.
     expect(gen3DecodeText(Uint8Array.from([0xbb, 0xff, 0xbb]))).toBe('A')
+  })
+})
+
+describe('scan diagnostics', () => {
+  /** Two identical blocks whose verification bytes also match. */
+  const ambiguousRom = () => {
+    const b = new Uint8Array(4096)
+    const block = [7, 7, 1, 2, 3, 4]
+    const check = [9, 9]
+    b.set(block, 100)
+    b.set(check, 100 + block.length)
+    b.set(block, 900)
+    b.set(check, 900 + block.length)
+    return { bytes: b, block, check }
+  }
+
+  it('stays off and records nothing by default', () => {
+    const { bytes, block, check } = ambiguousRom()
+    scanDiagnostics.records = []
+    findVerified(bytes, block, [{ delta: block.length, pattern: check }])
+    expect(scanDiagnostics.enabled).toBe(false)
+    expect(scanDiagnostics.records).toHaveLength(0)
+  })
+
+  it('reports an ambiguous signature — the Gen 2 wild failure mode', () => {
+    const { bytes, block, check } = ambiguousRom()
+    scanDiagnostics.enabled = true
+    scanDiagnostics.records = []
+    try {
+      // Both copies verify, so findVerified must refuse to guess...
+      expect(findVerified(bytes, block, [{ delta: block.length, pattern: check }])).toBeNull()
+      const r = scanDiagnostics.records[0]
+      // ...and the audit must be able to see WHY it refused.
+      expect(r.kind).toBe('verified')
+      expect(r.candidates).toBe(2)
+      expect(r.accepted).toBe(2)
+      expect(r.result).toBeNull()
+    } finally {
+      scanDiagnostics.enabled = false
+      scanDiagnostics.records = []
+    }
+  })
+
+  it('reports the winning vote margin', () => {
+    const bytes = new Uint8Array(4096)
+    bytes.set([1, 2, 3], 200) // index 0
+    bytes.set([4, 5, 6], 200 + 10) // index 1
+    scanDiagnostics.enabled = true
+    scanDiagnostics.records = []
+    try {
+      const at = findByVote(
+        bytes,
+        [
+          { index: 0, pattern: [1, 2, 3] },
+          { index: 1, pattern: [4, 5, 6] },
+        ],
+        10,
+      )
+      expect(at).toBe(200)
+      const r = scanDiagnostics.records[scanDiagnostics.records.length - 1]
+      expect(r.kind).toBe('vote')
+      expect(r.accepted).toBe(2)
+      expect(r.required).toBe(2) // no margin: a TIGHT result
+    } finally {
+      scanDiagnostics.enabled = false
+      scanDiagnostics.records = []
+    }
   })
 })

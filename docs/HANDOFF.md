@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-207 tests green; `npm test` and `npm run build` must stay that way.
+210 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -199,6 +199,44 @@ Expected on both: zero warnings; Emerald 411 species / 354 moves /
 `buildAdapter` on the edited bytes — a clean re-scan of every table is
 the acid test that written structures are game-shaped. Never commit the
 built ROMs.
+
+## Signature uniqueness audit (run this when adding a signature)
+
+```bash
+npm run audit:signatures -- <built rom> [<rom>...]
+# AUDIT_VERBOSE=1 to list every lookup, not just the flagged ones
+```
+
+A signature that is unique in `tests/fixtures.ts` can still be
+AMBIGUOUS in a real ROM — and every test stays green while the feature
+is silently dead for real users. That is not hypothetical: it is exactly
+how Gen 2 wild encounter editing was broken on every real
+Gold/Silver/Crystal (see roadmap item 10). Presence is not enough;
+UNIQUENESS has to be checked against a real ROM.
+
+The script enables `scanDiagnostics` (src/core/scan.ts — off by default,
+free when off), rebuilds the adapter for each ROM and flags:
+
+- **AMBIGUOUS** — a `findVerified` anchor matched more than once and no
+  check resolved it, so the table is lost.
+- **TIGHT** — a `findByVote` table won with no margin above `minVotes`,
+  so a single edited anchor loses it.
+
+Misses are informational, not failures: `buildAdapter` probes adapters
+in turn, so a Gen 1 ROM legitimately misses on the Gen 2 signatures. A
+genuinely absent table shows up as an adapter warning instead. Exit code
+is non-zero when anything is flagged.
+
+Audited 2026-07-28 across built Emerald, FireRed, Crystal, Gold, Red and
+Blue: 8 lookups per ROM, **zero** ambiguous, zero tight, zero warnings on
+any of the six. The only site that takes a first hit without requiring
+uniqueness is the Gen 3 TM->move list
+(`species-extras.ts`, `findAll(TM_MOVES_SIG)`): it has 2 hits in both
+Emerald and FireRed, and both copies were confirmed byte-identical
+across all 58 entries with the correct values (264 Focus Punch, 337
+Dragon Claw, 352 Water Pulse, ...), so taking `hits[0]` is safe. The
+Gen 3 ability-name anchor also has 2 hits, correctly disambiguated by
+its check — that is the design working.
 
 ## Byte-format facts we corrected (do not regress)
 
