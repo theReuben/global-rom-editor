@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Rom } from '../src/core/rom'
-import { gen12Codec, gen3Codec } from '../src/core/text'
+import { findByVote, findVerified, scanDiagnostics } from '../src/core/scan'
+import { gen12Codec, gen3Codec, gen3Bytes, gen3DecodeText, gen3EncodeText } from '../src/core/text'
 import { createIps, applyIps } from '../src/core/ips'
 import { detectPlatform, readRomInfo } from '../src/core/detect'
 import { fixChecksums } from '../src/core/checksum'
@@ -100,5 +101,103 @@ describe('Rom change tracking', () => {
     rom.revertAll()
     expect(rom.changedByteCount).toBe(0)
     expect(same(rom.bytes, rom.original)).toBe(true)
+  })
+})
+
+describe('Gen 3 text codec', () => {
+  it('decodes the accented and punctuation glyphs from the charmap', () => {
+    const bytes = Uint8Array.from([0x06, 0x29, 0x5b, 0xf0, 0x2d, 0x5c, 0x5d, 0xff])
+    expect(gen3Codec.decode(bytes)).toBe('Éñ%:&()')
+  })
+
+  it('keeps composite glyphs decode-only so real letters still encode', () => {
+    // 0x55-0x59 spell POKéBLOCK (charmap: POKEBLOCK = 55 56 57 58 59).
+    const block = Uint8Array.from([0x55, 0x56, 0x57, 0x58, 0x59, 0xff])
+    expect(gen3Codec.decode(block)).toBe('POKéBLOCK')
+    // ...but the letter K must still encode to 0xC5, not to 0x59.
+    expect(gen3EncodeText('K')).toEqual([0xc5])
+    expect(gen3EncodeText('BLOCK')).toEqual([0xbc, 0xc6, 0xc9, 0xbd, 0xc5])
+  })
+
+  it('round-trips multi-line text through the line-break byte', () => {
+    const raw = Uint8Array.from([...gen3Bytes('Hi'), 0xfe, ...gen3Bytes('there'), 0xff])
+    const text = gen3DecodeText(raw)
+    expect(text).toBe('Hi\nthere')
+    expect(gen3EncodeText(text)).toEqual([...raw].slice(0, -1))
+  })
+
+  it('accepts either apostrophe and rejects what the game cannot show', () => {
+    expect(gen3EncodeText("'")).toEqual([0xb4])
+    expect(gen3EncodeText('’')).toEqual([0xb4])
+    expect(gen3EncodeText('\u{1F600}')).toBeNull()
+    // 0xFF is the terminator, never a printable '$'.
+    expect(gen3DecodeText(Uint8Array.from([0xbb, 0xff, 0xbb]))).toBe('A')
+  })
+})
+
+describe('scan diagnostics', () => {
+  /** Two identical blocks whose verification bytes also match. */
+  const ambiguousRom = () => {
+    const b = new Uint8Array(4096)
+    const block = [7, 7, 1, 2, 3, 4]
+    const check = [9, 9]
+    b.set(block, 100)
+    b.set(check, 100 + block.length)
+    b.set(block, 900)
+    b.set(check, 900 + block.length)
+    return { bytes: b, block, check }
+  }
+
+  it('stays off and records nothing by default', () => {
+    const { bytes, block, check } = ambiguousRom()
+    scanDiagnostics.records = []
+    findVerified(bytes, block, [{ delta: block.length, pattern: check }])
+    expect(scanDiagnostics.enabled).toBe(false)
+    expect(scanDiagnostics.records).toHaveLength(0)
+  })
+
+  it('reports an ambiguous signature — the Gen 2 wild failure mode', () => {
+    const { bytes, block, check } = ambiguousRom()
+    scanDiagnostics.enabled = true
+    scanDiagnostics.records = []
+    try {
+      // Both copies verify, so findVerified must refuse to guess...
+      expect(findVerified(bytes, block, [{ delta: block.length, pattern: check }])).toBeNull()
+      const r = scanDiagnostics.records[0]
+      // ...and the audit must be able to see WHY it refused.
+      expect(r.kind).toBe('verified')
+      expect(r.candidates).toBe(2)
+      expect(r.accepted).toBe(2)
+      expect(r.result).toBeNull()
+    } finally {
+      scanDiagnostics.enabled = false
+      scanDiagnostics.records = []
+    }
+  })
+
+  it('reports the winning vote margin', () => {
+    const bytes = new Uint8Array(4096)
+    bytes.set([1, 2, 3], 200) // index 0
+    bytes.set([4, 5, 6], 200 + 10) // index 1
+    scanDiagnostics.enabled = true
+    scanDiagnostics.records = []
+    try {
+      const at = findByVote(
+        bytes,
+        [
+          { index: 0, pattern: [1, 2, 3] },
+          { index: 1, pattern: [4, 5, 6] },
+        ],
+        10,
+      )
+      expect(at).toBe(200)
+      const r = scanDiagnostics.records[scanDiagnostics.records.length - 1]
+      expect(r.kind).toBe('vote')
+      expect(r.accepted).toBe(2)
+      expect(r.required).toBe(2) // no margin: a TIGHT result
+    } finally {
+      scanDiagnostics.enabled = false
+      scanDiagnostics.records = []
+    }
   })
 })

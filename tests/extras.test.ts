@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Rom } from '../src/core/rom'
 import { buildAdapter } from '../src/core/games'
+import { buildGen3EggMoves } from '../src/core/gba/eggmoves'
 import { makeGen3Rom } from './fixtures'
 
 const load = () => buildAdapter(new Rom('firered.gba', makeGen3Rom())).adapter!
@@ -231,5 +232,282 @@ describe('Gen 3 type chart', () => {
     const entries = chart.entries()
     expect(entries).toHaveLength(4)
     expect(entries[0]).toMatchObject({ attacker: 0, defender: 8 })
+  })
+})
+
+describe('Gen 3 egg moves', () => {
+  const SPECIES_COUNT = 411
+  const MOVE_COUNT = 354
+  const TABLE = 0x20000
+  const POINTER = 0x1000
+
+  /**
+   * Minimal ROM-shaped buffer: an egg move array plus the code pointer
+   * that discovery verifies against, and trailing padding to relocate
+   * into. The synthetic fixture ROM only has 2 species / 2 moves, which
+   * is too small to exercise a shared variable-length table.
+   */
+  const makeEggRom = (
+    entries: { species: number; moves: number[] }[],
+    opts: { pointer?: boolean; pad?: boolean } = {},
+  ) => {
+    const bytes = new Uint8Array(0x100000)
+    if (opts.pad !== false) bytes.fill(0xff, 0xf0000)
+    let o = TABLE
+    const put16 = (v: number) => {
+      bytes[o] = v & 0xff
+      bytes[o + 1] = (v >> 8) & 0xff
+      o += 2
+    }
+    for (const e of entries) {
+      put16(e.species + 20000)
+      for (const m of e.moves) put16(m)
+    }
+    put16(0xffff)
+    if (opts.pointer !== false) {
+      const v = 0x08000000 + TABLE
+      bytes[POINTER] = v & 0xff
+      bytes[POINTER + 1] = (v >> 8) & 0xff
+      bytes[POINTER + 2] = (v >> 16) & 0xff
+      bytes[POINTER + 3] = (v >>> 24) & 0xff
+    }
+    return bytes
+  }
+
+  /** 12 species, dex-ordered, 1-4 moves each. */
+  const sample = () =>
+    Array.from({ length: 12 }, (_, i) => ({
+      species: (i + 1) * 7,
+      moves: Array.from({ length: (i % 4) + 1 }, (_, j) => i * 4 + j + 1),
+    }))
+
+  const build = (bytes: Uint8Array) => {
+    const rom = new Rom('egg.gba', bytes)
+    return { rom, built: buildGen3EggMoves(rom, SPECIES_COUNT, MOVE_COUNT) }
+  }
+
+  it('discovers the table structurally and reads it back', () => {
+    const { built } = build(makeEggRom(sample()))
+    expect(built).not.toBeNull()
+    expect(built!.offset).toBe(TABLE)
+    const eggs = built!.module
+    expect(eggs.species()).toEqual(sample().map((e) => e.species))
+    expect(eggs.read(7)).toEqual([1])
+    expect(eggs.read(28)).toEqual([13, 14, 15, 16])
+    expect(eggs.read(9)).toEqual([]) // no entry for this species
+  })
+
+  it('refuses a table with no code pointer to it', () => {
+    const { built } = build(makeEggRom(sample(), { pointer: false }))
+    expect(built).toBeNull()
+  })
+
+  it('rewrites a species in place when the table does not grow', () => {
+    const { rom, built } = build(makeEggRom(sample()))
+    const eggs = built!.module
+    // Species 14 already has two moves, so swapping both keeps the
+    // table's total length and it must stay put.
+    expect(eggs.read(14)).toEqual([5, 6])
+    expect(eggs.write(14, [40, 41])).toBe(true)
+    // Re-discovering from the edited bytes must find the same table.
+    const again = buildGen3EggMoves(new Rom('re.gba', rom.bytes), SPECIES_COUNT, MOVE_COUNT)!
+    expect(again.offset).toBe(TABLE)
+    expect(again.module.read(14)).toEqual([40, 41])
+    expect(again.module.read(7)).toEqual([1]) // neighbour untouched
+    expect(again.module.species()).toEqual(sample().map((e) => e.species))
+  })
+
+  it('inserts a new species in dex order and drops one on an empty write', () => {
+    const { rom, built } = build(makeEggRom(sample()))
+    const eggs = built!.module
+    expect(eggs.write(10, [99])).toBe(true)
+    expect(eggs.write(14, [])).toBe(true)
+    const again = buildGen3EggMoves(new Rom('re.gba', rom.bytes), SPECIES_COUNT, MOVE_COUNT)!
+    const ids = again.module.species()
+    expect(ids).toEqual([...ids].sort((a, b) => a - b)) // still ascending
+    expect(ids).toContain(10)
+    expect(ids).not.toContain(14)
+    expect(again.module.read(10)).toEqual([99])
+  })
+
+  it('relocates and retargets the pointer when the table outgrows itself', () => {
+    const { rom, built } = build(makeEggRom(sample()))
+    const eggs = built!.module
+    for (const e of sample()) {
+      expect(eggs.write(e.species, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])).toBe(true)
+    }
+    const again = buildGen3EggMoves(new Rom('re.gba', rom.bytes), SPECIES_COUNT, MOVE_COUNT)!
+    expect(again.offset).not.toBe(TABLE) // moved into the trailing padding
+    expect(again.offset).toBeGreaterThanOrEqual(0xf0000)
+    // The pointer followed the data.
+    const ptr =
+      (rom.bytes[POINTER] |
+        (rom.bytes[POINTER + 1] << 8) |
+        (rom.bytes[POINTER + 2] << 16) |
+        (rom.bytes[POINTER + 3] << 24)) >>>
+      0
+    expect(ptr).toBe(0x08000000 + again.offset)
+    for (const e of sample()) {
+      expect(again.module.read(e.species)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    }
+  })
+
+  it('reports failure instead of corrupting when there is no free space', () => {
+    const { rom, built } = build(makeEggRom(sample(), { pad: false }))
+    const eggs = built!.module
+    const before = rom.bytes.slice(TABLE, TABLE + 200)
+    let failed = false
+    for (const e of sample()) {
+      if (!eggs.write(e.species, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])) failed = true
+    }
+    expect(failed).toBe(true)
+    // A refused write leaves the table readable.
+    const again = buildGen3EggMoves(new Rom('re.gba', rom.bytes), SPECIES_COUNT, MOVE_COUNT)
+    expect(again).not.toBeNull()
+    expect(before.length).toBe(200)
+  })
+
+  it('rejects out-of-range moves and over-long lists', () => {
+    const { built } = build(makeEggRom(sample()))
+    const eggs = built!.module
+    expect(eggs.write(7, [MOVE_COUNT + 1])).toBe(false)
+    expect(eggs.write(7, [0])).toBe(false)
+    expect(eggs.write(7, Array(eggs.maxMoves + 1).fill(1))).toBe(false)
+    expect(eggs.write(0, [1])).toBe(false)
+    expect(eggs.read(7)).toEqual([1]) // unchanged
+  })
+
+  it('reverts an edited table byte for byte', () => {
+    const source = makeEggRom(sample())
+    const { rom, built } = build(source)
+    built!.module.write(7, [40, 41, 42])
+    rom.revertAll()
+    expect(rom.changedByteCount).toBe(0)
+    expect([...rom.bytes]).toEqual([...source])
+  })
+})
+
+describe('Gen 3 items', () => {
+  const items = () => load().itemModule!
+
+  it('discovers the table structurally and reads the 44-byte entry', () => {
+    const a = load()
+    expect(a.itemModule).not.toBeNull()
+    const m = a.itemModule!
+    expect(m.entries).toHaveLength(120)
+    expect(m.entries[1].name).toBe('MASTER BALL')
+    expect(m.entries[3].name).toBe('POTION')
+    const potion = m.read(3)
+    expect(potion.price).toBe(30)
+    expect(potion.holdEffect).toBe(3)
+    expect(potion.holdEffectParam).toBe(3)
+    expect(potion.pocket).toBe(4)
+    expect(potion.secondaryId).toBe(3)
+    expect(a.regions.find((r) => r.name === 'Item data')!.offset).toBe(0x3a0000)
+  })
+
+  it('writes fields and reads them back from a reloaded ROM', () => {
+    const a = load()
+    const m = a.itemModule!
+    m.write(2, 'price', 4321)
+    m.write(2, 'pocket', 1)
+    m.write(2, 'battleUsage', 2)
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    const back = re.itemModule!.read(2)
+    expect(back.price).toBe(4321)
+    expect(back.pocket).toBe(1)
+    expect(back.battleUsage).toBe(2)
+    expect(re.itemModule!.read(3).price).toBe(30) // neighbour untouched
+  })
+
+  it('renames items and keeps the name in the dropdown options', () => {
+    const a = load()
+    expect(a.itemModule!.setName(1, 'CLAUDE BALL')).toBe(true)
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    expect(re.itemModule!.entries[1].name).toBe('CLAUDE BALL')
+    expect(re.itemOptions!.find((o) => o.value === 1)!.label).toBe('CLAUDE BALL')
+  })
+
+  it('re-discovers the table after the old name anchor is renamed', () => {
+    const a = load()
+    // MASTER BALL / ULTRA BALL used to be the discovery signature.
+    a.itemModule!.setName(1, 'AAA')
+    a.itemModule!.setName(2, 'BBB')
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    expect(re.itemModule).not.toBeNull()
+    expect(re.regions.find((r) => r.name === 'Item data')!.offset).toBe(0x3a0000)
+    expect(re.itemModule!.entries[3].name).toBe('POTION')
+  })
+
+  it('rejects names it cannot encode and leaves the old one', () => {
+    const m = items()
+    expect(m.setName(1, '★★★')).toBe(false)
+    expect(m.setName(1, '')).toBe(false)
+    expect(m.entries[1].name).toBe('MASTER BALL')
+  })
+
+  it('reverts a single item without touching its neighbours', () => {
+    const a = load()
+    const m = a.itemModule!
+    m.write(2, 'price', 999)
+    m.setName(2, 'CHANGED')
+    m.write(3, 'price', 111)
+    m.revert(2)
+    expect(m.read(2).price).toBe(20)
+    expect(m.entries[2].name).toBe('ULTRA BALL')
+    expect(m.read(3).price).toBe(111) // the other edit survives
+  })
+
+  it('keeps placeholder slots addressable so later indices stay aligned', () => {
+    const m = items()
+    // Entry 20 carries itemId 0 in the fixture, like the real unused ids.
+    expect(m.entries[20]).toBeDefined()
+    expect(m.entries[21].name).toBe('ITEM21')
+    expect(m.read(21).price).toBe(210)
+  })
+})
+
+describe('Gen 3 item descriptions', () => {
+  it('reads a multi-line description', () => {
+    const m = load().itemModule!
+    expect(m.description(1)).toBe('Catches a POKéMON.\nSecond line.')
+  })
+
+  it('rewrites a shorter description in place', () => {
+    const a = load()
+    const m = a.itemModule!
+    expect(m.setDescription(1, 'Short.')).toBe(true)
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    expect(re.itemModule!.description(1)).toBe('Short.')
+    // Items 2 and 3 have their own strings and must be untouched.
+    expect(re.itemModule!.description(2)).toBe('Catches a POKéMON.\nSecond line.')
+  })
+
+  it('relocates and retargets when the description grows', () => {
+    const a = load()
+    const m = a.itemModule!
+    const long = 'A much longer description than\nthe original one, needing a new\nhome in free space.'
+    expect(m.setDescription(2, long)).toBe(true)
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    expect(re.itemModule!.description(2)).toBe(long)
+    expect(re.itemModule!.description(3)).toBe('Catches a POKéMON.\nSecond line.')
+    expect(re.itemModule!.read(2).price).toBe(20) // entry otherwise intact
+  })
+
+  it('never edits a string in place while other items share it', () => {
+    const a = load()
+    const m = a.itemModule!
+    // Items 4+ all point at the shared placeholder string.
+    const before = m.description(5)
+    expect(m.setDescription(4, 'Mine alone.')).toBe(true)
+    const re = buildAdapter(new Rom('re.gba', a.rom.bytes)).adapter!
+    expect(re.itemModule!.description(4)).toBe('Mine alone.')
+    expect(re.itemModule!.description(5)).toBe(before)
+  })
+
+  it('refuses characters the game cannot display', () => {
+    const m = load().itemModule!
+    expect(m.setDescription(1, 'nope \u{1F600}')).toBe(false)
+    expect(m.description(1)).toBe('Catches a POKéMON.\nSecond line.')
   })
 })

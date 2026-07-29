@@ -382,3 +382,79 @@ describe('unsupported input', () => {
     expect(result.reason).toContain('no Pokémon data tables')
   })
 })
+
+describe('Gen 2 egg moves', () => {
+  const load = () => buildAdapter(new Rom('crystal.gbc', makeGen2Rom())).adapter!
+  const reload = (a: ReturnType<typeof load>) =>
+    buildAdapter(new Rom('re.gbc', a.rom.bytes)).adapter!
+
+  it('discovers the pointer table and reads per-species lists', () => {
+    const a = load()
+    expect(a.eggMoves).not.toBeNull()
+    const eggs = a.eggMoves!
+    expect(eggs.read(1)).toEqual([113, 130, 219, 13, 80])
+    expect(eggs.read(4)).toEqual([187, 246, 157, 44, 200, 251])
+    expect(eggs.read(2)).toEqual([]) // shares the empty list
+    expect(eggs.species()).toEqual([1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34])
+    expect(a.regions.find((r) => r.name === 'Egg move pointers')!.offset).toBe(0x20000)
+  })
+
+  it('rewrites a list in place when it does not grow', () => {
+    const a = load()
+    expect(a.eggMoves!.write(4, [1, 2, 3, 4, 5, 6])).toBe(true)
+    const re = reload(a)
+    expect(re.eggMoves!.read(4)).toEqual([1, 2, 3, 4, 5, 6])
+    expect(re.eggMoves!.read(7)).toEqual([50, 174, 95]) // neighbour intact
+    expect(re.regions.find((r) => r.name === 'Egg move pointers')!.offset).toBe(0x20000)
+  })
+
+  it('relocates when a list grows, leaving neighbours alone', () => {
+    const a = load()
+    expect(a.eggMoves!.write(13, [21, 22, 23, 24, 25])).toBe(true)
+    const re = reload(a)
+    expect(re.eggMoves!.read(13)).toEqual([21, 22, 23, 24, 25])
+    expect(re.eggMoves!.read(10)).toEqual([1, 2])
+    expect(re.eggMoves!.read(16)).toEqual([4, 5, 6])
+  })
+
+  it('never grants egg moves to the species sharing the empty list', () => {
+    const a = load()
+    // Species 2 has no egg moves, and ~239 others share that same
+    // pointer — writing must relocate rather than fill them all in.
+    expect(a.eggMoves!.write(2, [10, 20, 30])).toBe(true)
+    const re = reload(a)
+    expect(re.eggMoves!.read(2)).toEqual([10, 20, 30])
+    for (const dex of [3, 5, 6, 8, 9, 100, 251]) {
+      expect(re.eggMoves!.read(dex)).toEqual([])
+    }
+    expect(re.eggMoves!.species()).toContain(2)
+  })
+
+  it('points a cleared species back at the shared empty list', () => {
+    const a = load()
+    expect(a.eggMoves!.write(1, [])).toBe(true)
+    const re = reload(a)
+    expect(re.eggMoves!.read(1)).toEqual([])
+    expect(re.eggMoves!.species()).not.toContain(1)
+    // The other species keep theirs.
+    expect(re.eggMoves!.read(4)).toEqual([187, 246, 157, 44, 200, 251])
+  })
+
+  it('rejects out-of-range moves and over-long lists', () => {
+    const eggs = load().eggMoves!
+    expect(eggs.write(1, [0])).toBe(false)
+    expect(eggs.write(1, [252])).toBe(false)
+    expect(eggs.write(1, Array(eggs.maxMoves + 1).fill(1))).toBe(false)
+    expect(eggs.write(0, [1])).toBe(false)
+    expect(eggs.read(1)).toEqual([113, 130, 219, 13, 80])
+  })
+
+  it('reverts an edited list byte for byte', () => {
+    const a = load()
+    const source = a.rom.bytes.slice()
+    a.eggMoves!.write(1, [7, 7, 7])
+    a.rom.revertAll()
+    expect(a.rom.changedByteCount).toBe(0)
+    expect([...a.rom.bytes]).toEqual([...source])
+  })
+})

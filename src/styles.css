@@ -446,3 +446,18 @@ input[type='range'] { accent-color: var(--accent); }
   .editor-layout { grid-template-columns: 1fr; grid-template-rows: 220px 1fr; }
   .entry-list { border-right: none; border-bottom: 1px solid var(--border); }
 }
+
+.desc-input {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.45;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #3a3a4a);
+  background: var(--input-bg, #1b1b24);
+  color: inherit;
+}
+.desc-input.invalid {
+  border-color: #d9534f;
+}

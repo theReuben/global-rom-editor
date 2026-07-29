@@ -68,7 +68,7 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
   const [selected, setSelected] = useState(module.entries.find((e) => e.name.trim())?.id ?? 0)
   const [nameError, setNameError] = useState(false)
 
-  const feat = { identity: true, ai: true, items: true, partySize: true, ...module.features }
+  const feat = { identity: true, appearance: true, ai: true, items: true, partySize: true, ...module.features }
   const data = module.read(selected)
   const party = module.party(selected)
   const speciesOptions = adapter.species.map((s) => ({ value: s.id, label: s.name }))
@@ -140,14 +140,18 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
             ) : (
               <Num label="Class ID" value={data.trainerClass} min={0} max={255} onChange={(v) => write('trainerClass', v)} help="Determines title & prize money." />
             )}
-            <Num label="Sprite ID" value={data.pic} min={0} max={255} onChange={(v) => write('pic', v)} />
-            <Options
-              label="Gender"
-              value={data.gender}
-              options={[{ value: 0, label: 'Male' }, { value: 1, label: 'Female' }]}
-              onChange={(v) => write('gender', v)}
-            />
-            <Num label="Encounter music" value={data.music} min={0} max={127} onChange={(v) => write('music', v)} />
+            {feat.appearance && (
+              <>
+                <Num label="Sprite ID" value={data.pic} min={0} max={255} onChange={(v) => write('pic', v)} />
+                <Options
+                  label="Gender"
+                  value={data.gender}
+                  options={[{ value: 0, label: 'Male' }, { value: 1, label: 'Female' }]}
+                  onChange={(v) => write('gender', v)}
+                />
+                <Num label="Encounter music" value={data.music} min={0} max={127} onChange={(v) => write('music', v)} />
+              </>
+            )}
             <Options
               label="Battle type"
               value={data.doubleBattle}

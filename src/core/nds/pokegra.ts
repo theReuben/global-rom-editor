@@ -9,9 +9,15 @@
  * (seed*1103515245+24691, per pokeheartgold src/pokepic.c): D/P seed
  * from the LAST u16 walking backward, Pt/HGSS from the FIRST u16
  * walking forward. Palettes are 16 BGR555 colors in the TTLP block.
+ *
+ * Import re-scrambles with the slot's own seed and writes in place —
+ * the char data and the 16-color palette both keep their exact
+ * footprint, so no NARC repack is needed.
  */
 import type { RenderedImage } from '../games/schema'
 import type { NarcSubfile } from './nds'
+import type { Rom } from '../rom'
+import { rgbToBgr555 } from '../tiles'
 
 const ascii = (b: Uint8Array, o: number, n: number) =>
   String.fromCharCode(...b.subarray(o, o + n))
@@ -51,44 +57,82 @@ function nclrColors(bytes: Uint8Array, off: number, len: number): [number, numbe
   return out
 }
 
-function descramble(data: Uint8Array, mode: 'dp' | 'pt'): void {
+/**
+ * XOR every u16 with the LCRNG stream, walking the direction the mode
+ * implies (nitrogfx gfx.c Decode: mode 1 "back to front" = D/P, mode 2
+ * "front to back" = Pt/HGSS). Scrambling and descrambling are the same
+ * walk — only where the seed comes from differs — so this one helper
+ * is its own inverse for a given seed.
+ */
+function xorStream(data: Uint8Array, mode: 'dp' | 'pt', seed: number): void {
   const words = data.length >> 1
   const step = (s: number) => (Math.imul(s, 1103515245) + 24691) >>> 0
+  let s = seed >>> 0
   if (mode === 'dp') {
-    let seed = u16(data, (words - 1) * 2)
     for (let i = words - 1; i >= 0; i--) {
-      const v = u16(data, i * 2) ^ (seed & 0xffff)
+      const v = u16(data, i * 2) ^ (s & 0xffff)
       data[i * 2] = v & 0xff
       data[i * 2 + 1] = (v >> 8) & 0xff
-      seed = step(seed)
+      s = step(s)
     }
   } else {
-    let seed = u16(data, 0)
     for (let i = 0; i < words; i++) {
-      const v = u16(data, i * 2) ^ (seed & 0xffff)
+      const v = u16(data, i * 2) ^ (s & 0xffff)
       data[i * 2] = v & 0xff
       data[i * 2 + 1] = (v >> 8) & 0xff
-      seed = step(seed)
+      s = step(s)
     }
   }
 }
 
+/**
+ * The seed is the scrambled word the walk starts on — so that word
+ * always descrambles to 0, and any sprite written back must keep a
+ * zero there (last u16 for D/P, first u16 for Pt/HGSS).
+ */
+function seedOf(data: Uint8Array, mode: 'dp' | 'pt'): number {
+  return mode === 'dp' ? u16(data, ((data.length >> 1) - 1) * 2) : u16(data, 0)
+}
+
+function descramble(data: Uint8Array, mode: 'dp' | 'pt'): void {
+  xorStream(data, mode, seedOf(data, mode))
+}
+
+/** Re-apply the scramble a ROM's loader expects. Inverse of `descramble`. */
+export function scramblePokegraChar(
+  data: Uint8Array,
+  mode: 'dp' | 'pt',
+  seed: number,
+): void {
+  xorStream(data, mode, seed)
+}
+
+export { descramble as descramblePokegraChar, seedOf as pokegraCharSeed }
+
 export function buildPokegra(
-  bytes: Uint8Array,
+  rom: Rom,
   subs: NarcSubfile[],
   mode: 'dp' | 'pt',
   speciesCount: number,
 ): {
   front: (id: number, shiny: boolean) => RenderedImage | null
   back: (id: number, shiny: boolean) => RenderedImage | null
+  importFront: (id: number, image: RenderedImage) => string | null
+  importBack: (id: number, image: RenderedImage) => string | null
 } | null {
+  const bytes = rom.bytes
   const byIndex = new Map(subs.map((s) => [s.index, s]))
+
+  /** Male slot first, female fallback (genderless use the male slot). */
+  const gfxSub = (id: number, front: boolean): NarcSubfile | undefined => {
+    const male = byIndex.get(id * 6 + (front ? 2 : 0) + 1)
+    if (male && male.length >= 0x30) return male
+    return byIndex.get(id * 6 + (front ? 2 : 0))
+  }
 
   const render = (id: number, front: boolean, shiny: boolean): RenderedImage | null => {
     if (id < 1 || id > speciesCount) return null
-    // Male slot first, female fallback (genderless use the male slot).
-    let sub = byIndex.get(id * 6 + (front ? 2 : 0) + 1)
-    if (!sub || sub.length < 0x30) sub = byIndex.get(id * 6 + (front ? 2 : 0))
+    const sub = gfxSub(id, front)
     const pal = byIndex.get(id * 6 + 4 + (shiny ? 1 : 0))
     if (!sub || !pal) return null
     const chr = ncgrChar(bytes, sub.offset, sub.length)
@@ -141,6 +185,98 @@ export function buildPokegra(
     return { pixels, width, height }
   }
 
+  const importPic = (id: number, front: boolean, image: RenderedImage): string | null => {
+    if (id < 1 || id > speciesCount) return 'Unknown species.'
+    const sub = gfxSub(id, front)
+    // Slot 4 is the normal palette; front and back share it, so the
+    // sprite imported last defines the colors of both (slot 5, the
+    // shiny palette, is left alone).
+    const pal = byIndex.get(id * 6 + 4)
+    if (!sub || sub.length < 0x30 || !pal) {
+      return 'This species has no sprite slot in the pokegra archive.'
+    }
+    const chr = ncgrChar(bytes, sub.offset, sub.length)
+    if (!chr) return 'The sprite entry looks corrupt.'
+    if (!nclrColors(bytes, pal.offset, pal.length) || pal.length < 0x28 + 32) {
+      return 'The palette entry looks corrupt.'
+    }
+    const tilesX = chr.tilesX > 0 && chr.tilesX < 0x100 ? chr.tilesX : 20
+    const tilesY = chr.tilesY > 0 && chr.tilesY < 0x100 ? chr.tilesY : 10
+    if (chr.data.length < tilesX * tilesY * 32) return 'The sprite entry looks truncated.'
+    const fullW = tilesX * 8
+    const height = tilesY * 8
+    const width = Math.min(80, fullW)
+    if (image.width !== width || image.height !== height) {
+      return `Sprites must be exactly ${width}×${height} pixels (got ${image.width}×${image.height}).`
+    }
+
+    // Quantise to 15 colors + slot 0. Slot 0 is the DS's transparent
+    // index, and takes the top-left color as well as transparent pixels
+    // (the same rule the GBA importer uses).
+    const px = image.pixels
+    const bg = px[3] >= 128 ? rgbToBgr555(px[0], px[1], px[2]) : null
+    const paletteWords: number[] = [bg ?? 0]
+    const indexOf = new Map<number, number>()
+    if (bg !== null) indexOf.set(bg, 0)
+    const indices = new Uint8Array(width * height)
+    for (let p = 0; p < width * height; p++) {
+      if (px[p * 4 + 3] < 128) continue // transparent → slot 0
+      const word = rgbToBgr555(px[p * 4], px[p * 4 + 1], px[p * 4 + 2])
+      let idx = indexOf.get(word)
+      if (idx === undefined) {
+        if (paletteWords.length >= 16) {
+          return 'Too many colors — sprites allow 15 colors plus the transparent background.'
+        }
+        idx = paletteWords.length
+        paletteWords.push(word)
+        indexOf.set(word, idx)
+      }
+      indices[p] = idx
+    }
+    while (paletteWords.length < 16) paletteWords.push(0)
+
+    // Lay the frame out across the full width — pokegra stores two
+    // 80×80 frames side by side and the game animates between them, so
+    // both get the imported art.
+    const plain = new Uint8Array(chr.data.length)
+    const setPixel = (fx: number, py: number, v: number) => {
+      if (chr.linear) {
+        const o = (py * fullW + fx) >> 1
+        plain[o] = fx & 1 ? (plain[o] & 0x0f) | (v << 4) : (plain[o] & 0xf0) | v
+      } else {
+        const t = Math.floor(py / 8) * tilesX + Math.floor(fx / 8)
+        const o = t * 32 + (py % 8) * 4 + ((fx % 8) >> 1)
+        plain[o] = fx & 1 ? (plain[o] & 0x0f) | (v << 4) : (plain[o] & 0xf0) | v
+      }
+    }
+    for (let py = 0; py < height; py++) {
+      for (let fx = 0; fx < fullW; fx++) {
+        setPixel(fx, py, indices[py * width + (fx % width)])
+      }
+    }
+
+    // The loader takes its seed from the word the walk starts on, so
+    // that word must descramble to zero. Force it — it is four corner
+    // pixels, and a non-zero anchor would make the game decode the
+    // whole sprite as noise.
+    const anchor = mode === 'dp' ? plain.length - 2 : 0
+    plain[anchor] = 0
+    plain[anchor + 1] = 0
+
+    // Reuse the slot's existing seed so an unchanged sprite re-encodes
+    // to the original bytes (keeps revert and IPS diffs clean).
+    scramblePokegraChar(plain, mode, seedOf(chr.data, mode))
+    rom.writeBlock(sub.offset + 0x30, plain)
+
+    const palBytes = new Uint8Array(32)
+    paletteWords.forEach((w, i) => {
+      palBytes[i * 2] = w & 0xff
+      palBytes[i * 2 + 1] = (w >> 8) & 0xff
+    })
+    rom.writeBlock(pal.offset + 0x28, palBytes)
+    return null
+  }
+
   // Only offer the module if a sample of species actually decodes.
   let hits = 0
   for (const id of [1, 4, 7, 25]) {
@@ -151,5 +287,7 @@ export function buildPokegra(
   return {
     front: (id, shiny) => render(id, true, shiny),
     back: (id, shiny) => render(id, false, shiny),
+    importFront: (id, image) => importPic(id, true, image),
+    importBack: (id, image) => importPic(id, false, image),
   }
 }

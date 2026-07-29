@@ -108,6 +108,94 @@ describe('Gen 4 adapter (Platinum-style)', () => {
     expect(a.speciesSprite!(2, false)).toBeNull() // empty slots
   })
 
+  /**
+   * 80×80 RGBA test art. Top-left is the background (palette slot 0, so
+   * it renders as the viewer's transparent white), with a red and a
+   * green block and one fully transparent pixel.
+   */
+  const makeArt = () => {
+    const pixels = new Uint8ClampedArray(80 * 80 * 4)
+    const set = (x: number, y: number, r: number, g: number, b: number, a = 255) => {
+      const o = (y * 80 + x) * 4
+      pixels[o] = r
+      pixels[o + 1] = g
+      pixels[o + 2] = b
+      pixels[o + 3] = a
+    }
+    for (let y = 0; y < 80; y++) for (let x = 0; x < 80; x++) set(x, y, 0, 0, 255)
+    for (let y = 30; y < 50; y++) for (let x = 30; x < 50; x++) set(x, y, 255, 0, 0)
+    set(10, 70, 0, 255, 0)
+    set(60, 20, 0, 0, 0, 0) // transparent → slot 0
+    return { pixels, width: 80, height: 80 }
+  }
+
+  const pixelAt = (img: { pixels: Uint8ClampedArray; width: number }, x: number, y: number) => {
+    const o = (y * img.width + x) * 4
+    return [img.pixels[o], img.pixels[o + 1], img.pixels[o + 2]]
+  }
+
+  it('imports a front sprite and re-reads it from the edited ROM', () => {
+    const a = load()
+    expect(a.importSpeciesSprite).not.toBeNull()
+    expect(a.importSpeciesSprite!(1, makeArt())).toBeNull()
+    expect(a.rom.changedByteCount).toBeGreaterThan(0)
+
+    // Reload the edited bytes — the acid test that the re-scramble is
+    // shaped the way the loader expects.
+    const re = buildAdapter(new Rom('platinum.nds', a.rom.bytes)).adapter!
+    const front = re.speciesSprite!(1, false)!
+    expect(front.width).toBe(80)
+    expect(front.height).toBe(80)
+    expect(pixelAt(front, 0, 0)).toEqual([255, 255, 255]) // slot 0
+    expect(pixelAt(front, 60, 20)).toEqual([255, 255, 255]) // transparent → slot 0
+    expect(pixelAt(front, 40, 40)).toEqual([255, 0, 0])
+    expect(pixelAt(front, 10, 70)).toEqual([0, 255, 0])
+    // Neighbouring species keep their own art.
+    expect(pixelAt(re.speciesSprite!(4, false)!, 0, 0)).toEqual([255, 0, 0])
+  })
+
+  it('imports a back sprite without disturbing the front slot', () => {
+    const a = load()
+    expect(a.importSpeciesSpriteBack!(1, makeArt())).toBeNull()
+    const re = buildAdapter(new Rom('platinum.nds', a.rom.bytes)).adapter!
+    expect(pixelAt(re.speciesSpriteBack!(1, false)!, 40, 40)).toEqual([255, 0, 0])
+    // The front NCGR is a different subfile — its pixels are still the
+    // fixture's solid color-1 fill (the palette is shared, so color 1 is
+    // now the imported red).
+    expect(pixelAt(re.speciesSprite!(1, false)!, 40, 40)).toEqual([255, 0, 0])
+  })
+
+  it('reverts an imported sprite byte for byte', () => {
+    const a = load()
+    const before = a.speciesSprite!(1, false)!
+    expect(a.importSpeciesSprite!(1, makeArt())).toBeNull()
+    a.rom.revertAll()
+    expect(a.rom.changedByteCount).toBe(0)
+    const re = buildAdapter(new Rom('platinum.nds', a.rom.bytes)).adapter!
+    expect([...re.speciesSprite!(1, false)!.pixels]).toEqual([...before.pixels])
+  })
+
+  it('rejects sprites of the wrong size, over-rich palettes and empty slots', () => {
+    const a = load()
+    const small = { pixels: new Uint8ClampedArray(64 * 64 * 4), width: 64, height: 64 }
+    expect(a.importSpeciesSprite!(1, small)).toContain('80×80')
+
+    const rich = makeArt()
+    for (let i = 0; i < 20; i++) {
+      const o = i * 4
+      rich.pixels[o] = i * 8
+      rich.pixels[o + 1] = 255 - i * 8
+      rich.pixels[o + 2] = 128
+      rich.pixels[o + 3] = 255
+    }
+    expect(a.importSpeciesSprite!(1, rich)).toContain('Too many colors')
+
+    // Species 2 has no NCGR in the fixture.
+    expect(a.importSpeciesSprite!(2, makeArt())).toContain('no sprite slot')
+    expect(a.importSpeciesSprite!(999, makeArt())).toContain('Unknown species')
+    expect(a.rom.changedByteCount).toBe(0) // nothing written on any failure
+  })
+
   it('shows ability names from the generated constants', () => {
     const a = load()
     const field = a.speciesFields.find((f) => f.key === 'ability1')!
@@ -243,6 +331,17 @@ describe('Gen 4 trainers (trdata/trpoke)', () => {
     const rom = new Rom('x.nds', buf)
     return buildGen4Trainers(rom, parseNarc(rom.bytes, 0)!, parseNarc(rom.bytes, trdata.length + 32)!)
   }
+
+  it('hides the sprite, gender and music fields Gen 4 does not have', () => {
+    // Gen 4 derives the trainer sprite from the class and has no
+    // per-trainer gender or encounter music, so the UI must not offer
+    // them. Header byte 2 is TRATTR_UNK2 in the decomp, not a sprite id
+    // — it is still read into `pic`, just no longer presented as one.
+    const t = make()
+    expect(t.features?.appearance).toBe(false)
+    // Class and battle type ARE real, so the identity block still shows.
+    expect(t.features?.identity).not.toBe(false)
+  })
 
   it('reads headers and typed parties', () => {
     const t = make()

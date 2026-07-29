@@ -6,6 +6,7 @@
  * Adding support for a new game = writing one adapter, zero UI changes.
  */
 import type { Rom } from '../rom'
+import type { ItemModule } from '../gba/items'
 
 export type FieldKind =
   | 'number' // plain numeric byte/word
@@ -50,6 +51,8 @@ export interface TableRegion {
   length: number
 }
 
+export type { ItemModule }
+
 export interface GameAdapter {
   /** e.g. "Pokémon FireRed (BPRE)". */
   gameName: string
@@ -93,6 +96,10 @@ export interface GameAdapter {
   evolutions: EvolutionModule | null
   /** Level-up learnset editing (null = not supported / not found). */
   learnsets: LearnsetModule | null
+  /** Egg move editing (null = not supported / not found). */
+  eggMoves: EggMoveModule | null
+  /** Item data editing (null = not supported / not found). */
+  itemModule: ItemModule | null
   /** Type effectiveness chart editing (null = not supported / not found). */
   typeChart: TypeChartModule | null
   /** Wild encounter editing, when supported for this game (null = not yet). */
@@ -132,6 +139,14 @@ export interface PartyMon {
 export interface TrainerFeatures {
   /** Class / sprite / gender / music / battle-type fields. */
   identity?: boolean
+  /**
+   * Per-trainer sprite, gender and encounter music. Gen 3 stores all
+   * three; Gen 4 derives the sprite from the trainer class and has no
+   * per-trainer gender or music at all (byte 2 of its header is
+   * TRATTR_UNK2 in the decomp, not a sprite id), so it sets this false
+   * rather than offering controls that do nothing.
+   */
+  appearance?: boolean
   ai?: boolean
   items?: boolean
   partySize?: boolean
@@ -198,6 +213,19 @@ export interface LearnsetModule {
   read(id: number): LearnsetEntry[]
   /** Replace the whole list; relocates to free space when it grows. */
   write(id: number, entries: LearnsetEntry[]): boolean
+}
+
+export interface EggMoveModule {
+  /** Most moves per species the game will read back. */
+  maxMoves: number
+  read(id: number): number[]
+  /**
+   * Replace the whole list; an empty list drops the species from the
+   * table. Relocates when the table outgrows its footprint.
+   */
+  write(id: number, moves: number[]): boolean
+  /** Species that currently have egg moves, in table order. */
+  species(): number[]
 }
 
 export interface TypeChartEntry {

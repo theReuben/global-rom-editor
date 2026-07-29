@@ -362,10 +362,10 @@ describe('Gen 2 wild encounters (Crystal)', () => {
     return buildAdapter(new Rom('crystal.gbc', makeGen2Rom())).adapter!
   }
 
-  it('discovers areas via the Sprout Tower anchor', async () => {
+  it('discovers areas by voting across the Johto grass anchors', async () => {
     const w = (await loadGen2()).wildModule!
     expect(w).not.toBeNull()
-    expect(w.entries).toHaveLength(5)
+    expect(w.entries).toHaveLength(46) // 45 Johto grass blocks + 1 water
     expect(w.entries.map((e) => e.key)).toContain('3.2')
     expect(w.entries.map((e) => e.key)).toContain('11.1')
   })
@@ -384,6 +384,39 @@ describe('Gen 2 wild encounters (Crystal)', () => {
     expect(water[0].name).toBe('Water')
     expect(water[0].slots).toHaveLength(3)
     expect(water[0].slots[1]).toEqual({ minLevel: 20, maxLevel: 20, species: 195 })
+  })
+
+  it('survives a duplicate-looking block and edits to an anchor map', async () => {
+    // Sprout Tower 2F and 3F have byte-identical tables in the real
+    // games, which is why a single verified anchor could not be used —
+    // it matched twice and resolved to nothing. Voting must still land
+    // on the table when an anchor map's own bytes are edited.
+    const a = await loadGen2()
+    const w = a.wildModule!
+    w.setRate('3.2', 0, 33)
+    w.setSlot('3.2', 0, 0, 'species', 240)
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    expect(re.wildModule).not.toBeNull()
+    expect(re.warnings).toHaveLength(0)
+    expect(re.wildModule!.groups('3.2')[0].rate).toBe(33)
+    expect(re.wildModule!.groups('3.2')[0].slots[0].species).toBe(240)
+    // Other anchor maps are untouched and still present.
+    expect(re.wildModule!.entries.map((e) => e.key)).toContain('3.27')
+  })
+
+  it('falls back to a structural scan when every anchor is edited away', async () => {
+    const a = await loadGen2()
+    const w = a.wildModule!
+    for (const key of ['3.2', '3.5', '3.8', '3.11', '3.27']) {
+      w.setRate(key, 0, 7)
+      w.setSlot(key, 0, 0, 'species', 99)
+      w.setSlot(key, 0, 1, 'species', 98)
+    }
+    const re = buildAdapter(new Rom('crystal.gbc', a.rom.bytes)).adapter!
+    expect(re.wildModule).not.toBeNull()
+    expect(re.warnings).toHaveLength(0)
+    expect(re.wildModule!.entries).toHaveLength(46)
+    expect(re.wildModule!.groups('3.2')[0].slots[0].species).toBe(99)
   })
 
   it('edits and reverts per time-of-day', async () => {

@@ -382,16 +382,73 @@ export function makeGen2Rom(): Uint8Array {
   const filler = (g: number, m: number) => [g, m, 4, 4, 4, ...Array.from({ length: 21 }, () => [5, 16]).flat()]
   let w = 0x2ab00
   const putw = (b: number[]) => { put(rom, w, b); w += b.length }
-  putw([3, 2, 5, 5, 5, ...morn, ...morn, ...nite]) // Sprout Tower 2F anchor
-  putw(filler(10, 1))
-  putw(filler(10, 2))
-  putw(filler(10, 3))
+  // Johto grass blocks: the five voting anchors (indices 0, 2, 5, 8
+  // and 14 — see JOHTO_GRASS_ANCHORS) plus filler. Only the anchor
+  // blocks carry real signature bytes.
+  // head4 must reproduce bytes 5-8 of the real anchor patterns exactly,
+  // or that anchor simply won't vote.
+  const anchorBlock = (g: number, m: number, rate: number, head4: number[]) => {
+    const rest = Array.from({ length: 5 }, () => [5, 16]).flat() // 5 more pairs
+    const row = [...head4, ...rest]
+    return [g, m, rate, rate, rate, ...row, ...row, ...nite]
+  }
+  const johto: number[][] = []
+  johto[0] = [3, 2, 5, 5, 5, ...morn, ...morn, ...nite] // Sprout Tower 2F
+  johto[2] = anchorBlock(3, 5, 5, [20, 19, 21, 19])
+  johto[5] = anchorBlock(3, 8, 5, [20, 19, 21, 19])
+  johto[8] = anchorBlock(3, 11, 5, [20, 19, 21, 19])
+  johto[14] = anchorBlock(3, 27, 15, [5, 201, 5, 201])
+  // 45 blocks: enough for the five anchors AND for the structural
+  // fallback (which needs a run of at least 40) to be exercised.
+  let spareAt = 0
+  for (let i = 0; i < 45; i++) {
+    if (!johto[i]) johto[i] = filler(10, ++spareAt)
+    putw(johto[i])
+  }
   putw([0xff]) // end Johto grass
   putw([11, 1, 10, 15, 194, 20, 195, 15, 194]) // Johto water
   putw([0xff])
   putw([0xff]) // empty Kanto grass
   putw([0xff]) // empty Kanto water
+
+  addEggMoves(rom)
   return rom
+}
+
+/**
+ * Egg moves in bank 8, mirroring pokecrystal: 251 dex-order bank-local
+ * pointers followed by the lists, with every species that has no egg
+ * moves sharing one pointer to a lone 0xFF terminator.
+ */
+function addEggMoves(rom: Uint8Array): void {
+  const table = 0x20000 // bank 8, address 0x4000
+  const sample: [number, number[]][] = [
+    [1, [113, 130, 219, 13, 80]],
+    [4, [187, 246, 157, 44, 200, 251]],
+    [7, [50, 174, 95]],
+    [10, [1, 2]],
+    [13, [3]],
+    [16, [4, 5, 6]],
+    [19, [7]],
+    [22, [8, 9]],
+    [25, [10, 11, 12]],
+    [28, [13]],
+    [31, [14, 15]],
+    [34, [16]],
+  ]
+  const listAt = new Map<number, number>()
+  let cursor = table + 251 * 2
+  for (const [dex, moves] of sample) {
+    listAt.set(dex, cursor)
+    put(rom, cursor, [...moves, 0xff])
+    cursor += moves.length + 1
+  }
+  const empty = cursor // the shared "no egg moves" terminator
+  rom[cursor] = 0xff
+  for (let dex = 1; dex <= 251; dex++) {
+    const off = listAt.get(dex) ?? empty
+    put(rom, table + (dex - 1) * 2, u16s((off % 0x4000) + 0x4000))
+  }
 }
 
 /* --------------------------------------------------------------- Gen 3 */
@@ -527,11 +584,41 @@ function addClassNames(rom: Uint8Array): void {
   rom[table - 13] = 0x01 // undecodable byte stops the backward walk
 }
 
-/** Item table: 44-byte entries starting with a 14-byte name. */
+/**
+ * Item table: 44-byte entries starting with a 14-byte name. Each entry
+ * stores its own index at +14 and a description pointer at +20 — that
+ * self-referencing shape is what discovery keys on (names are editable,
+ * so they can't be the anchor). Entry 20 is a placeholder slot
+ * (itemId 0) like the unused ids in the real games.
+ */
 function addItemData(rom: Uint8Array): void {
   const items = 0x3a0000
+  // One shared placeholder string (like the real unused ids) plus a
+  // private string for items 1-3, so both the in-place and the
+  // relocate-because-shared paths are reachable.
+  const desc = 0x3a4000
+  put(rom, desc, [...gen3Bytes('A TEST ITEM.'), 0xff])
+  const ownDesc = (i: number) => 0x3a4100 + i * 0x40
+  for (let i = 1; i <= 3; i++) {
+    put(rom, ownDesc(i), [...gen3Bytes('Catches a POKéMON.'), 0xfe, ...gen3Bytes('Second line.'), 0xff])
+  }
   const names = ['??????????', 'MASTER BALL', 'ULTRA BALL', 'POTION']
-  names.forEach((n, i) => put(rom, items + i * 44, gen3Name(n, 14)))
+  for (let i = 0; i < 120; i++) {
+    const o = items + i * 44
+    put(rom, o, gen3Name(names[i] ?? `ITEM${i}`, 14))
+    put(rom, o + 14, u16s(i === 20 ? 0 : i)) // itemId (20 = unused slot)
+    put(rom, o + 16, u16s(i * 10)) // price
+    rom[o + 18] = i % 7 // holdEffect
+    rom[o + 19] = i % 5 // holdEffectParam
+    put(rom, o + 20, ptr(i >= 1 && i <= 3 ? ownDesc(i) : desc))
+    rom[o + 24] = 0 // importance
+    rom[o + 26] = (i % 5) + 1 // pocket
+    rom[o + 27] = i % 3 // type
+    put(rom, o + 28, ptr(desc)) // fieldUseFunc (any valid pointer)
+    rom[o + 32] = i % 3 // battleUsage
+    put(rom, o + 36, ptr(desc)) // battleUseFunc
+    rom[o + 40] = i % 4 // secondaryId
+  }
 }
 
 /**

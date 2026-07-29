@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-167 tests green; `npm test` and `npm run build` must stay that way.
+211 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -181,12 +181,149 @@ git clone --depth 1 https://github.com/pret/pokered   # and/or pokeyellow
 cd pokered && make -j$(nproc) red    # ~2 min → pokered.gbc (1 MiB)
 ```
 
+DS assets need no ARM compiler — the pokegra archive builds from the
+decomp's own PNGs with the plain-C asset tools, and `parseNarc` +
+`buildPokegra` accept the bare NARC (no .nds container needed), so the
+sprite path can be validated end to end against real data:
+
+```bash
+git clone --depth 1 https://github.com/pret/pokeheartgold   # ~264 MiB
+cd pokeheartgold && make -C tools/nitrogfx && make -C tools/nitroarc
+make files/poketool/pokegra/pokegra.narc -j$(nproc)   # ~1 min, 11.7 MiB
+# 2964 subfiles = 494 species × 6; feed it to buildPokegra with mode 'pt'
+```
+
 Expected on both: zero warnings; Emerald 411 species / 354 moves /
 518 maps / 854 trainers / 116 wild maps / 110 type matchups; FireRed
 411 / 354 / 425 / 718 / 124 / 110. After ANY write feature, re-run
 `buildAdapter` on the edited bytes — a clean re-scan of every table is
 the acid test that written structures are game-shaped. Never commit the
 built ROMs.
+
+## Building DS data without Metrowerks
+
+The blocker for DS validation was always "you can't build a DS ROM here".
+True, but irrelevant for MOST validation: the *data tables* build without
+MWCC. `jsonproc` emits plain C from the decomp's JSON, and
+`arm-none-eabi-gcc` compiles it — the NitroSDK headers are what need
+Metrowerks, not the data. Give it a shim with the struct under test
+copied verbatim from the decomp, and the compiler lays the bytes out for
+you:
+
+```bash
+cd pokeheartgold && make -C tools/jsonproc
+tools/jsonproc/jsonproc files/poketool/personal/personal.json \
+  files/poketool/personal/personal.json.txt /tmp/personal.c
+# shim.h: u8/u16/u32 typedefs + `struct BaseStats` copied from
+# include/pokemon_types_def.h + the constants/*.h includes
+grep -v '^#include "' /tmp/personal.c > personal_shim.c
+arm-none-eabi-gcc -c -O2 -I . -I pokeheartgold/include -include shim.h \
+  -o personal.o personal_shim.c
+arm-none-eabi-objcopy -O binary --only-section=.rodata personal.o personal.bin
+```
+
+Wrap the result with `buildNarc()` and a NitroFS shell
+(`makeNdsRomWithFile`, or a hand-built FNT for two files) and
+`buildAdapter` reads it exactly as it would a retail ROM. The game code
+must be the full FOUR characters ('IPKE', not 'IPK') or detection fails.
+
+The trainer party table is ASSEMBLY, not C. `arm-none-eabi-as` accepts
+it after two MWAS-isms are translated — `.rodata` -> `.section .rodata`
+and `@object` -> `%object` (`@` starts a comment in ARM asm) — and
+`trainer_data.h` is stripped in favour of `constants/trainers.h`. Do NOT
+re-derive the per-trainer party offsets from npoke × entrySize: trainer
+0 is a blank dummy that occupies 8 bytes despite npoke 0, so the count
+drifts. Read the real boundaries from the `gTrainerPoke_N` symbols with
+`arm-none-eabi-nm -n`.
+
+Validated this way on 2026-07-28, all against real HGSS data:
+
+- **Move data** — the repo's prebuilt `waza_tbl.narc`. 471 subfiles,
+  16-byte entries. Offsets confirmed against `struct MoveTbl`
+  (include/move.h): effect u16 @0, category @2, power @3, type @4,
+  accuracy @5, pp @6, effectChance @7, range u16 @8, priority s8 @10.
+  14 public spot values exact (Pound 40/Normal/100/35; Whirlwind
+  priority -6; Quick Attack and Fake Out +1; Thunderbolt 95/10% ...)
+  and zero of the 470 moves has a field out of range.
+- **Personal/species** — compiled from `personal.json`. 508 entries ×
+  44 bytes. **57,291 fields compared across all 507 species, ZERO
+  mismatches**, including the 2-bit EV-yield bitfields at 0x0A-0x0B and
+  all 92 TM/HM flags per species. This table was previously only
+  source-verified.
+- **Evolutions** — compiled from `evo.json`. 508 × 44 bytes
+  (7 × {u16 method, param, target} + u16 pad). **10,353 fields across
+  493 species, ZERO mismatches.** Edit + reload round-trips, neighbours
+  intact, revert byte-perfect. Eevee exercises all seven slots
+  (Leafeon/Glaceon by method 25/26, three stones, happiness day/night);
+  Slowpoke branches level-37 vs trade-holding-King's-Rock.
+- **Evolution method labels** match `enum EvoMethod`
+  (include/constants/pokemon.h) one-for-one across all 27 values. Ids
+  24-26 are named CORONET/ETERNA/ROUTE217 in the decomp, but the
+  trigger is a map flag and HGSS reuses the ids for its own areas, so
+  the editor labels the MECHANIC (magnetic field / Moss Rock / Ice
+  Rock) rather than a Sinnoh location.
+
+- **Wild encounters** — compiled from `gs_enc_data.json` with
+  `-DENC_HEARTGOLD`. 142 areas × 0xC4. **12,241 comparisons, ZERO
+  mismatches** across land (3 times of day), surf, rock smash, all
+  three rods and their rates. The JSON encodes version splits as
+  `{HEARTGOLD, SOULSILVER}` — resolve them rather than skipping, or the
+  species comparison silently checks almost nothing.
+- **Trainers** — trdata compiled from `trainers.json`, trpoke
+  assembled. 738 trainers. **8,077 comparisons, ZERO mismatches** over
+  class, party size, species, levels, held items and movesets.
+
+No reader defects were found in any of the five tables (~88,000 field
+comparisons total). One inaccuracy was: header byte 2 of a Gen 4
+trainer was labelled a sprite id and offered as "Sprite ID" in the UI.
+The decomp exposes it only as `TRATTR_UNK2`, and Gen 4 derives the
+sprite from the trainer CLASS; there is likewise no per-trainer gender
+or encounter music (both were hardcoded 0 with writes ignored). Those
+three controls were dead or misleading, so `TrainerFeatures` gained an
+`appearance` flag and the Gen 4 module sets it false. Gen 1/2 already
+hid the whole identity block; Gen 3 is unaffected and still shows all
+three, because it genuinely stores them.
+
+Still unbuildable here, and so still unvalidated: anything living in
+arm9 or an overlay (TM->move list), and all of Gen 5 (no decomp).
+
+## Signature uniqueness audit (run this when adding a signature)
+
+```bash
+npm run audit:signatures -- <built rom> [<rom>...]
+# AUDIT_VERBOSE=1 to list every lookup, not just the flagged ones
+```
+
+A signature that is unique in `tests/fixtures.ts` can still be
+AMBIGUOUS in a real ROM — and every test stays green while the feature
+is silently dead for real users. That is not hypothetical: it is exactly
+how Gen 2 wild encounter editing was broken on every real
+Gold/Silver/Crystal (see roadmap item 10). Presence is not enough;
+UNIQUENESS has to be checked against a real ROM.
+
+The script enables `scanDiagnostics` (src/core/scan.ts — off by default,
+free when off), rebuilds the adapter for each ROM and flags:
+
+- **AMBIGUOUS** — a `findVerified` anchor matched more than once and no
+  check resolved it, so the table is lost.
+- **TIGHT** — a `findByVote` table won with no margin above `minVotes`,
+  so a single edited anchor loses it.
+
+Misses are informational, not failures: `buildAdapter` probes adapters
+in turn, so a Gen 1 ROM legitimately misses on the Gen 2 signatures. A
+genuinely absent table shows up as an adapter warning instead. Exit code
+is non-zero when anything is flagged.
+
+Audited 2026-07-28 across built Emerald, FireRed, Crystal, Gold, Red and
+Blue: 8 lookups per ROM, **zero** ambiguous, zero tight, zero warnings on
+any of the six. The only site that takes a first hit without requiring
+uniqueness is the Gen 3 TM->move list
+(`species-extras.ts`, `findAll(TM_MOVES_SIG)`): it has 2 hits in both
+Emerald and FireRed, and both copies were confirmed byte-identical
+across all 58 entries with the correct values (264 Focus Punch, 337
+Dragon Claw, 352 Water Pulse, ...), so taking `hits[0]` is safe. The
+Gen 3 ability-name anchor also has 2 hits, correctly disambiguated by
+its check — that is the design working.
 
 ## Byte-format facts we corrected (do not regress)
 
@@ -319,8 +456,44 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    retargeted — front and back share the mon's bank, so the content
    bank-resolution stays valid. Validated on built Red + Yellow:
    import front/back, reload with zero new warnings, all 151 still
-   render, imported art pixel-exact. Only DS sprite import remains
-   (needs the NCGR re-scramble).
+   render, imported art pixel-exact.
+
+   **Gen 4 (DS) sprite import: SHIPPED** — sprite import now covers
+   every supported generation. The scramble walk is its own inverse for
+   a given seed, so `xorStream` (src/core/nds/pokegra.ts) serves both
+   directions; only the seed's origin differs. Reference: nitrogfx
+   `gfx.c` Decode/Encode — Encode runs the LCRNG backwards with the
+   inverse multiplier 4005161829 from the terminal state, which is
+   equivalent to walking forwards from the initial seed (what we do).
+   The loader takes its seed from the word the walk *starts* on, so
+   that word necessarily descrambles to zero: import forces it (four
+   corner pixels — frame 0's top-left for Pt/HGSS, the last pixels for
+   D/P), because a non-zero anchor decodes the whole sprite as noise.
+   Import reuses the slot's existing seed so unchanged art re-encodes
+   to the original bytes, keeping revert and IPS diffs clean. Char data
+   and the 16-color palette both keep their exact footprint, so the
+   write is in place — no NARC repack. Slot resolution is male-first
+   with a female fallback, matching the renderer (the Nidoran♀ line,
+   species 29-31, has an EMPTY male slot — a validation script that
+   assumes slot +3 will silently skip them).
+
+   Validated against the real HGSS `pokegra.narc` built here from
+   pokeheartgold assets with nitrogfx + nitroarc (2964 subfiles / 494
+   species): all 1812 NCGRs descramble to a zero anchor and re-scramble
+   byte-exactly with their recovered seed; importing into 60 species
+   and re-parsing the edited archive renders the imported art
+   pixel-exact 60/60, both animation frames carry it, no subfile
+   outside the edited species changes, and `revertAll` restores the
+   archive byte for byte. Facts confirmed against that archive (not
+   from memory): char data is always 6400 bytes / 20×10 tiles with the
+   "scanned" linear flag set; palette subfiles are 72 bytes with 16
+   BGR555 colors at TTLP+0x18. Known display quirk, shared with the
+   Gen 1/2/3 importers: the viewer renders palette slot 0 as white, so
+   re-importing a *displayed* sprite collapses genuine white pixels
+   into the transparent slot (Pikachu has real white at index 15 and a
+   lavender slot 0). Front and back share slot 4, so the sprite
+   imported last defines the colors of both; the shiny palette (slot 5)
+   is left untouched.
 4. **Gen 4 text codec: SHIPPED (read-only).** `src/core/nds/msgdata.ts`
    decodes msg banks: u16 count + u16 key header; per-entry
    {u32 offset,u32 length} XORed with `key*765*(n+1) & 0xFFFF`
@@ -338,9 +511,10 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    (any length — the NARC growth/relocation path ships as
    replaceNarcSub in gen45.ts). No DS ROM can be built in this
    container (the Metrowerks compiler isn't redistributable), but the
-   asset pipeline tools ARE plain C: nitrogfx + nitroarc built the
-   real HGSS pokegra.narc here, and the repo ships the real prebuilt
-   wotbl.narc — both used as ground truth. Gen 5 full personal
+   DATA TABLES can be — see "Building DS data without Metrowerks"
+   below. nitrogfx + nitroarc built the real HGSS pokegra.narc here,
+   the repo ships real prebuilt wotbl.narc and waza_tbl.narc, and
+   personal.narc + evo.narc were compiled from the decomp's JSON. Gen 5 full personal
    layout: SHIPPED (PKHeX-verified).
 5. **HGSS encounters + trainers: SHIPPED.** EncounterData = 0xC4-byte
    files (pret/pokeheartgold include/wild_encounter.h): 6 rate bytes +
@@ -353,18 +527,217 @@ Pikachu 84, Mewtwo 131 — from pokered constants).
    u16 is the ball capsule instead of padding), so buildGen4Trainers is
    reused unchanged.
 
+6. **Gen 3 egg moves: SHIPPED** (`src/core/gba/eggmoves.ts`).
+   `gEggMoves` is not a per-species table but ONE flat u16 array:
+   entries are a marker word `species + 20000` followed by that
+   species' move ids, whole array terminated by 0xFFFF, species with
+   no egg moves simply absent. The game linear-scans for the marker and
+   reads forward until the next word above 20000, so at most
+   EGG_MOVES_ARRAY_COUNT = 10 moves per species are reachable (real
+   data uses 1-8).
+
+   There is no stride to key on, so a signature would have to be one
+   species' moves — which breaks the moment that species is edited.
+   Discovery is therefore structural: every aligned word in the marker
+   range is tried as a table start, runs are parsed under strict rules
+   (strictly ascending species, move ids in 1..MOVE_COUNT, 0xFFFF
+   terminator), and candidates are taken longest-first. The second,
+   independent confirmation is that the game's 32-bit pointer to the
+   candidate must exist — length alone never decides. Because the
+   pointer is what confirms, MIN_ENTRIES can stay low (8), so deleting
+   most species' egg moves cannot shrink the table out of
+   discoverability; below the floor the module cleanly disappears
+   instead of guessing.
+
+   Writes rebuild the whole array (replace / insert in dex order /
+   drop on an empty list) and stay in place while it fits, relocating
+   via `relocate()` with pointer retarget when it grows.
+
+   Validated on built Emerald + FireRed, whose tables are byte-
+   identical: 165 entries / 2278 bytes, species 1-411, exactly ONE
+   pointer to the table in each ROM. Discovery lands on the `gEggMoves`
+   address from each .map file exactly; same-length edit, shrink,
+   species removal, and a bulk grow of 250 species (forcing relocation
+   to 0xdb7acc / 0x9ee1f8) all reload with zero warnings and read back
+   250/250, with species/moves/maps/learnsets/evolutions/type chart all
+   still discovered afterwards; `revertAll` is byte-perfect.
+
+   Gen 4 uses the same 20000-marker format (pokeheartgold
+   src/get_egg.c, MAX_EGG_MOVES = 16, 2045-word array) but its list is
+   an UNEXTRACTED narc — NARC id 231 sits between a/2/2/8 and a/2/3/0,
+   so `/a/2/2/9` — with no buildable ground truth here. Left disabled
+   rather than shipped on a source-only reading. Gen 1 has no breeding;
+   Gen 2 egg moves: SHIPPED, see item 9.
+
+7. **Gen 3 item editor: SHIPPED** (`src/core/gba/items.ts`, Items tab).
+   44-byte `gItems` entries, layout confirmed against built Emerald +
+   FireRed rather than read off the header (they agree):
+   `0 name[14], 14 itemId u16, 16 price u16, 18 holdEffect,
+   19 holdEffectParam, 20 description*, 24 importance,
+   25 registrability, 26 pocket, 27 type, 28 fieldUseFunc*,
+   32 battleUsage (33-35 pad), 36 battleUseFunc*, 40 secondaryId
+   (41-43 pad)`.
+
+   The item table was already being found via a MASTER BALL/ULTRA BALL
+   name signature — which this editor would break, since it makes those
+   names editable. Discovery is now structural: every entry stores its
+   own index at +14, so a run of `u16(base + i*44 + 14) === i` (>= 100,
+   with valid description pointers) identifies the table however many
+   items have been renamed. The old name anchor still runs as an
+   independent cross-check and raises a warning if the two disagree.
+   Unused ids (52-62 in Emerald) are REAL table members carrying
+   itemId 0 and a shared placeholder description — they're kept in the
+   run so later indices stay aligned.
+
+   Pocket numbering genuinely differs by family, so labels are picked
+   per game code: R/S/E = Items 1, Poké Balls 2, TMs 3, Berries 4, Key
+   Items 5 (pokeemerald include/constants/item.h); FR/LG = Items 1, Key
+   Items 2, Poké Balls 3, TM Case 4, Berry Pouch 5 (pokefirered
+   include/constants/global.h).
+
+   Validated on both built ROMs: discovery lands on the `gItems` .map
+   address exactly; Emerald reads 377 items (last OLD SEA MAP), FireRed
+   375 (last SAPPHIRE); known prices check out (Ultra Ball 1200, Great
+   Ball 600, Potion 300); field writes, renames, per-item revert and
+   `revertAll` all round-trip with zero warnings; and renaming MASTER
+   BALL — or all of the first 60 items — still re-discovers the table.
+
+   Description editing: SHIPPED, on top of the codec work in item 8.
+
+8. **Gen 3 charmap completed + decode-only channel: SHIPPED.**
+   `buildMaps` now takes a second `decodeOnly` list whose entries reach
+   the decode map only. That exists because Gen 3 composite glyphs
+   decompose into text that collides with real letters: charmap.txt has
+   `PKMN = 53 54` and `POKEBLOCK = 55 56 57 58 59`, so 0x57/0x58/0x59
+   render BL/OC/K — and a naive `0x59 -> 'K'` pair would hijack the
+   letter K, which must encode to 0xC5. First-wins ordering happened to
+   protect this already, but the explicit channel makes it robust to
+   reordering.
+
+   69 single-character glyphs were missing from GEN3_PAIRS and are now
+   transcribed from pokeemerald charmap.txt (English section, above
+   "@ Hiragana"): the accented capitals/lowercase, plus & + = ; ¿ ¡ Í %
+   ( ) â í < > · … “ ” ‘ ¥ × ▶ : Ä Ö Ü ä ö ü. 0xFF is the terminator,
+   NOT a printable '$', and is deliberately excluded. One intentional
+   deviation: charmap.txt calls 0xB4 '’', but we decode it as a plain
+   apostrophe (what people type) and accept both on encode.
+
+   New `gen3DecodeText` / `gen3EncodeText` handle running text rather
+   than fixed-width name fields, mapping the game's line break
+   (`'\n' = FE`) to and from "\n".
+
+   Validated on built Emerald + FireRed: all 377/375 item descriptions
+   now decode with ZERO unknown glyphs (previously several dozen bytes
+   fell through to '?'). Byte-exact re-encoding is 361/377 and 374/375
+   — every exception is a composite-glyph string, which decodes to more
+   characters than it encoded from (the 5-byte POKéBLOCK becomes 9
+   letters). That is not corruption: it displays identically and simply
+   needs more room, which the relocation path handles.
+
+   Item description editing rides on this. Writes go in place only when
+   the text fits AND no other item points at the same string — the
+   unused item ids all share one placeholder description, so editing one
+   of them relocates instead of silently rewriting its siblings.
+   Validated on both ROMs: shorter edits stay in place, longer ones
+   relocate and retarget with zero warnings on reload, POKéBLOCK
+   descriptions re-save and read back identical, editing a shared
+   placeholder leaves its siblings untouched, unsupported characters are
+   refused, and revert is byte-perfect.
+
+9. **Gen 2 egg moves: SHIPPED** (`src/core/gb/eggmoves.ts`). A totally
+   different shape from Gen 3's flat array: `EggMovePointers` is 251
+   dex-order bank-local u16s, each pointing at a run of move-id bytes
+   terminated by 0xFF. Pointers and lists share ONE bank — `GetEggMove`
+   reads list bytes with a fixed `BANK("Egg Moves")` — so relocations
+   must stay inside it. The game's reader has no length cap (it loops to
+   the 0xFF); real lists top out at 8, and writes are capped at 12.
+
+   Discovery mirrors evosmoves.ts (the lists are editable, so no byte
+   signature would survive): longest run of same-bank pointers whose
+   targets all parse, cross-checked by requiring the referenced lists to
+   tile >= 80% of the span they cover.
+
+   TWO hazards come from the shared empty list. Most species have no egg
+   moves and share one pointer to a lone 0xFF (146 of 251 in Crystal,
+   145 in Gold):
+   - Writing "in place" to a shared list would hand egg moves to every
+     species pointing at it, so a shared target ALWAYS relocates. Only
+     an unshared list that still fits is written in place.
+   - That lone 0xFF is the last live byte in the bank, so
+     findGbBankFreeSpace happily offers it as padding. The destination
+     is floored past every live list — the same trap evosmoves.ts hits
+     with its all-zero blobs. Clearing a species points it back at the
+     shared empty list rather than burning bank space on another 0xFF.
+
+   Bank space is TIGHT: bank 8 has only ~177 free bytes in Crystal and
+   ~453 in Gold, so a bulk grow succeeds for roughly 7 (Crystal) / 20
+   (Gold) species before writes start refusing. That is inherent to the
+   ROM layout, not a defect — writes fail cleanly and the UI surfaces
+   it. Everything stays discoverable and revert is byte-perfect.
+
+   Validated on built Crystal + Gold: discovery lands on the
+   `EggMovePointers` address from each .sym exactly (0x23b11 / 0x239fe);
+   counts match the decomp (105 species with egg moves in Crystal, 106
+   in Gold — Crystal removed Charm/Steel Wing/Sweet Scent/Lovely Kiss,
+   and Gold's Bulbasaur correctly still has Charm); in-place edits,
+   shrinks, granting moves to a species that had none (siblings verified
+   untouched), clearing, bank exhaustion and revert all behave, with
+   species/moves/evolutions/learnsets/sprites/maps still found
+   afterwards.
+
+   (The wild-encounter warning noted here previously turned out to be a
+   real bug — fixed in item 10.)
+
+10. **Gen 2 wild encounters: FIXED (was silently disabled on every
+   real ROM).** Discovery used one `findVerified` anchor built from
+   Sprout Tower 2F's encounter bytes. Sprout Tower 2F and 3F have
+   BYTE-IDENTICAL tables, so the pattern matched twice; `findVerified`
+   returns null unless exactly one candidate verifies, so it returned
+   null — and the adapter fell back to "Couldn't locate wild encounter
+   data" on built Gold AND Crystal. The fixture happened to contain only
+   one matching block, so the tests passed while every real ROM lost
+   wild editing. Lesson: a signature has to be checked for UNIQUENESS
+   against a real ROM, not just for presence.
+
+   Now `findByVote` over five 9-byte anchors — {group, map, 3 rates, 2
+   encounter pairs} at JohtoGrassWildMons indices 0, 2, 5, 8 and 14
+   (stride 47, so index → offset holds even where the games differ).
+   The leading group/map pair is what disambiguates 2F from 3F. All five
+   are verified byte-identical in built Gold + Crystal and occur exactly
+   once in each.
+
+   Only 11 of 61 Johto grass blocks are identical across the two games
+   (Crystal rewrote the rest), and all 11 sit in the first 15 — so the
+   anchors are unavoidably CLUSTERED in early Johto, exactly what an
+   encounter-rebalancing hack rewrites first. Editing 4 of the 5 does
+   drop voting below its 2-vote threshold, so there is a structural
+   fallback: chain 47-byte blocks that all pass the plausibility check
+   and require a run of >= 40 ending in 0xFF, longest run wins.
+   Verified on both ROMs that wrecking ALL FIVE anchors still re-finds
+   the table at exactly the .sym address with all 114 areas.
+
+   Validated on built Crystal + Gold: table found at 0x2a5e9 / 0x2ab35
+   per .sym, 114 areas, zero warnings; editing an anchor map, then four
+   anchor maps, then all five, still reloads cleanly; water areas read;
+   species/moves/egg moves/evolutions/maps all still discovered; revert
+   byte-perfect. The Gen 2 fixture now carries 45 grass blocks so both
+   the voting path and the >= 40-block fallback are exercised.
+
 ## What's genuinely left (checked 2026-07-12)
 
 - Gen 5 move data + trainers + wild: blocked on a verifiable source
   (no decomp; PKHeX reads pre-extracted resources, not ROM bytes).
 - Gen 5 sprites: B/W NCGRs are 96x96 and unscrambled per community
   docs — needs a verifiable reference before shipping.
-- Gen 4 TM->move labels (table lives in the compressed arm9 — hard),
-  DS sprite import (needs the NCGR re-scramble) and DS map editing
-  (both out of near-term scope). Gen 4 evolutions can't be
-  byte-validated until a real evo.narc surfaces (struct is
-  source-verified; wotbl was validated against the repo's real
-  prebuilt binary).
+- Gen 4 TM->move labels: `sTMHMMoves` is a `static const` in
+  pokeheartgold src/item.c, so it compiles into arm9 — which needs the
+  Metrowerks compiler we can't run, and the decomp ships no BLZ tool
+  either. No path to ground truth in this container; don't ship it on a
+  guess.
+- Gen 4 egg moves: format is source-verified but the list is an
+  unextracted NARC (/a/2/2/9) — see roadmap item 6.
+- DS map editing (out of near-term scope). (Gen 4 evolutions ARE now byte-validated — see
+  "Building DS data without Metrowerks".)
 
 ## Legal posture
 

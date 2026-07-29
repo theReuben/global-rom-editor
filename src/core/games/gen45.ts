@@ -119,10 +119,13 @@ const GEN5_TM_FLAGS = 101 // TM01-95 then HM01-06
 
 /* --------------------------------------------------- trainers (Gen 4) */
 
-// TrainerHeader (trdata.narc, one subfile per trainer), verified against
-// pret/pokeplatinum struct_defs/trainer_data.h:
-//   monDataType u8, class u8, sprite u8, partySize u8,
-//   items u16[4], aiMask u32, battleType u32   (20 bytes)
+// TrainerHeader (trdata.narc, one subfile per trainer). 20 bytes, and
+// byte-validated against the real HGSS trdata compiled from
+// pokeheartgold's trainers.json (see docs/HANDOFF.md):
+//   monDataType u8, class u8, unk_2 u8, partySize u8,
+//   items u16[4], aiMask u32, battleType u32
+// Byte 2 is NOT a sprite id — the decomp exposes it only as
+// TRATTR_UNK2 and the trainer's sprite comes from its class.
 // Party entries (trpoke.narc): ivScale u16, level u16, species u16
 // [, item u16][, moves u16[4]], cbSeal u16 — 8/10/16/18 bytes by type.
 const TR_ENTRY_SIZES = [8, 16, 10, 18]
@@ -162,6 +165,9 @@ export function buildGen4Trainers(
 
   return {
     entries,
+    // Gen 4 has no per-trainer sprite, gender or encounter music: the
+    // sprite comes from the class, and header byte 2 is TRATTR_UNK2.
+    features: { appearance: false },
     nameLength: names?.rename ? 10 : 0,
     nameHint: names?.trainers.length
       ? 'Read from the message banks — names are not editable in this ROM.'
@@ -590,9 +596,13 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     { value: 21, label: 'Species in party' },
     { value: 22, label: 'Level (male)' },
     { value: 23, label: 'Level (female)' },
-    { value: 24, label: 'Level at Mt. Coronet' },
-    { value: 25, label: 'Level at Eterna Forest' },
-    { value: 26, label: 'Level at Route 217' },
+    // EVO_CORONET / EVO_ETERNA / EVO_ROUTE217 in the decomp, but the
+    // trigger is a map flag, not those specific maps — HGSS reuses the
+    // same ids for its own Magnet/Moss/Ice Rock areas, so the labels
+    // name the mechanic rather than a Sinnoh location.
+    { value: 24, label: 'Level in a magnetic field area' },
+    { value: 25, label: 'Level near a Moss Rock' },
+    { value: 26, label: 'Level near an Ice Rock' },
   ]
   let evoFile = findNdsFile(files, '/poketool/personal/evo.narc') ?? findNdsFile(files, '/a/0/3/4')
   const evoSubs = evoFile && fullLayout ? parseNarc(bytes, evoFile.start) : null
@@ -707,7 +717,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     const file = findNdsFile(files, GRA_PATHS[code3].path)
     const subs = file ? parseNarc(bytes, file.start) : null
     if (subs && subs.length > 600) {
-      pokegra = buildPokegra(bytes, subs, GRA_PATHS[code3].mode, personal.length - 1)
+      pokegra = buildPokegra(rom, subs, GRA_PATHS[code3].mode, personal.length - 1)
     }
   }
 
@@ -886,10 +896,14 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     speciesSprite: pokegra ? (id, shiny) => pokegra!.front(id, shiny ?? false) : null,
     speciesSpriteBack: pokegra ? (id, shiny) => pokegra!.back(id, shiny ?? false) : null,
     hasShinySprites: pokegra !== null,
-    importSpeciesSprite: null,
-    importSpeciesSpriteBack: null,
+    importSpeciesSprite: pokegra ? (id, image) => pokegra!.importFront(id, image) : null,
+    importSpeciesSpriteBack: pokegra ? (id, image) => pokegra!.importBack(id, image) : null,
     evolutions,
     learnsets,
+    // The Gen 4 egg move list is an unextracted NARC (/a/2/2/9) — no
+    // buildable ground truth here, so it stays off rather than guessed.
+    eggMoves: null,
+    itemModule: null,
     typeChart: null,
     // Msg-bank rename: written in place when the new name fits the
     // entry's original allocation; otherwise the bank is rebuilt and

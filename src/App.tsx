@@ -4,6 +4,7 @@ import { buildAdapter, type GameAdapter } from './core/games'
 import { Dropzone } from './ui/Dropzone'
 import { SpeciesPanel } from './ui/SpeciesPanel'
 import { MovesPanel } from './ui/MovesPanel'
+import { ItemsPanel } from './ui/ItemsPanel'
 import { MapPanel } from './ui/MapPanel'
 import { TrainerPanel } from './ui/TrainerPanel'
 import { WildPanel } from './ui/WildPanel'
@@ -12,12 +13,13 @@ import { InfoPanel } from './ui/InfoPanel'
 import { TypeChartPanel } from './ui/TypeChartPanel'
 import { DecompApp, openDecompProject, type DecompProject } from './ui/DecompApp'
 
-type Tab = 'pokemon' | 'moves' | 'trainers' | 'wild' | 'maps' | 'types' | 'patch' | 'info'
+type Tab = 'pokemon' | 'moves' | 'items' | 'trainers' | 'wild' | 'maps' | 'types' | 'patch' | 'info'
 
 function tabsFor(adapter: GameAdapter): { id: Tab; label: string }[] {
   return [
     { id: 'pokemon' as const, label: '🧬 Pokémon' },
     { id: 'moves' as const, label: '⚔️ Moves' },
+    ...(adapter.itemModule ? [{ id: 'items' as const, label: '🎒 Items' }] : []),
     ...(adapter.trainerModule ? [{ id: 'trainers' as const, label: '🥊 Trainers' }] : []),
     ...(adapter.wildModule ? [{ id: 'wild' as const, label: '🌿 Wild' }] : []),
     ...(adapter.mapModule ? [{ id: 'maps' as const, label: '🗺️ Maps' }] : []),
@@ -108,6 +110,7 @@ export function App() {
       <main className="content">
         {tab === 'pokemon' && <SpeciesPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'moves' && <MovesPanel adapter={adapter} onEdit={onEdit} />}
+        {tab === 'items' && adapter.itemModule && <ItemsPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'trainers' && adapter.trainerModule && <TrainerPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'wild' && adapter.wildModule && <WildPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'maps' && adapter.mapModule && <MapPanel adapter={adapter} onEdit={onEdit} />}

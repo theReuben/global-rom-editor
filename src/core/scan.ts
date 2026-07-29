@@ -9,6 +9,42 @@
  * expected relative position before trusting a match.
  */
 
+export interface ScanRecord {
+  kind: 'verified' | 'vote'
+  /** Source location of the call, for reporting. */
+  site: string
+  patternLength: number
+  /** findVerified: raw anchor hits. findByVote: anchors supplied. */
+  candidates: number
+  /** findVerified: hits that also passed their checks. findByVote: votes. */
+  accepted: number
+  /** Minimum `accepted` needed to return a result. */
+  required: number
+  result: number | null
+}
+
+/**
+ * Dev-only diagnostics, off by default and free when off.
+ *
+ * A signature that is unique in the synthetic fixture can still be
+ * AMBIGUOUS in a real ROM — that exact mismatch silently disabled Gen 2
+ * wild encounter editing on every real Gold/Silver/Crystal (Sprout Tower
+ * 2F and 3F have identical tables, so the single anchor matched twice
+ * and resolved to nothing while the tests stayed green). Enable this and
+ * run `npm run audit:signatures <rom>...` against built ROMs whenever a
+ * signature is added or changed.
+ */
+export const scanDiagnostics: { enabled: boolean; records: ScanRecord[] } = {
+  enabled: false,
+  records: [],
+}
+
+function record(r: Omit<ScanRecord, 'site'>): void {
+  if (!scanDiagnostics.enabled) return
+  const site = (new Error().stack ?? '').split('\n')[3]?.trim() ?? '?'
+  scanDiagnostics.records.push({ ...r, site: site.replace(/.*[/\\]src[/\\]/, 'src/').replace(/\)$/, '') })
+}
+
 /** Find all occurrences of `pattern` in `data`. -1 in the pattern = wildcard. */
 export function findAll(data: Uint8Array, pattern: number[], limit = 8): number[] {
   const out: number[] = []
@@ -48,7 +84,16 @@ export function findVerified(
   const verified = candidates.filter((off) =>
     check.every((c) => matchesAt(data, off + c.delta, c.pattern)),
   )
-  return verified.length === 1 ? verified[0] : null
+  const result = verified.length === 1 ? verified[0] : null
+  record({
+    kind: 'verified',
+    patternLength: anchor.length,
+    candidates: candidates.length,
+    accepted: verified.length,
+    required: 1,
+    result,
+  })
+  return result
 }
 
 /**
@@ -78,5 +123,14 @@ export function findByVote(
       bestVotes = v
     }
   }
-  return bestVotes >= minVotes ? best : null
+  const result = bestVotes >= minVotes ? best : null
+  record({
+    kind: 'vote',
+    patternLength: anchors.length,
+    candidates: anchors.length,
+    accepted: bestVotes,
+    required: minVotes,
+    result,
+  })
+  return result
 }
