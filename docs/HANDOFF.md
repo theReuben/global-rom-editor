@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-211 tests green; `npm test` and `npm run build` must stay that way.
+242 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -113,6 +113,132 @@ evolutions, learnsets, type chart, TM/HM, front+back sprite display
 AND importing (PNG → 4bpp+LZ77, auto-relocation), shiny palettes.
 All per-species tables discovered by anchor majority vote (findByVote)
 so editing anchor species can't break reload.
+
+**Gen 3 expansion (pokeemerald-expansion hacks):** a SEPARATE adapter
+(`games/gen3-expansion.ts` + `gba/expansion.ts`), not a mode of
+`gen3.ts` — the two share almost no field offsets. Same GBA header as
+Emerald, so only the data layout tells them apart; `index.ts` tries
+vanilla Gen 3 first and falls back to this.
+Validated against a v1.15.1 hack built from its own tree.
+
+`struct SpeciesInfo` replaces the 28-byte vanilla struct. Its SIZE
+depends on build-time config (`P_GENDER_DIFFERENCES`, `P_FOOTPRINTS`,
+`OW_POKEMON_OBJECT_EVENTS`, ...), so base+stride are DISCOVERED: name
+anchors at known dex indices (`SPECIES_` stays national-dex order for
+base species) vote on a (base, stride) pair, requiring two agreeing
+anchor PAIRS — `voteTable`, the stride-free cousin of `findByVote`.
+The reference build came out 0x104/1434 entries; the fixture uses
+0x120 so nothing can assume. Everything up to `speciesName` is
+unconditional, so those field offsets are format constants (verified
+byte-for-byte on the built ROM): stats 0-5, types 6-7 (enum Type is
+1-BASED and packed to 1 byte; enum Item/Ability are 2 bytes —
+`-fshort-enums`), catchRate 8, forceTeraType 9, expYield u16 10,
+evYield bitfield 12, items 14/16, gender 18, eggCycles 19,
+friendship 20, growth 21, eggGroups 22-23, abilities u16 x3 at 24,
+safariFleeRate 30, categoryName[13] 31, speciesName[13] 44
+(POKEMON_NAME_LENGTH is 12 here, not 10). Sprite pointers are also
+unconditional: frontPic 88, backPic 92, palette 96, shinyPalette 100.
+The learnset/evolution pointer block IS config-dependent, so its
+offset is voted for separately (`findSpeciesPointerBlock`): the u32
+offset where >=75% of sampled species dereference to a parseable
+`struct LevelUpMove` array. Block order is fixed:
+levelUp +0, teachable +4, eggMoves +8, evolutions +12.
+`struct Evolution` is 12 bytes, NOT 8 — {u16 method, param,
+targetSpecies}, 2 bytes of padding, then a `params` pointer that the
+alignment forces and that edits preserve verbatim. Learnset entries
+are {u16 move, u16 level} (move first), LEVEL_UP_MOVE_END 0xFFFF.
+Growing a per-species blob relocates it and repoints ONLY that
+species — forms routinely share one learnset pointer, and dragging
+them along would edit Pokémon nobody selected (so `relocate()`, which
+retargets every pointer to the old blob, is deliberately not used).
+
+`struct MoveInfo` (68 bytes in the reference build, discovered) puts
+name and description behind POINTERS and packs the rest:
+effect u16 @8, then `type:5 | category:2 | power:9` @10 and
+`accuracy:7 | target:9` @12, pp @14, priority = the low signed nibble
+of the u32 @16. Move renaming goes in place when it fits, else the
+string is relocated and only that entry repointed.
+Type/ability names are inline (`name[9]` @stride 40, `name[17]`
+@stride 28); item names are pointers at ItemInfo+20, stride 44.
+
+Wild encounters differ too: `struct WildPokemonHeader` is
+{u8 mapGroup, u8 mapNum, pad, pad} + `WildEncounterTypes
+encounterTypes[TIMES_OF_DAY_COUNT]` (5 area pointers each: land 12,
+water 5, rockSmash 5, fishing 10, hidden 3), so 84 bytes with 4 times
+of day instead of vanilla's flat 20. Times-of-day and area counts are
+probed, and the run is cross-checked against the map index the way
+vanilla's is. Groups surface as "Morning — Land" etc. Verified
+byte-exact against the tree's wild_encounters.json (Route 101 land,
+rate 20, Bidoof 2-4) and the full 124-header table.
+
+NOT decoded yet, and off with a warning rather than guessed:
+trainers and item DATA (both structs differ from vanilla; item and
+ability NAMES are still read and feed the dropdowns), the type chart,
+and TM/HM compatibility.
+
+**`smol` (src/core/gba/smol.ts)** — the expansion's own codec, which
+replaces LZ77 for graphics in many hacks and used to keep sprites and
+maps switched off. Now decoded, so BOTH are enabled. Two stages:
+an LZ pass over u16 units emitting (length, offset) "instructions"
+plus a literal stream, then an optional tANS (tabled asymmetric
+numeral systems) entropy coder over 4-bit nibbles applied to either
+stream or both. Ported from the decompressor the GAME runs
+(src/decompress.c), not from tools/compresSmol, because the game side
+defines what a valid stream is; the unrolled loops there are pure GBA
+cycle-shaving and collapse to plain arithmetic.
+Header is two u32s: mode:4, imageSize:14 (x4 = bytes), symSize:14 /
+initialState:6, bitstreamSize:13, loSize:13. Modes: 1 BASE_ONLY,
+2 ENCODE_SYMS, 3 ENCODE_DELTA_SYMS, 4 ENCODE_LO, 5 ENCODE_BOTH,
+6 ENCODE_BOTH_DELTA_SYMS (7 frame container / 8 tilemap unsupported).
+LZ77 needs no separate sniffing: its magic 0x10 has a low nibble of 0,
+which IS mode MODE_LZ77, so the formats can't collide.
+Frequencies are 3 u32s of five 6-bit values, with the top 2 bits of
+each word assembling freq[15]. sYkTemplate is COMPUTED, not
+transcribed: for slot n, k is the smallest shift with n<<k >= 64,
+y = (n<<k)-64, mask = (1<<k)-1 (checked against the shipped table).
+LO and symbol streams share ONE bit cursor and are decoded LO-first.
+Deltas are per NIBBLE, mod 16, running across the whole stream.
+Easy thing to get wrong: LZ instructions work in u16 units, and
+`length == 0` means "copy `offset` literals".
+Validated byte-for-byte against all 6954 `.smol` build intermediates
+in the reference tree (modes 1, 2, 3, 5, 6 all appear; 4 never does),
+plus Bulbasaur/Pikachu front and back pics read straight out of the
+ROM matching their `.4bpp` files exactly.
+
+**Codec sniffing is dangerous — two real bugs came from it.**
+`gba/compress.ts` dispatches LZ77 vs smol for graphics, but headers
+here have no magic number, only a 4-bit mode, so unrelated bytes parse
+as a valid-looking stream. (1) Expansion species palettes are stored
+RAW (32 bytes, uncompressed — unlike vanilla's LZ77 gMonPaletteTable),
+and Bulbasaur's first colour 0x6a93 put mode 3 in the low nibble, so
+the palette "decompressed" to 55 KB of noise. (2) Roselia's raw
+palette opens with colour 0x7e10, whose low byte is the LZ77 magic
+0x10, so a magic-byte test called it compressed and lost the sprite
+entirely. Fixes: `isSmol` cross-checks the size fields against each
+other and `smolDecompress` requires the instructions to land EXACTLY
+on imageSize; palettes are read raw unless an LZ77 header DECLARES
+exactly 32 bytes of output. Regression tests in tests/smol.test.ts use
+the real Bulbasaur palette bytes. Rule of thumb: don't sniff a codec
+where the struct already tells you the data is raw.
+
+Sprite IMPORT works on smol ROMs without a smol COMPRESSOR: the
+expansion's decompressor dispatches on the header, so an LZ77 stream
+written into a smol ROM is read back correctly by the game. Imports
+are therefore always LZ77 (usually relocating, since LZ77 re-encodes
+bigger than smol), and palettes are written back raw in place.
+Map tilesets only needed the read path, which now goes through the
+same dispatcher; `scanTilesetHeaders` accepts either codec, which
+keeps it a real filter instead of the relaxed
+`anyGraphicsCodec` escape hatch (still there, now only a fallback so
+wild encounters keep their map-key cross-check if maps ever fail).
+
+Perf mattered here: these ROMs are 32 MB and every full sweep costs
+about a second. `scan.ts` gained `findAllMulti` (bucket patterns by
+first byte, one pass, wildcards still supported) and `findByVote` now
+uses it — which sped up EVERY Gen 3 load, not just this one.
+`scanExpansion` matches all five tables' anchors in a single sweep,
+and the map index is discovered once (relaxed) before deciding whether
+the strict/renderable pass is worth running. 33.6s -> 14s.
 
 **Gen 4 (D/P/Pt/HGSS):** full personal editing, trainers, encounters
 (incl. HGSS time-of-day/radio/swarms), real names from the msg banks,

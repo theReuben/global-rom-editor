@@ -5,7 +5,7 @@
  */
 import type { Rom } from '../rom'
 import type { CellInfo, MapEntry, MapEvents, MapModule, EventKind } from '../games/schema'
-import { lz77Decompress } from './lz77'
+import { decompressGraphics } from './compress'
 import { decodeTile4bpp, readPalette } from '../tiles'
 import { discoverMaps, type Gen3MapIndex } from './mapscan'
 import { findFreeSpaceAtEnd, relocate, writeGbaPointer } from '../freespace'
@@ -106,7 +106,9 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
     const gfxOff = u32ptr(bytes, tsOff + 4)
     let gfx: Uint8Array
     if (compressed) {
-      gfx = lz77Decompress(bytes, gfxOff)
+      // LZ77 or the expansion's `smol`; an undecodable codec yields no
+      // tiles rather than a wrong-looking map.
+      gfx = decompressGraphics(bytes, gfxOff) ?? new Uint8Array(0)
     } else {
       gfx = bytes.subarray(gfxOff, Math.min(gfxOff + maxTiles * 32, bytes.length))
     }

@@ -17,6 +17,7 @@
  * this works on ROM hacks: hacks move the data, not its structure.
  */
 import { readGbaPointer } from '../freespace'
+import { isKnownCodec } from './compress'
 
 export interface Gen3MapIndex {
   bankTableOffset: number
@@ -39,9 +40,19 @@ function ptrOrZero(bytes: Uint8Array, off: number): boolean {
   return u32(bytes, off) === 0 || readGbaPointer(bytes, off) !== null
 }
 
+export interface ScanOptions {
+  /**
+   * Accept a compressed tileset whose graphics use a codec this editor
+   * cannot decode. The map *index* can still be worth discovering — the
+   * wild encounter table is uncompressed and cross-checks against it —
+   * but callers that set this must not try to RENDER the tilesets.
+   */
+  anyGraphicsCodec?: boolean
+}
+
 /** Step 1: everything shaped like a tileset header. Deliberately loose —
  *  false positives are pruned when layouts must point at them exactly. */
-export function scanTilesetHeaders(bytes: Uint8Array): Set<number> {
+export function scanTilesetHeaders(bytes: Uint8Array, opts: ScanOptions = {}): Set<number> {
   const out = new Set<number>()
   for (let o = 0; o + 24 <= bytes.length; o += 4) {
     if (bytes[o] > 1 || bytes[o + 1] > 1 || bytes[o + 2] !== 0 || bytes[o + 3] !== 0) continue
@@ -50,7 +61,10 @@ export function scanTilesetHeaders(bytes: Uint8Array): Set<number> {
     if (readGbaPointer(bytes, o + 8) === null) continue
     if (readGbaPointer(bytes, o + 12) === null) continue
     if (!ptrOrZero(bytes, o + 16) || !ptrOrZero(bytes, o + 20)) continue
-    if (bytes[o] === 1 && bytes[gfx] !== 0x10) continue // compressed ⇒ LZ77 magic
+    // A compressed tileset must carry a codec header we recognise —
+    // LZ77, or the expansion's `smol`. That is what prunes most of the
+    // false positives at this level, so it stays on by default.
+    if (!opts.anyGraphicsCodec && bytes[o] === 1 && !isKnownCodec(bytes, gfx)) continue
     out.add(o)
   }
   return out
@@ -166,8 +180,8 @@ export function scanBankTable(bytes: Uint8Array, headers: Set<number>): Gen3MapI
 }
 
 /** Run the full bottom-up discovery. */
-export function discoverMaps(bytes: Uint8Array): Gen3MapIndex | null {
-  const tilesets = scanTilesetHeaders(bytes)
+export function discoverMaps(bytes: Uint8Array, opts: ScanOptions = {}): Gen3MapIndex | null {
+  const tilesets = scanTilesetHeaders(bytes, opts)
   if (tilesets.size === 0) return null
   const layouts = scanLayouts(bytes, tilesets)
   if (layouts.size === 0) return null

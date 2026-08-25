@@ -60,6 +60,51 @@ export function findAll(data: Uint8Array, pattern: number[], limit = 8): number[
   return out
 }
 
+/**
+ * Find every occurrence of several patterns in ONE pass.
+ *
+ * Some tables need a lot of anchors: locating a pokeemerald-expansion
+ * species table takes ~18 name patterns. Running `findAll` once per
+ * pattern means that many full sweeps of what can be a 32 MB ROM, which
+ * measured at 28 s in this editor. Bucketing the patterns by first byte
+ * turns it into a single sweep with one array index per byte.
+ */
+export function findAllMulti(bytes: Uint8Array, patterns: number[][], limit = 24): number[][] {
+  const out: number[][] = patterns.map(() => [])
+  if (patterns.length === 0) return out
+  const mask = new Uint8Array(256)
+  const byFirst: number[][] = []
+  for (let i = 0; i < 256; i++) byFirst.push([])
+  patterns.forEach((p, i) => {
+    if (p.length === 0) return
+    if (p[0] < 0) {
+      // A leading wildcard can't be bucketed; these are rare (one Gen 3
+      // move anchor), so they fall back to a dedicated sweep.
+      out[i] = findAll(bytes, p, limit)
+      return
+    }
+    mask[p[0]] = 1
+    byFirst[p[0]].push(i)
+  })
+  const n = bytes.length
+  for (let i = 0; i < n; i++) {
+    if (mask[bytes[i]] === 0) continue
+    for (const pi of byFirst[bytes[i]]) {
+      const p = patterns[pi]
+      if (out[pi].length >= limit || i + p.length > n) continue
+      let ok = true
+      for (let j = 1; j < p.length; j++) {
+        if (p[j] >= 0 && bytes[i + j] !== p[j]) {
+          ok = false
+          break
+        }
+      }
+      if (ok) out[pi].push(i)
+    }
+  }
+  return out
+}
+
 /** True if `pattern` matches `data` at `off` (-1 = wildcard). */
 export function matchesAt(data: Uint8Array, off: number, pattern: number[]): boolean {
   if (off < 0 || off + pattern.length > data.length) return false
@@ -109,12 +154,15 @@ export function findByVote(
   minVotes = 2,
 ): number | null {
   const votes = new Map<number, number>()
-  for (const a of anchors) {
-    for (const hit of findAll(data, a.pattern, 8)) {
+  // One sweep for every anchor: on a 32 MB ROM each separate `findAll`
+  // costs about a second, and this is the hot path for every Gen 3 load.
+  const hits = findAllMulti(data, anchors.map((a) => a.pattern), 8)
+  anchors.forEach((a, i) => {
+    for (const hit of hits[i]) {
       const base = hit - a.index * stride
       if (base >= 0) votes.set(base, (votes.get(base) ?? 0) + 1)
     }
-  }
+  })
   let best: number | null = null
   let bestVotes = 0
   for (const [base, v] of votes) {
