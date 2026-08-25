@@ -104,6 +104,8 @@ export interface GameAdapter {
   trainerLocations: TrainerLocationIndex | null
   /** Renders a trainer's front sprite by pic id (null = table not found). */
   trainerSprite: ((picId: number) => RenderedImage | null) | null
+  /** How many trainer pics the sprite table holds (null = not found). */
+  trainerSpriteCount: number | null
   /** Evolution editing (null = not supported / not found). */
   evolutions: EvolutionModule | null
   /** Level-up learnset editing (null = not supported / not found). */

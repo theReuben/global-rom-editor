@@ -147,6 +147,112 @@ function LocationMap({
   )
 }
 
+
+/**
+ * Names each trainer pic by the class that uses it most.
+ *
+ * The ROM stores no names for sprites, but it does say which trainers use
+ * which pic, and a pic is nearly always shared by one class — pic 0 is
+ * worn by 22 HIKERs, matching the decomp's own hiker.4bpp. That makes the
+ * dominant class a reliable, ROM-derived label, so picking a sprite is a
+ * matter of recognising "HIKER" rather than remembering a number.
+ */
+function usePicLabels(adapter: GameAdapter, count: number): Map<number, string> {
+  const module = adapter.trainerModule!
+  return useMemo(() => {
+    const tally = new Map<number, Map<string, number>>()
+    for (const entry of module.entries) {
+      const { pic, trainerClass } = module.read(entry.id)
+      const name = module.classOptions?.find((c) => c.value === trainerClass)?.label ?? `Class ${trainerClass}`
+      const seen = tally.get(pic) ?? new Map<string, number>()
+      seen.set(name, (seen.get(name) ?? 0) + 1)
+      tally.set(pic, seen)
+    }
+    const labels = new Map<number, string>()
+    for (let pic = 0; pic < count; pic++) {
+      const seen = tally.get(pic)
+      if (!seen) {
+        labels.set(pic, 'unused')
+        continue
+      }
+      const [top] = [...seen.entries()].sort((a, b) => b[1] - a[1])
+      labels.set(pic, seen.size > 1 ? `${top[0]} +${seen.size - 1}` : top[0])
+    }
+    return labels
+  }, [module, count])
+}
+
+/**
+ * Sprite chooser: a grid of the actual pictures, each captioned with the
+ * class that wears it. Falls back to a plain number field when the ROM's
+ * sprite table could not be found.
+ */
+function SpritePicker({
+  adapter,
+  value,
+  count,
+  onChange,
+}: {
+  adapter: GameAdapter
+  value: number
+  count: number
+  onChange: (v: number) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const labels = usePicLabels(adapter, count)
+  const render = adapter.trainerSprite!
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const all = Array.from({ length: count }, (_, i) => i)
+    if (!q) return all
+    return all.filter((i) => labels.get(i)!.toLowerCase().includes(q) || String(i) === q)
+  }, [count, labels, query])
+
+  return (
+    <div className="field sprite-field">
+      <span className="field-label">Sprite</span>
+      <button type="button" className="sprite-current" onClick={() => setOpen((v) => !v)}>
+        <Pic image={render(value)} alt={`Sprite ${value}`} />
+        <span className="sprite-caption">
+          <strong>{labels.get(value) ?? 'unknown'}</strong>
+          <span className="sprite-id">#{value}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="sprite-picker">
+          <input
+            className="sprite-search"
+            placeholder="Search by class, e.g. HIKER…"
+            value={query}
+            autoFocus
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div className="sprite-grid">
+            {shown.map((i) => (
+              <button
+                key={i}
+                type="button"
+                className={`sprite-choice ${i === value ? 'selected' : ''}`}
+                title={`#${i} — ${labels.get(i)}`}
+                onClick={() => {
+                  onChange(i)
+                  setOpen(false)
+                }}
+              >
+                <Pic image={render(i)} alt={`Sprite ${i}`} />
+                <span className="sprite-choice-label">{labels.get(i)}</span>
+              </button>
+            ))}
+            {shown.length === 0 && <div className="empty">No sprites match.</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Stat order of the packed IV word (see TRAINER_PARTY_IVS). */
 const IV_LABELS = ['HP', 'Attack', 'Defense', 'Speed', 'Sp. Atk', 'Sp. Def']
 
@@ -274,7 +380,16 @@ export function TrainerPanel({
             )}
             {feat.appearance && (
               <>
-                <Num label="Sprite ID" value={data.pic} min={0} max={255} onChange={(v) => write('pic', v)} />
+                {adapter.trainerSprite && adapter.trainerSpriteCount ? (
+                  <SpritePicker
+                    adapter={adapter}
+                    value={data.pic}
+                    count={adapter.trainerSpriteCount}
+                    onChange={(v) => write('pic', v)}
+                  />
+                ) : (
+                  <Num label="Sprite ID" value={data.pic} min={0} max={255} onChange={(v) => write('pic', v)} />
+                )}
                 <Options
                   label="Gender"
                   value={data.gender}

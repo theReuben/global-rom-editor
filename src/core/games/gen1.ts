@@ -855,6 +855,7 @@ export function tryBuildGen1(rom: Rom, gameName: string, platform: string): Game
     trainerModule: trainers?.module ?? null,
     trainerLocations: null,
     trainerSprite: null,
+    trainerSpriteCount: null,
     wildModule: wild?.module ?? null,
     itemOptions,
     speciesSprite: sprites ? (id) => sprites.front(id) : null,
