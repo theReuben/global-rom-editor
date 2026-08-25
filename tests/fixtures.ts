@@ -750,6 +750,169 @@ function addMapData(rom: Uint8Array): void {
   put(rom, bankTable, [...ptr(group0), ...ptr(group1)])
 }
 
+/* -------------------------------------------- Gen 3 (expansion) */
+
+/**
+ * A synthetic pokeemerald-expansion ROM.
+ *
+ * Deliberately does NOT reuse the real ROM's numbers: the species stride
+ * is 0x120 rather than the 0x104 the reference build happened to use,
+ * and the pointer block sits at a different offset, so the tests fail if
+ * anything starts assuming a layout instead of discovering it.
+ */
+export function makeGen3ExpansionRom(): Uint8Array {
+  const rom = new Uint8Array(4 * 1024 * 1024)
+  rom.fill(0xff, 0x3e0000) // trailing padding, like a real GBA ROM
+  rom[0xb2] = 0x96
+  put(rom, 0xa0, Array.from('POKEMON EMER').map((c) => c.charCodeAt(0)))
+  put(rom, 0xac, Array.from('BPEE').map((c) => c.charCodeAt(0)))
+
+  const ptr = (off: number): number[] => {
+    const v = off + 0x08000000
+    return [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff]
+  }
+  const u16 = (v: number): number[] => [v & 0xff, (v >> 8) & 0xff]
+  const text = (t: string): number[] => [...gen3Bytes(t), 0xff]
+  const fixed = (t: string, len: number): number[] => {
+    const out = text(t)
+    while (out.length < len) out.push(0x00)
+    return out.slice(0, len)
+  }
+
+  /* ---- shared blobs the species entries point at ---- */
+  const learnset = 0x044000
+  put(rom, learnset, [...u16(33), ...u16(1), ...u16(45), ...u16(1), ...u16(22), ...u16(3), ...u16(0xffff)])
+  const eggList = 0x044100
+  put(rom, eggList, [...u16(34), ...u16(35), ...u16(0xffff)])
+  const evoList = 0x044200
+  // { method LEVEL, param 16, target 2, pad, params NULL } then terminator
+  put(rom, evoList, [...u16(1), ...u16(16), ...u16(2), 0, 0, 0, 0, 0, 0, ...u16(0xffff)])
+
+  /* ---- gSpeciesInfo ---- */
+  const SPECIES_BASE = 0x010000
+  const STRIDE = 0x120
+  const PTR_BLOCK = 160
+  const SPECIES_COUNT = 160
+  const named: Record<number, string> = {
+    1: 'Bulbasaur',
+    4: 'Charmander',
+    7: 'Squirtle',
+    25: 'Pikachu',
+    94: 'Gengar',
+    130: 'Gyarados',
+    150: 'Mewtwo',
+  }
+  // Entry 0 is SPECIES_NONE: zero stats, placeholder names.
+  put(rom, SPECIES_BASE + 31, fixed('Unknown', 13))
+  put(rom, SPECIES_BASE + 44, fixed('??????????', 13))
+  for (let id = 1; id <= SPECIES_COUNT; id++) {
+    const o = SPECIES_BASE + id * STRIDE
+    put(rom, o, [45, 49, 49, 45, 65, 65]) // stats
+    put(rom, o + 6, [13, 4]) // Grass / Poison
+    put(rom, o + 8, [45, 0]) // catch rate, forceTeraType
+    put(rom, o + 10, u16(64)) // expYield (u16)
+    put(rom, o + 12, u16(1 << 8)) // EV yield: 1 Sp. Atk
+    put(rom, o + 14, u16(0)) // itemCommon
+    put(rom, o + 16, u16(0)) // itemRare
+    put(rom, o + 18, [31, 20, 50, 3, 1, 7]) // gender..eggGroups
+    put(rom, o + 24, [...u16(65), ...u16(0), ...u16(34)]) // abilities
+    put(rom, o + 30, [0]) // safari flee rate
+    put(rom, o + 31, fixed('Seed', 13))
+    put(rom, o + 44, fixed(named[id] ?? `Mon${id}`, 13))
+    put(rom, o + PTR_BLOCK + 0, ptr(learnset))
+    put(rom, o + PTR_BLOCK + 8, ptr(eggList))
+    put(rom, o + PTR_BLOCK + 12, ptr(evoList))
+  }
+
+  /* ---- gMovesInfo: name and description are POINTERS here ---- */
+  const MOVE_BASE = 0x020000
+  const MOVE_STRIDE = 68
+  const MOVE_COUNT = 200
+  const moveText = 0x030000
+  let textAt = moveText
+  const moveNames: Record<number, string> = {
+    1: 'Pound',
+    2: 'Karate Chop',
+    33: 'Tackle',
+    85: 'Thunderbolt',
+    94: 'Psychic',
+    165: 'Struggle',
+  }
+  const desc = textAt
+  put(rom, desc, text('A move.'))
+  textAt += 16
+  for (let id = 0; id <= MOVE_COUNT; id++) {
+    const o = MOVE_BASE + id * MOVE_STRIDE
+    const name = id === 0 ? '-' : (moveNames[id] ?? `Move${id}`)
+    put(rom, textAt, text(name))
+    put(rom, o + 0, ptr(textAt))
+    textAt += 24
+    put(rom, o + 4, ptr(desc))
+    put(rom, o + 8, u16(1)) // effect
+    // type:5 | category:2 | power:9  → Electric(14), Special, 90
+    put(rom, o + 10, u16(14 | (1 << 5) | (90 << 7)))
+    // accuracy:7 | target:9 → 100, target 1
+    put(rom, o + 12, u16(100 | (1 << 7)))
+    put(rom, o + 14, [15, 0]) // pp, zMove
+    put(rom, o + 16, [0, 0, 0, 0]) // priority word
+  }
+
+  /* ---- gTypesInfo: inline name[9] at stride 40 ---- */
+  const TYPES = ['None', 'Normal', 'Fighting', 'Flying', 'Poison', 'Ground', 'Rock', 'Bug', 'Ghost',
+    'Steel', '???', 'Fire', 'Water', 'Grass', 'Electric', 'Psychic', 'Ice', 'Dragon', 'Dark', 'Fairy', 'Stellar']
+  TYPES.forEach((name, i) => put(rom, 0x040000 + i * 40, fixed(name, 9)))
+
+  /* ---- gAbilitiesInfo: inline name[17] at stride 28 ---- */
+  const abilityNames: Record<number, string> = {
+    1: 'Stench', 2: 'Drizzle', 26: 'Levitate', 34: 'Chlorophyll', 65: 'Overgrow',
+  }
+  for (let i = 0; i <= 70; i++) {
+    put(rom, 0x041000 + i * 28, fixed(i === 0 ? '-------' : (abilityNames[i] ?? `Ability${i}`), 17))
+  }
+
+  /* ---- gItemsInfo: name POINTER at offset 20, stride 44 ---- */
+  const itemNames: Record<number, string> = { 3: 'Ultra Ball', 4: 'Master Ball', 28: 'Potion' }
+  let itemText = 0x043000
+  for (let i = 0; i <= 60; i++) {
+    put(rom, itemText, text(i === 0 ? '????????' : (itemNames[i] ?? `Item${i}`)))
+    put(rom, 0x042000 + i * 44 + 20, ptr(itemText))
+    itemText += 20
+  }
+
+  addMapData(rom) // gives map keys 0.0 and 1.0, LZ77 tilesets
+  addExpansionWildData(rom, ptr, u16)
+  return rom
+}
+
+/**
+ * `gWildMonHeaders`, expansion flavour: 4 times of day × 5 areas of
+ * pointers behind a {mapGroup, mapNum, pad, pad} head.
+ */
+function addExpansionWildData(
+  rom: Uint8Array,
+  ptr: (off: number) => number[],
+  u16: (v: number) => number[],
+): void {
+  const AREA_SLOTS = [12, 5, 5, 10, 3]
+  const table = 0x045000
+  const info = 0x045400
+  const mons = 0x045500
+  const headerSize = 4 + 4 * 20
+
+  // One WildPokemonInfo (rate 20) + a 12-slot land table behind it.
+  put(rom, info, [20, 0, 0, 0, ...ptr(mons)])
+  for (let i = 0; i < AREA_SLOTS[0]; i++) put(rom, mons + i * 4, [2, 4, ...u16(1 + (i % 3))])
+
+  // Eight headers alternating the two map keys addMapData created, each
+  // filling only the land slot of each time of day.
+  for (let h = 0; h < 8; h++) {
+    const o = table + h * headerSize
+    put(rom, o, [h % 2, 0, 0, 0])
+    for (let t = 0; t < 4; t++) put(rom, o + 4 + t * 5 * 4, ptr(info))
+  }
+  put(rom, table + 8 * headerSize, [0xff, 0xff])
+}
+
 /* ------------------------------------------------------------ Gen 4/5 */
 
 export function buildNarc(subfiles: Uint8Array[]): Uint8Array {

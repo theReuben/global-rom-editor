@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "audit:signatures": "tsx scripts/audit-signatures.ts"
+    "audit:signatures": "tsx scripts/audit-signatures.ts",
+    "probe:expansion": "tsx scripts/probe-expansion.ts"
   },
   "dependencies": {
     "react": "^18.3.1",

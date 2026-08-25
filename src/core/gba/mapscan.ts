@@ -39,9 +39,21 @@ function ptrOrZero(bytes: Uint8Array, off: number): boolean {
   return u32(bytes, off) === 0 || readGbaPointer(bytes, off) !== null
 }
 
+export interface ScanOptions {
+  /**
+   * Accept a compressed tileset whose graphics do not start with the
+   * LZ77 magic byte. pokeemerald-expansion can build its graphics with
+   * its own `smol` codec instead, which this editor cannot decode — but
+   * the map *index* is still worth discovering, because the wild
+   * encounter table is uncompressed and cross-checks against it.
+   * Callers that set this must not try to RENDER the tilesets.
+   */
+  anyGraphicsCodec?: boolean
+}
+
 /** Step 1: everything shaped like a tileset header. Deliberately loose —
  *  false positives are pruned when layouts must point at them exactly. */
-export function scanTilesetHeaders(bytes: Uint8Array): Set<number> {
+export function scanTilesetHeaders(bytes: Uint8Array, opts: ScanOptions = {}): Set<number> {
   const out = new Set<number>()
   for (let o = 0; o + 24 <= bytes.length; o += 4) {
     if (bytes[o] > 1 || bytes[o + 1] > 1 || bytes[o + 2] !== 0 || bytes[o + 3] !== 0) continue
@@ -50,7 +62,8 @@ export function scanTilesetHeaders(bytes: Uint8Array): Set<number> {
     if (readGbaPointer(bytes, o + 8) === null) continue
     if (readGbaPointer(bytes, o + 12) === null) continue
     if (!ptrOrZero(bytes, o + 16) || !ptrOrZero(bytes, o + 20)) continue
-    if (bytes[o] === 1 && bytes[gfx] !== 0x10) continue // compressed ⇒ LZ77 magic
+    // Compressed ⇒ LZ77 magic, unless the ROM uses another codec.
+    if (!opts.anyGraphicsCodec && bytes[o] === 1 && bytes[gfx] !== 0x10) continue
     out.add(o)
   }
   return out
@@ -166,8 +179,8 @@ export function scanBankTable(bytes: Uint8Array, headers: Set<number>): Gen3MapI
 }
 
 /** Run the full bottom-up discovery. */
-export function discoverMaps(bytes: Uint8Array): Gen3MapIndex | null {
-  const tilesets = scanTilesetHeaders(bytes)
+export function discoverMaps(bytes: Uint8Array, opts: ScanOptions = {}): Gen3MapIndex | null {
+  const tilesets = scanTilesetHeaders(bytes, opts)
   if (tilesets.size === 0) return null
   const layouts = scanLayouts(bytes, tilesets)
   if (layouts.size === 0) return null

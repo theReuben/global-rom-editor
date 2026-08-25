@@ -5,6 +5,7 @@ import { tryBuildGen45 } from './gen45'
 import { tryBuildGen1 } from './gen1'
 import { tryBuildGen2 } from './gen2'
 import { tryBuildGen3 } from './gen3'
+import { tryBuildGen3Expansion } from './gen3-expansion'
 import type { GameAdapter } from './schema'
 
 export type { GameAdapter } from './schema'
@@ -54,7 +55,10 @@ export function buildAdapter(rom: Rom): LoadResult {
 
   const adapter =
     info.platform === 'GBA'
-      ? tryBuildGen3(rom, gameName, info.platform)
+      ? // Vanilla Gen 3 first: it is the cheaper scan, and an expansion
+        // ROM has none of its anchors. pokeemerald-expansion keeps the
+        // same GBA header, so only the data layout tells them apart.
+        (tryBuildGen3(rom, gameName, info.platform) ?? tryBuildGen3Expansion(rom, gameName, info.platform))
       : (tryBuildGen2(rom, gameName, info.platform) ?? tryBuildGen1(rom, gameName, info.platform))
 
   if (!adapter) {
@@ -62,7 +66,8 @@ export function buildAdapter(rom: Rom): LoadResult {
       adapter: null,
       reason:
         `Detected a ${info.platform} ROM ("${headerId}"), but no Pokémon data tables were found. ` +
-        'Supported games: Red, Blue, Yellow, Gold, Silver, Crystal, Ruby, Sapphire, Emerald, FireRed, LeafGreen (and hacks based on them).',
+        'Supported games: Red, Blue, Yellow, Gold, Silver, Crystal, Ruby, Sapphire, Emerald, FireRed, LeafGreen ' +
+        '(and hacks based on them, including pokeemerald-expansion).',
     }
   }
   return { adapter }

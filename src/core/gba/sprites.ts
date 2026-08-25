@@ -77,7 +77,7 @@ function findTagTables(
 }
 
 /** Write compressed data over its old slot, or relocate + retarget. */
-function replaceCompressed(rom: Rom, tableEntry: number, compressed: Uint8Array): string | null {
+export function replaceCompressed(rom: Rom, tableEntry: number, compressed: Uint8Array): string | null {
   const oldPtr = readGbaPointer(rom.bytes, tableEntry)
   if (oldPtr === null) return 'The sprite pointer looks corrupt.'
   const oldSize = lz77CompressedSize(rom.bytes, oldPtr)

@@ -39,10 +39,11 @@ npm run dev      # local dev server
 ## Layout
 
 - `src/core/` — engine (rom, scan, text codecs, ips, checksum, freespace,
-  tiles, gba/{lz77,mapscan,maps,trainers,wild,script,species-extras})
-- `src/core/games/` — schema + gen1/gen2/gen3 adapters + generated
-  constants (gen1-constants, gen3-constants — regenerate from decomps,
-  don't hand-edit)
+  tiles, gba/{lz77,mapscan,maps,trainers,wild,script,species-extras,
+  expansion})
+- `src/core/games/` — schema + gen1/gen2/gen3/gen3-expansion adapters
+  + generated constants (gen1-constants, gen3-constants — regenerate
+  from decomps, don't hand-edit)
 - `src/decomp/` — decomp source-tree backend (species_info parser)
 - `src/ui/` — React panels, one per tab
 - `tests/` — vitest; fixtures build fake ROMs with planted signatures
