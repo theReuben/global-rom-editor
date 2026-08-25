@@ -171,10 +171,59 @@ vanilla's is. Groups surface as "Morning — Land" etc. Verified
 byte-exact against the tree's wild_encounters.json (Route 101 land,
 rate 20, Bidoof 2-4) and the full 124-header table.
 
-NOT decoded yet, and off with a warning rather than guessed:
-trainers and item DATA (both structs differ from vanilla; item and
-ability NAMES are still read and feed the dropdowns), the type chart,
-and TM/HM compatibility.
+**Trainers** (`gba/expansion-trainers.ts`): `struct Trainer` is 52
+bytes, nothing like vanilla's 40. aiFlags u64 @0 (34 flags now; the UI
+edits the low 32 and the high bits are preserved), party ptr @8,
+items[4] u16 @0x0C, startingStatus @0x14 (opaque, preserved),
+trainerClass @0x1C, encounterMusic:7|gender:1 @0x1D, trainerPic @0x1E
+(packed enum, 1 byte), name[11] @0x1F, battleType:2|mugshotColor:6
+@0x2A, partySize @0x2B, pool indices @0x2C, overrideTrainer @0x30,
+trainerBackPic @0x32. The 52-byte size is only legal because the GBA
+build uses `-mabi=apcs-gnu`, where u64 aligns to 4 — assuming the
+modern ABI gives 56 and finds nothing.
+`struct TrainerMon` is 36 bytes: nickname ptr, ev ptr, iv u32, moves[4]
+u16 @12, species @20, heldItem @22, ability @24, lvl @26, ball @27,
+friendship @28, packed nature/gender/shiny/tera bytes, tags u32.
+IVs are NOT exposed: the expansion packs six 5-bit IVs into that u32,
+and the schema's single 0-255 "IV strength" cannot represent it without
+flattening the spread. Verified against the tree: trainer 0 is SAWYER,
+class 2 = HIKER, pic 0, male, aiFlags 0x7 = AI_FLAG_BASIC_TRAINER, one
+Geodude at level 21.
+`gTrainerClasses` is {u8 name[13]; u8 money; u16 ball} = 16 bytes.
+Text alone cannot find it — a 32 MB ROM is full of 16-byte-aligned
+strings and the longest text run was an unrelated list — so the scan
+also requires the small prize-money multiplier and a plausible ball
+item id, and gates on 30% of entries having non-zero money.
+
+**Items** (`gba/expansion-items.ts`): `struct ItemInfo` is coincidentally
+44 bytes like vanilla's, but the name and description are POINTERS and
+there is no self-identifying itemId for `gba/items.ts` to lock onto.
+price u32 @0, secondaryId @4, fieldUseFunc @8, description @0x0C,
+effect @0x10, name @0x14, pluralName @0x18, holdEffect @0x1C,
+holdEffectParam @0x1D, importance:2|notConsumed:1|pocket:5 @0x1E,
+sortType @0x1F, type @0x20, battleUsage @0x21, flingPower @0x22,
+iconPic @0x24, iconPalette @0x28. Placeholder items share one name
+string, so writes go in place only when no OTHER entry points at the
+same text; revert restores the pointed-at text too, which reverting the
+44-byte entry alone would miss.
+
+**Map names** (`gba/regionmap.ts`): map headers carry
+`regionMapSectionId` at +0x14, indexing
+`struct RegionMapLocation {u8 x,y,width,height; const u8 *name}`.
+This is IDENTICAL in vanilla Gen 3, so both adapters now show
+"0.16 — ROUTE 101 (20x20)" instead of bare bank.map numbers. Real
+tables contain blank sections and names with glyphs the codec renders
+as '?', so per-entry validation is loose and name QUALITY is scored
+across the whole run instead (>=80% clean) — being strict truncated the
+209-entry table at 66.
+
+Still NOT decoded, and off rather than guessed: the type chart and
+TM/HM compatibility.
+
+Discovery cost: the trainer, class and region-map sweeps roughly
+doubled load time for a 32 MB ROM (13.5s -> ~24s). Each is one pass
+with the cheapest, most selective byte test first; fusing them into a
+single sweep is the obvious next win if it matters.
 
 **`smol` (src/core/gba/smol.ts)** — the expansion's own codec, which
 replaces LZ77 for graphics in many hacks and used to keep sprites and

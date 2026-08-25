@@ -262,10 +262,101 @@ describe('expansion adapter', () => {
     expect(a.mapModule!.render(key).width).toBeGreaterThan(0)
   })
 
-  it('disables the editors whose expansion formats are not decoded', () => {
+  it('names maps from the region-map table', () => {
     const { a } = adapter()
-    expect(a.trainerModule).toBeNull()
-    expect(a.itemModule).toBeNull()
-    expect(a.warnings.join(' ')).toContain('Trainer and item editing are not available')
+    // The fixture's map header points at region-map section 1.
+    expect(a.mapModule!.entries[0].label).toContain('VIRIDIAN CITY')
+  })
+
+  it('reads trainers, their classes and their parties', () => {
+    const { a } = adapter()
+    const t = a.trainerModule
+    expect(t).not.toBeNull()
+    expect(t!.entries.length).toBe(60)
+    const first = t!.read(0)
+    expect(first.name).toBe('SAWYER')
+    expect(first.partySize).toBe(1)
+    expect(first.aiFlags).toBe(7)
+    expect(t!.party(0)).toEqual([{ species: 1, level: 5, iv: null, item: 0, moves: [0, 0, 0, 0] }])
+    // Class names must survive an accented character; 'POKéMANIAC'
+    // truncated the class table when the text check was a byte range.
+    expect(t!.classOptions?.[7].label).toBe('POKéMANIAC')
+    expect(t!.classOptions!.length).toBe(40)
+  })
+
+  it('keeps a trainer with no name at all in the table', () => {
+    // 30 of the reference ROM's 854 trainers are unnamed, and rejecting
+    // those cut discovery off at entry 21.
+    const { a } = adapter()
+    expect(a.trainerModule!.read(21).name).toBe('')
+    expect(a.trainerModule!.entries.length).toBeGreaterThan(21)
+  })
+
+  it('edits trainer fields that share a byte, and reverts', () => {
+    const { rom, a } = adapter()
+    const t = a.trainerModule!
+    const before = t.read(0)
+    const party = t.party(0)
+    t.write(0, 'music', 9)
+    t.write(0, 'gender', 1)
+    expect(t.read(0)).toMatchObject({ music: 9, gender: 1 })
+    t.write(0, 'trainerClass', 5)
+    t.write(0, 'aiFlags', 0x1234)
+    expect(t.read(0)).toMatchObject({ trainerClass: 5, aiFlags: 0x1234 })
+    t.setName(0, 'ZED')
+    expect(t.entries[0].name).toBe('ZED')
+    t.writePartyField(0, 0, 'species', 25)
+    t.writePartyField(0, 0, 'level', 55)
+    t.writePartyField(0, 0, 'move0', 85)
+    expect(t.party(0)[0]).toMatchObject({ species: 25, level: 55, moves: [85, 0, 0, 0] })
+    t.revert(0)
+    expect(t.read(0)).toEqual(before)
+    expect(t.party(0)).toEqual(party)
+    expect(rom.changedByteCount).toBe(0)
+  })
+
+  it('edits item data, including the widened 32-bit price', () => {
+    const { a } = adapter()
+    const it = a.itemModule
+    expect(it).not.toBeNull()
+    expect(it!.entries[4].name).toBe('Master Ball')
+    it!.write(4, 'price', 123456) // more than vanilla's u16 could hold
+    expect(it!.read(4).price).toBe(123456)
+    const before = it!.read(4).importance
+    it!.write(4, 'pocket', 3)
+    expect(it!.read(4)).toMatchObject({ pocket: 3, importance: before })
+  })
+
+  it('never renames a second item that shares one name string', () => {
+    const { a } = adapter()
+    const it = a.itemModule!
+    const other = it.entries[3].name
+    expect(it.setName(4, 'Test Ball')).toBe(true)
+    expect(it.entries[4].name).toBe('Test Ball')
+    expect(it.entries[3].name).toBe(other)
+  })
+
+  it('relocates a description shared by two items instead of editing in place', () => {
+    const { a } = adapter()
+    const it = a.itemModule!
+    // The fixture points items 3 and 4 at one string.
+    expect(it.description(3)).toBe(it.description(4))
+    expect(it.setDescription(4, 'Only mine.')).toBe(true)
+    expect(it.description(4)).toBe('Only mine.')
+    expect(it.description(3)).toBe('A shared blurb.')
+  })
+
+  it('reverts an item including its pointed-at name and description', () => {
+    const { rom, a } = adapter()
+    const it = a.itemModule!
+    const name = it.entries[28].name
+    const desc = it.description(28)
+    it.write(28, 'flingPower', 99)
+    it.setName(28, 'Elixir')
+    it.setDescription(28, 'Short.')
+    it.revert(28)
+    expect(it.entries[28].name).toBe(name)
+    expect(it.description(28)).toBe(desc)
+    expect(rom.changedByteCount).toBe(0)
   })
 })

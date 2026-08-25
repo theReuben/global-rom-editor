@@ -8,6 +8,7 @@ import type { CellInfo, MapEntry, MapEvents, MapModule, EventKind } from '../gam
 import { decompressGraphics } from './compress'
 import { decodeTile4bpp, readPalette } from '../tiles'
 import { discoverMaps, type Gen3MapIndex } from './mapscan'
+import { findRegionMap } from './regionmap'
 import { findFreeSpaceAtEnd, relocate, writeGbaPointer } from '../freespace'
 import { compileScript } from './script'
 
@@ -68,11 +69,19 @@ const WARP_SIZE = 8
 const TRIGGER_SIZE = 16
 const SIGN_SIZE = 12
 
+/** `struct MapHeader.regionMapSectionId`. */
+const MAP_SECTION_ID = 0x14
+
 export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapModule; index: Gen3MapIndex } | null {
   const bytes = rom.bytes
   const index = discoverMaps(bytes)
   if (!index) return null
   const family = familyForGameCode(gameCode)
+
+  // Map headers carry a region-map section id at +0x14; that is where
+  // human names like "Viridian City" come from. Without the table the
+  // list falls back to bank.map numbers, as it always used to.
+  const regionMap = findRegionMap(bytes)
 
   const entries: MapEntry[] = []
   const headerByKey = new Map<string, number>()
@@ -83,7 +92,13 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
       const h = bytes[layoutOff + 4] | (bytes[layoutOff + 5] << 8)
       const key = `${bank}.${map}`
       headerByKey.set(key, headerOff)
-      entries.push({ key, bank, map, label: `${bank}.${map} — ${w}×${h}` })
+      const name = regionMap?.name(bytes[headerOff + MAP_SECTION_ID]) ?? ''
+      entries.push({
+        key,
+        bank,
+        map,
+        label: name ? `${bank}.${map} — ${name} (${w}×${h})` : `${bank}.${map} — ${w}×${h}`,
+      })
     })
   })
 

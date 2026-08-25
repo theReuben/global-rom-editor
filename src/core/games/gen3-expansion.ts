@@ -19,6 +19,8 @@ import { gen3Codec } from '../text'
 import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import { buildGen3MapModule } from '../gba/maps'
 import { discoverMaps } from '../gba/mapscan'
+import { buildExpansionTrainers } from '../gba/expansion-trainers'
+import { buildExpansionItems, ITEM_ENTRY } from '../gba/expansion-items'
 import { buildWildModule } from '../gba/wild'
 import {
   EVOLUTION_ENTRY,
@@ -52,11 +54,13 @@ import type {
   FieldSpec,
   FieldValue,
   GameAdapter,
+  ItemModule,
   LearnsetEntry,
   LearnsetModule,
   MapModule,
   SelectOption,
   TableRegion,
+  TrainerModule,
   WildModule,
 } from './schema'
 
@@ -173,11 +177,19 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     regions.push({ name: 'Ability names', offset: abilities.table.base, length: abilities.names.length * abilities.table.stride })
   }
 
-  const items = findItemNames(bytes, scan)
-  const itemOptions: SelectOption[] | null = items
-    ? items.names.map((label, value) => ({ value, label: value === 0 ? '— none —' : label || `Item #${value}` }))
-    : null
-  if (items) regions.push({ name: 'Item names', offset: items.table.base, length: items.names.length * items.table.stride })
+  // Items: the same table `findItemNames` located, now decoded in full.
+  const itemNames = findItemNames(bytes, scan)
+  let itemModule: ItemModule | null = null
+  let itemOptions: SelectOption[] | null = null
+  if (itemNames && itemNames.table.stride === ITEM_ENTRY) {
+    const items = buildExpansionItems(rom, { offset: itemNames.table.base, count: itemNames.names.length })
+    itemModule = items.module
+    itemOptions = items.options
+    regions.push({ name: `Item data (${items.count})`, offset: items.offset, length: items.count * ITEM_ENTRY })
+  } else if (itemNames) {
+    itemOptions = itemNames.names.map((label, value) => ({ value, label: value === 0 ? '— none —' : label || `Item #${value}` }))
+    warnings.push("The item table has an unexpected entry size — item names are shown but item editing is disabled.")
+  }
 
   /* --------------------------------------------------- helpers */
 
@@ -410,13 +422,29 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
   }
   if (!wildModule) warnings.push("Couldn't verify wild encounter tables — wild editing is disabled for this ROM.")
 
-  // The expansion's `struct Trainer` and `struct ItemInfo` are laid out
-  // differently from vanilla's, so their editors stay off rather than
-  // writing plausible-looking bytes into the wrong fields.
-  warnings.push(
-    'Trainer and item editing are not available for expansion ROMs yet — those structs differ from vanilla Gen 3 ' +
-      'and are not decoded. Item and ability NAMES are read from the ROM and used in the dropdowns.',
-  )
+  let trainerModule: TrainerModule | null = null
+  try {
+    const trainers = buildExpansionTrainers(rom, SPECIES_COUNT, MOVE_COUNT)
+    if (trainers) {
+      trainerModule = trainers.module
+      regions.push({
+        name: `Trainers (${trainers.count})`,
+        offset: trainers.offset,
+        length: trainers.count * 52,
+      })
+    }
+  } catch {
+    trainerModule = null
+  }
+  if (!trainerModule) {
+    warnings.push("Couldn't verify the trainer table — trainer editing is disabled for this ROM.")
+  } else {
+    warnings.push(
+      'Trainer Pokémon IVs are not editable: the expansion stores six 5-bit IVs per mon, which the single ' +
+        '“IV strength” control cannot represent without flattening the spread. Everything else on a party ' +
+        'member — species, level, held item and moves — is editable.',
+    )
+  }
 
   // Both LZ77 and the expansion's `smol` codec decode here; anything
   // else leaves the tab off rather than rendering noise.
@@ -526,10 +554,10 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     speciesFields,
     typeOptions,
     mapModule,
-    trainerModule: null,
+    trainerModule,
     wildModule,
     itemOptions,
-    itemModule: null,
+    itemModule,
     typeChart: null,
     evolutions,
     learnsets,

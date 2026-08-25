@@ -90,7 +90,9 @@ export function isSmol(bytes: Uint8Array, off: number): boolean {
   // BASE_ONLY has no bitstream; the entropy-coded modes must have one.
   const entropy = h.mode !== SMOL_MODE.BASE_ONLY
   if (entropy !== h.bitstreamSize > 0) return false
-  const size = smolCompressedSize(bytes, off)
+  // Size from the header already parsed — this runs inside the map
+  // tileset sweep, where re-parsing it cost about a second per load.
+  const size = sizeFromHeader(h)
   return size > 8 && off + size <= bytes.length && size <= h.imageSize + 64
 }
 
@@ -371,9 +373,13 @@ function readU16s(bytes: Uint8Array, off: number, count: number): Uint16Array {
 /** Byte length of the stream at `off`, for in-place rewrite checks. */
 export function smolCompressedSize(bytes: Uint8Array, off = 0): number {
   const h = readSmolHeader(bytes, off)
-  if (h === null) return 0
+  return h === null ? 0 : sizeFromHeader(h)
+}
+
+function sizeFromHeader(h: SmolHeader): number {
   if (h.mode === SMOL_MODE.BASE_ONLY) return 8 + h.symSize * 2 + h.loSize
-  const loEncoded = h.mode === SMOL_MODE.ENCODE_LO || h.mode === SMOL_MODE.ENCODE_BOTH || h.mode === SMOL_MODE.ENCODE_BOTH_DELTA_SYMS
+  const loEncoded =
+    h.mode === SMOL_MODE.ENCODE_LO || h.mode === SMOL_MODE.ENCODE_BOTH || h.mode === SMOL_MODE.ENCODE_BOTH_DELTA_SYMS
   const symEncoded = h.mode !== SMOL_MODE.ENCODE_LO
   let size = 8 + (loEncoded ? 12 : 0) + (symEncoded ? 12 : 0) + 4 * h.bitstreamSize
   if (!symEncoded) size += h.symSize * 2
