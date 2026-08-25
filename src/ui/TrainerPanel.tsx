@@ -63,6 +63,9 @@ function Options({
   )
 }
 
+/** Stat order of the packed IV word (see TRAINER_PARTY_IVS). */
+const IV_LABELS = ['HP', 'Attack', 'Defense', 'Speed', 'Sp. Atk', 'Sp. Def']
+
 export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: () => void }) {
   const module = adapter.trainerModule!
   const [selected, setSelected] = useState(module.entries.find((e) => e.name.trim())?.id ?? 0)
@@ -223,6 +226,10 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
                 {mon.iv !== null && (
                   <Num label="IV strength" value={mon.iv} min={0} max={255} onChange={(v) => writeParty(i, 'iv', v)} />
                 )}
+                {mon.ivs?.map((iv, s) => (
+                  <Num key={s} label={`${IV_LABELS[s]} IV`} value={iv} min={0} max={31}
+                    onChange={(v) => writeParty(i, `iv${s}`, v)} />
+                ))}
                 {mon.item !== null &&
                   (itemOptions.length > 0 ? (
                     <Options label="Held item" value={mon.item} options={itemOptions} onChange={(v) => writeParty(i, 'item', v)} />

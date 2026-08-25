@@ -129,6 +129,12 @@ export interface PartyMon {
   level: number
   /** IV strength 0-255 (scales all IVs); null when the game has none. */
   iv: number | null
+  /**
+   * Six individual IVs 0-31 in HP/Atk/Def/Spe/SpA/SpD order, for games
+   * that store a full spread rather than one strength value; null when
+   * the game has no per-stat IVs. Mutually exclusive with `iv`.
+   */
+  ivs: number[] | null
   /** Held item id; null when this trainer's party has no item slots. */
   item: number | null
   /** Four move ids; null when the party uses default level-up moves. */

@@ -57,7 +57,7 @@ describe('Gen 3 trainers', () => {
 
     const party = t.party(1)
     expect(party).toHaveLength(2)
-    expect(party[0]).toEqual({ iv: 100, level: 20, species: 1, item: 3, moves: [1, 2, 0, 0] })
+    expect(party[0]).toEqual({ iv: 100, ivs: null, level: 20, species: 1, item: 3, moves: [1, 2, 0, 0] })
     expect(party[1].level).toBe(22)
 
     // Simple trainers: no item / move slots.
@@ -150,7 +150,7 @@ describe('Gen 1 trainer parties', () => {
     // Special format: per-mon levels.
     const special = t.party(3)
     expect(special).toHaveLength(2)
-    expect(special[0]).toMatchObject({ species: 1, level: 5, iv: null, item: null, moves: null })
+    expect(special[0]).toMatchObject({ species: 1, level: 5, iv: null, ivs: null, item: null, moves: null })
     expect(special[1]).toMatchObject({ species: 2, level: 7 })
     // Fixed format: one shared level for the whole party.
     const fixed = t.party(4)
@@ -285,12 +285,12 @@ describe('Gen 2 trainer parties', () => {
     // TRAINERTYPE_MOVES (Falkner): moves array, no item.
     const falkner = t.party(0)
     expect(falkner).toHaveLength(2)
-    expect(falkner[0]).toEqual({ species: 16, level: 7, iv: null, item: null, moves: [33, 189, 0, 0] })
+    expect(falkner[0]).toEqual({ species: 16, level: 7, iv: null, ivs: null, item: null, moves: [33, 189, 0, 0] })
     expect(falkner[1].moves).toEqual([33, 189, 16, 0])
     // TRAINERTYPE_NORMAL (Mikey): neither.
-    expect(t.party(3)[1]).toEqual({ species: 19, level: 4, iv: null, item: null, moves: null })
+    expect(t.party(3)[1]).toEqual({ species: 19, level: 4, iv: null, ivs: null, item: null, moves: null })
     // TRAINERTYPE_ITEM_MOVES (Red): both.
-    expect(t.party(4)[0]).toEqual({ species: 25, level: 30, iv: null, item: 3, moves: [33, 45, 85, 87] })
+    expect(t.party(4)[0]).toEqual({ species: 25, level: 30, iv: null, ivs: null, item: 3, moves: [33, 45, 85, 87] })
   })
 
   it('edits levels, species, items, moves and names in place', async () => {

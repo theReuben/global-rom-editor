@@ -356,7 +356,7 @@ describe('Gen 4 trainers (trdata/trpoke)', () => {
     expect(d.maxPartySize).toBe(2) // 36 bytes / 18
 
     const party = t.party(1)
-    expect(party[0]).toEqual({ iv: 120, level: 25, species: 25, item: 13, moves: [84, 45, 0, 0] })
+    expect(party[0]).toEqual({ iv: 120, ivs: null, level: 25, species: 25, item: 13, moves: [84, 45, 0, 0] })
     expect(party[1].species).toBe(26) // form bits masked for display
   })
 

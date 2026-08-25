@@ -231,6 +231,7 @@ export function buildGen4Trainers(
         const hasMoves = (type & 1) === 1
         out.push({
           iv: rom.readU16LE(o),
+          ivs: null,
           level: rom.readU16LE(o + 2),
           species: rom.readU16LE(o + 4) & 0x3ff, // upper bits = form
           item: hasItem ? rom.readU16LE(o + 6) : null,

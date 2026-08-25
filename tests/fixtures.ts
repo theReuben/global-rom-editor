@@ -772,6 +772,76 @@ export function makeSmolBaseOnly(raw: Uint8Array): Uint8Array {
   return out
 }
 
+
+/**
+ * `gTrainers` (52-byte records) plus their parties and
+ * `gTrainerClasses` (16-byte records). Entry 21 is deliberately left
+ * unnamed and one class name carries an accented character, because
+ * both of those truncated discovery during development.
+ */
+function addTrainerTables(
+  rom: Uint8Array,
+  ptr: (off: number) => number[],
+  u16: (v: number) => number[],
+  text: (t: string) => number[],
+): void {
+  const TRAINERS = 0x060000
+  const PARTIES = 0x062000
+  const CLASSES = 0x064000
+  const COUNT = 60
+  const names: Record<number, string> = { 0: 'SAWYER', 1: 'GRUNT', 100: 'BROOKE' }
+  for (let i = 0; i < COUNT; i++) {
+    const o = TRAINERS + i * 52
+    const size = (i % 3) + 1
+    const party = PARTIES + i * 6 * 36
+    put(rom, o, [7, 0, 0, 0, 0, 0, 0, 0]) // aiFlags = AI_FLAG_BASIC_TRAINER
+    put(rom, o + 8, ptr(party))
+    put(rom, o + 0x0c, [...u16(0), ...u16(0), ...u16(0), ...u16(0)]) // items
+    put(rom, o + 0x1c, [(i % 30) + 1]) // trainerClass
+    put(rom, o + 0x1d, [11 | ((i % 2) << 7)]) // encounterMusic | gender
+    put(rom, o + 0x1e, [i % 20]) // trainerPic
+    // Entry 21 has no name at all: 30 of a real ROM's trainers don't.
+    put(rom, o + 0x1f, i === 21 ? [0xff] : text(names[i] ?? `TRAINER${i}`))
+    put(rom, o + 0x2a, [0]) // battleType | mugshotColor
+    put(rom, o + 0x2b, [size])
+    for (let m = 0; m < size; m++) {
+      const mon = party + m * 36
+      put(rom, mon + 20, u16(1 + ((i + m) % 100))) // species
+      put(rom, mon + 22, u16(0)) // heldItem
+      // Packed IVs, low bits first: HP/Atk/Def/Speed/SpAtk/SpDef. The top
+      // bit is set so tests can prove a write preserves the unused bits.
+      // = TRAINER_PARTY_IVS(31, 0, 15, 1, 20, 7), plus bit 31 set so tests
+      // can prove a write preserves the word's two unused top bits.
+      put(rom, mon + 8, [...u16(0xbc1f), ...u16(0x8f40)])
+      put(rom, mon + 26, [5 + m]) // level
+    }
+  }
+  const classNames: Record<number, string> = { 0: 'PKMN TRAINER', 2: 'HIKER', 5: 'COOLTRAINER' }
+  for (let i = 0; i < 40; i++) {
+    const o = CLASSES + i * 16
+    // 'é' exercises the accented-character range the byte-level text
+    // check has to accept.
+    put(rom, o, text(classNames[i] ?? (i === 7 ? 'POKéMANIAC' : `CLASS${i}`)))
+    put(rom, o + 13, [10 + (i % 20)]) // prize money multiplier
+    put(rom, o + 14, u16(3)) // ball
+  }
+}
+
+/** `gRegionMapEntries` — {u8 x, y, width, height; const u8 *name}. */
+function addRegionMap(rom: Uint8Array, ptr: (off: number) => number[], text: (t: string) => number[]): void {
+  const TABLE = 0x066000
+  let names = 0x066800
+  const known: Record<number, string> = { 1: 'VIRIDIAN CITY', 2: 'PEWTER CITY' }
+  for (let i = 0; i < 50; i++) {
+    const o = TABLE + i * 8
+    put(rom, o, [4 + (i % 20), 3 + (i % 12), 1, 1])
+    // Section 7 is blank, as real tables have blank sections.
+    put(rom, names, i === 7 ? [0xff] : text(known[i] ?? `AREA ${i}`))
+    put(rom, o + 4, ptr(names))
+    names += 24
+  }
+}
+
 /* -------------------------------------------- Gen 3 (expansion) */
 
 /**
@@ -926,15 +996,32 @@ export function makeGen3ExpansionRom(): Uint8Array {
     put(rom, 0x041000 + i * 28, fixed(i === 0 ? '-------' : (abilityNames[i] ?? `Ability${i}`), 17))
   }
 
-  /* ---- gItemsInfo: name POINTER at offset 20, stride 44 ---- */
+  /* ---- gItemsInfo: pointers to name and description, stride 44 ---- */
   const itemNames: Record<number, string> = { 3: 'Ultra Ball', 4: 'Master Ball', 28: 'Potion' }
   let itemText = 0x043000
+  const sharedDesc = 0x043e00
+  put(rom, sharedDesc, text('A shared blurb.'))
   for (let i = 0; i <= 60; i++) {
+    const o = 0x042000 + i * 44
     put(rom, itemText, text(i === 0 ? '????????' : (itemNames[i] ?? `Item${i}`)))
-    put(rom, 0x042000 + i * 44 + 20, ptr(itemText))
+    put(rom, o + 20, ptr(itemText)) // name
     itemText += 20
+    // Two items share one description string, so the editor has to
+    // relocate rather than rewrite in place when either is edited.
+    put(rom, o + 12, ptr(i === 3 || i === 4 ? sharedDesc : itemText))
+    if (i !== 3 && i !== 4) {
+      put(rom, itemText, text(`Description of item ${i}.`))
+      itemText += 32
+    }
+    put(rom, o + 0, [0xc8, 0x00, 0x00, 0x00]) // price 200
+    put(rom, o + 4, u16(i)) // secondaryId
+    put(rom, o + 28, [0, 20]) // holdEffect, holdEffectParam
+    put(rom, o + 30, [(1 << 3) | 0]) // pocket 1 (Poké Balls), importance 0
+    put(rom, o + 31, [3, 4, 8, 30]) // sortType, type, battleUsage, flingPower
   }
 
+  addTrainerTables(rom, ptr, u16, text)
+  addRegionMap(rom, ptr, text)
   addMapData(rom) // gives map keys 0.0 and 1.0, LZ77 tilesets
   addExpansionWildData(rom, ptr, u16)
   return rom
