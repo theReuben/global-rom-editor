@@ -933,6 +933,8 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     typeOptions: GEN2_TYPES,
     mapModule: gen2maps?.module ?? null,
     trainerModule: trainers?.module ?? null,
+    trainerLocations: null,
+    trainerSprite: null,
     wildModule: wild?.module ?? null,
     itemOptions,
     speciesSprite: sprites ? (id, shiny) => sprites.front(id, shiny ?? false) : null,

@@ -726,7 +726,7 @@ function writePaletteBytes(rom: Rom, ptrField: number, palBytes: Uint8Array): vo
  * nibble), which decoded Bulbasaur to 55 KB of noise. Only an explicit
  * LZ77 header is treated as compressed, for hacks that kept that.
  */
-function readPaletteBytes(bytes: Uint8Array, off: number): Uint8Array {
+export function readPaletteBytes(bytes: Uint8Array, off: number): Uint8Array {
   if (isLz77Palette(bytes, off)) {
     try {
       const out = decompressGraphics(bytes, off)
@@ -885,7 +885,7 @@ export function buildExpansionSprites(rom: Rom, table: SpeciesTable): SpriteView
 }
 
 /** 64×64 4bpp = one animation frame. */
-const PIC_FRAME = 0x800
+export const PIC_FRAME = 0x800
 
 /* ------------------------------------------------------------------ */
 /* wild encounters                                                     */

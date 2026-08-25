@@ -889,6 +889,8 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     typeOptions: generation === 5 ? GEN5_TYPES : GEN3_TYPES,
     mapModule: null,
     trainerModule,
+    trainerLocations: null,
+    trainerSprite: null,
     wildModule,
     itemOptions:
       msgItems.length > 1

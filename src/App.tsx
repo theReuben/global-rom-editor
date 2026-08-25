@@ -34,6 +34,19 @@ export function App() {
   const [decomp, setDecomp] = useState<DecompProject | null>(null)
   const [tab, setTab] = useState<Tab>('pokemon')
   const [error, setError] = useState<string | null>(null)
+  /**
+   * Cross-tab jump target. Panels mount with `key` bound to it so a second
+   * jump to the same tab still re-opens on the new entry.
+   */
+  const [jump, setJump] = useState<{ trainerId?: number; mapKey?: string; nonce: number } | null>(null)
+  const openTrainer = useCallback((trainerId: number) => {
+    setJump({ trainerId, nonce: Date.now() })
+    setTab('trainers')
+  }, [])
+  const openMap = useCallback((mapKey: string) => {
+    setJump({ mapKey, nonce: Date.now() })
+    setTab('maps')
+  }, [])
   const [, setTick] = useState(0)
   const onEdit = useCallback(() => setTick((t) => t + 1), [])
 
@@ -44,6 +57,7 @@ export function App() {
       setAdapter(result.adapter)
       setError(null)
       setTab('pokemon')
+      setJump(null)
     } else {
       setError(result.reason ?? 'Unsupported file.')
     }
@@ -111,9 +125,25 @@ export function App() {
         {tab === 'pokemon' && <SpeciesPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'moves' && <MovesPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'items' && adapter.itemModule && <ItemsPanel adapter={adapter} onEdit={onEdit} />}
-        {tab === 'trainers' && adapter.trainerModule && <TrainerPanel adapter={adapter} onEdit={onEdit} />}
+        {tab === 'trainers' && adapter.trainerModule && (
+          <TrainerPanel
+            key={`trainers-${jump?.trainerId ?? 'none'}-${jump?.nonce ?? 0}`}
+            adapter={adapter}
+            onEdit={onEdit}
+            focusTrainerId={jump?.trainerId ?? null}
+            onOpenMap={adapter.mapModule ? openMap : undefined}
+          />
+        )}
         {tab === 'wild' && adapter.wildModule && <WildPanel adapter={adapter} onEdit={onEdit} />}
-        {tab === 'maps' && adapter.mapModule && <MapPanel adapter={adapter} onEdit={onEdit} />}
+        {tab === 'maps' && adapter.mapModule && (
+          <MapPanel
+            key={`maps-${jump?.mapKey ?? 'none'}-${jump?.nonce ?? 0}`}
+            adapter={adapter}
+            onEdit={onEdit}
+            focusMapKey={jump?.mapKey ?? null}
+            onOpenTrainer={adapter.trainerModule ? openTrainer : undefined}
+          />
+        )}
         {tab === 'types' && adapter.typeChart && <TypeChartPanel adapter={adapter} onEdit={onEdit} />}
         {tab === 'patch' && (
           <PatchPanel

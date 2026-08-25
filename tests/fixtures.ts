@@ -773,6 +773,51 @@ export function makeSmolBaseOnly(raw: Uint8Array): Uint8Array {
 }
 
 
+
+
+/**
+ * Adds a trainer NPC to the map addMapData built: trainerType is set and
+ * the script opens with a short prologue before `trainerbattle` (0x5c),
+ * so the walk has to step over commands rather than only matching the
+ * first byte. Kept out of addMapData so the vanilla fixtures — and the
+ * event counts their tests assert — stay as they were.
+ */
+function addTrainerOnMap(rom: Uint8Array, ptr: (off: number) => number[], u16: (v: number) => number[]): void {
+  const events = 0x312300
+  const npcs = 0x312400
+  const script = 0x312600
+  put(rom, events, [2]) // NPC count 1 -> 2
+  put(rom, npcs + 24, [2, 6, 0, 0, ...u16(1), ...u16(2), 3, 1, 0x11, 0, ...u16(1), ...u16(0), ...ptr(script), ...u16(0), ...u16(0)])
+  put(rom, script, [0x6a, 0x5a, 0x5c, 0x00, 0x00, ...u16(3)])
+}
+
+/**
+ * `gTrainerSprites`: 32-byte records whose frontPic tag equals the entry
+ * index. That counting tag is what tells the real table apart from other
+ * 32-byte records with two in-range pointers, so the fixture also plants
+ * a decoy run that has the right shape but constant tags.
+ */
+function addTrainerSprites(rom: Uint8Array, ptr: (off: number) => number[], u16: (v: number) => number[]): void {
+  const TABLE = 0x070000
+  const GFX = 0x071000
+  const PAL = 0x072000
+  const DECOY = 0x073000
+  const COUNT = 30
+
+  // One 64x64 4bpp pic (0x800 bytes) and a 32-byte palette, shared by
+  // every entry — this fixture tests discovery, not distinct artwork.
+  put(rom, GFX, lz77Compress(new Uint8Array(0x800).fill(0x12)))
+  put(rom, PAL + 2, u16(0x7fff))
+
+  for (let i = 0; i < COUNT; i++) {
+    put(rom, TABLE + i * 32, [0, 0, 0, 0, ...ptr(GFX), ...u16(0x800), ...u16(i), ...ptr(PAL), ...u16(0), 0, 0])
+  }
+  // Decoy: same shape, longer run, but the tag never counts.
+  for (let i = 0; i < COUNT * 2; i++) {
+    put(rom, DECOY + i * 32, [0, 0, 0, 0, ...ptr(GFX), ...u16(0x800), ...u16(1), ...ptr(PAL), ...u16(0), 0, 0])
+  }
+}
+
 /**
  * `gTrainers` (52-byte records) plus their parties and
  * `gTrainerClasses` (16-byte records). Entry 21 is deliberately left
@@ -1021,8 +1066,10 @@ export function makeGen3ExpansionRom(): Uint8Array {
   }
 
   addTrainerTables(rom, ptr, u16, text)
+  addTrainerSprites(rom, ptr, u16)
   addRegionMap(rom, ptr, text)
   addMapData(rom) // gives map keys 0.0 and 1.0, LZ77 tilesets
+  addTrainerOnMap(rom, ptr, u16) // must follow addMapData: it edits those events
   addExpansionWildData(rom, ptr, u16)
   return rom
 }
