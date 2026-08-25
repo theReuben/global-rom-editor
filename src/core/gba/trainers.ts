@@ -260,6 +260,7 @@ export function buildTrainerModule(rom: Rom): { module: TrainerModule; offset: n
         const hasMoves = (flags & 1) === 1
         out.push({
           iv: u16(bytes, o),
+          ivs: null,
           level: u16(bytes, o + 2),
           species: u16(bytes, o + 4),
           item: hasItem ? u16(bytes, o + 6) : null,

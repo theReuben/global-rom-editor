@@ -277,11 +277,35 @@ describe('expansion adapter', () => {
     expect(first.name).toBe('SAWYER')
     expect(first.partySize).toBe(1)
     expect(first.aiFlags).toBe(7)
-    expect(t!.party(0)).toEqual([{ species: 1, level: 5, iv: null, item: 0, moves: [0, 0, 0, 0] }])
+    expect(t!.party(0)).toEqual([
+      { species: 1, level: 5, iv: null, ivs: [31, 0, 15, 1, 20, 7], item: 0, moves: [0, 0, 0, 0] },
+    ])
     // Class names must survive an accented character; 'POKéMANIAC'
     // truncated the class table when the text check was a byte range.
     expect(t!.classOptions?.[7].label).toBe('POKéMANIAC')
     expect(t!.classOptions!.length).toBe(40)
+  })
+
+  it('edits one IV without disturbing the others or the unused bits', () => {
+    const { a, rom } = adapter()
+    const t = a.trainerModule!
+    const mon = () => t.party(0)[0]
+    const ivWord = () => rom.readU16LE(0x062008) | (rom.readU16LE(0x06200a) << 16)
+    const before = ivWord()
+
+    t.writePartyField(0, 0, 'iv1', 31)
+    expect(mon().ivs).toEqual([31, 31, 15, 1, 20, 7])
+    // Bit 31 is not part of any IV and must survive the write.
+    expect(ivWord() >>> 31).toBe(1)
+
+    // Out-of-range values clamp rather than bleeding into the next stat.
+    t.writePartyField(0, 0, 'iv2', 99)
+    expect(mon().ivs).toEqual([31, 31, 31, 1, 20, 7])
+
+    t.writePartyField(0, 0, 'iv1', 0)
+    t.writePartyField(0, 0, 'iv2', 15)
+    expect(ivWord()).toBe(before)
+    expect(rom.changedByteCount).toBe(0)
   })
 
   it('keeps a trainer with no name at all in the table', () => {

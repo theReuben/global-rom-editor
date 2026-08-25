@@ -472,6 +472,7 @@ function buildGen1Trainers(
         species: internalToDex(m.internal),
         level: m.level,
         iv: null,
+        ivs: null,
         item: null,
         moves: null,
       }))

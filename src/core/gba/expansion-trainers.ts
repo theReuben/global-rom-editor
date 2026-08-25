@@ -73,6 +73,25 @@ const MIN_CLASSES = 20
 const MAX_PRIZE_MONEY = 60
 const MAX_BALL_ID = 1023
 
+/**
+ * `TRAINER_PARTY_IVS(hp, atk, def, speed, spatk, spdef)` packs six 5-bit
+ * IVs into `u32 iv`, low bits first, in that stat order (data.h). The two
+ * top bits are unused and are preserved on write.
+ */
+const IV_COUNT = 6
+const IV_BITS = 5
+const IV_MASK = 0x1f
+const IV_MAX = 31
+
+function u32(bytes: Uint8Array, off: number): number {
+  return (bytes[off] | (bytes[off + 1] << 8) | (bytes[off + 2] << 16) | (bytes[off + 3] << 24)) >>> 0
+}
+
+function readIvs(bytes: Uint8Array, off: number): number[] {
+  const packed = u32(bytes, off)
+  return Array.from({ length: IV_COUNT }, (_, i) => (packed >>> (i * IV_BITS)) & IV_MASK)
+}
+
 export interface ExpansionTrainers {
   module: TrainerModule
   offset: number
@@ -315,10 +334,8 @@ export function buildExpansionTrainers(rom: Rom, speciesCount: number, moveCount
         out.push({
           species: u16(bytes, o + TM.species),
           level: bytes[o + TM.level],
-          // The expansion stores six 5-bit IVs in a u32, which the
-          // single 0-255 "IV strength" field cannot represent without
-          // flattening the spread — so it is not offered here.
           iv: null,
+          ivs: readIvs(bytes, o + TM.iv),
           item: u16(bytes, o + TM.heldItem),
           moves: [0, 1, 2, 3].map((m) => u16(bytes, o + TM.moves + m * 2)),
         })
@@ -334,6 +351,17 @@ export function buildExpansionTrainers(rom: Rom, speciesCount: number, moveCount
       if (field === 'species') return rom.writeU16LE(o + TM.species, Math.min(value, speciesCount))
       if (field === 'level') return rom.writeU8(o + TM.level, Math.max(1, Math.min(100, value)))
       if (field === 'item') return rom.writeU16LE(o + TM.heldItem, value)
+      const iv = /^iv(\d)$/.exec(field)
+      if (iv) {
+        const idx = Number(iv[1])
+        if (idx < 0 || idx >= IV_COUNT) return
+        const cur = u32(bytes, o + TM.iv)
+        const shift = idx * IV_BITS
+        const next = ((cur & ~(IV_MASK << shift)) | ((Math.max(0, Math.min(IV_MAX, value)) & IV_MASK) << shift)) >>> 0
+        rom.writeU16LE(o + TM.iv, next & 0xffff)
+        rom.writeU16LE(o + TM.iv + 2, (next >>> 16) & 0xffff)
+        return
+      }
       const move = /^move(\d)$/.exec(field)
       if (move) {
         const idx = Number(move[1])

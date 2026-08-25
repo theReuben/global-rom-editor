@@ -569,6 +569,7 @@ function buildGen2Trainers(rom: Rom): { module: TrainerModule; offset: number; c
         level: bytes[q],
         species: bytes[q + 1], // Gen 2 species ids are dex numbers
         iv: null,
+        ivs: null,
         item: t.type & 2 ? bytes[q + 2] : null,
         moves: t.type & 1
           ? Array.from({ length: 4 }, (_, m) => bytes[q + 2 + (t.type & 2 ? 1 : 0) + m])

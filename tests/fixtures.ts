@@ -808,6 +808,11 @@ function addTrainerTables(
       const mon = party + m * 36
       put(rom, mon + 20, u16(1 + ((i + m) % 100))) // species
       put(rom, mon + 22, u16(0)) // heldItem
+      // Packed IVs, low bits first: HP/Atk/Def/Speed/SpAtk/SpDef. The top
+      // bit is set so tests can prove a write preserves the unused bits.
+      // = TRAINER_PARTY_IVS(31, 0, 15, 1, 20, 7), plus bit 31 set so tests
+      // can prove a write preserves the word's two unused top bits.
+      put(rom, mon + 8, [...u16(0xbc1f), ...u16(0x8f40)])
       put(rom, mon + 26, [5 + m]) // level
     }
   }
