@@ -210,6 +210,16 @@ function trainerValid(bytes: Uint8Array, off: number): boolean {
   return bytes.subarray(off + TR.name, off + TR.name + NAME_LEN).indexOf(0xff) >= 0
 }
 
+/**
+ * The TRAINER_NONE sentinel that precedes the table: a well-formed entry
+ * whose only distinguishing mark is an empty party. Requiring a real
+ * party pointer keeps this from swallowing arbitrary zeroed padding.
+ */
+function isTrainerNone(bytes: Uint8Array, off: number): boolean {
+  if (off < 0 || off + TRAINER_ENTRY > bytes.length) return false
+  return bytes[off + TR.partySize] === 0 && readGbaPointer(bytes, off + TR.party) !== null
+}
+
 export function findTrainerTable(bytes: Uint8Array): { offset: number; count: number } | null {
   let best: { offset: number; count: number } | null = null
   for (let o = 0; o + TRAINER_ENTRY * MIN_TRAINERS <= bytes.length; o += 4) {
@@ -218,7 +228,14 @@ export function findTrainerTable(bytes: Uint8Array): { offset: number; count: nu
     let count = 0
     while (count < MAX_TRAINERS && trainerValid(bytes, o + count * TRAINER_ENTRY)) count++
     if (count >= MIN_TRAINERS && namedFraction(bytes, o, count) >= 0.5) {
-      if (best === null || count > best.count) best = { offset: o, count }
+      // Index 0 is TRAINER_NONE: a real entry, but with no party, so
+      // trainerValid rejects it and the run starts at 1. Including it
+      // keeps editor ids equal to the game's TRAINER_* constants, which
+      // is what map scripts reference.
+      const withDummy = isTrainerNone(bytes, o - TRAINER_ENTRY)
+      const offset = withDummy ? o - TRAINER_ENTRY : o
+      const total = withDummy ? count + 1 : count
+      if (best === null || total > best.count) best = { offset, count: total }
     }
     if (count > 1) o += (count - 1) * TRAINER_ENTRY
   }

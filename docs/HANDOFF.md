@@ -184,11 +184,41 @@ modern ABI gives 56 and finds nothing.
 `struct TrainerMon` is 36 bytes: nickname ptr, ev ptr, iv u32, moves[4]
 u16 @12, species @20, heldItem @22, ability @24, lvl @26, ball @27,
 friendship @28, packed nature/gender/shiny/tera bytes, tags u32.
-IVs are NOT exposed: the expansion packs six 5-bit IVs into that u32,
-and the schema's single 0-255 "IV strength" cannot represent it without
-flattening the spread. Verified against the tree: trainer 0 is SAWYER,
-class 2 = HIKER, pic 0, male, aiFlags 0x7 = AI_FLAG_BASIC_TRAINER, one
-Geodude at level 21.
+IVs are six 5-bit fields packed low-bits-first into that u32, in
+`TRAINER_PARTY_IVS(hp, atk, def, speed, spatk, spdef)` order (data.h),
+exposed per stat through `PartyMon.ivs`; the top 2 bits are unused and
+preserved on write. Every spread in the reference ROM is uniform, so
+the ROM cannot confirm the bit ORDER — that rests on the macro alone.
+Verified against the tree: trainer 1 is SAWYER, class 2 = HIKER, pic 0,
+male, aiFlags 0x7 = AI_FLAG_BASIC_TRAINER, one Geodude at level 21.
+
+Index 0 is TRAINER_NONE: a well-formed entry with no party, so the
+structural check rejects it and the run starts at 1. The scan steps
+back over it deliberately, because editor ids MUST equal the game's
+TRAINER_* constants — map scripts reference those, and an off-by-one
+here silently mislabels every trainer (it did: Calvin read as Billy).
+
+**Trainer locations** (`gba/trainer-locations.ts`): object events are
+24-byte `ObjectEventTemplate`s (global.fieldmap.h) with trainerType
+@0x0C and a script pointer @0x10. `SCR_OP_TRAINERBATTLE` is 0x5C and
+its opponent id is the u16 at script+3. Most trainer scripts open with
+that command; a few open with a short prologue whose byte lengths are
+listed in PROLOGUE_LENGTHS, and the walk stops at the first opcode it
+cannot size rather than guessing past it. 471 of the reference ROM's
+855 trainers link this way; the rest are Battle Frontier/Trainer Hill
+opponents chosen at run time with no static id anywhere in the script.
+Spot-checked against data/maps/Route102/map.json: trainer 318 (Calvin)
+at tile (33,14) on ROUTE 102.
+
+**Trainer sprites** (`gba/trainer-sprites.ts`): `struct TrainerSprite`
+is 32 bytes — y_offset (padded), frontPic {ptr, u16 size, u16 tag} @4,
+palette {ptr, u16 tag} @0x0C, animation ptr, mugshot coords, rotation.
+Shape alone is NOT selective: a 350-entry run elsewhere in the ROM has
+two in-range pointers and a tile-sized u16, and an earlier scan picked
+it and decoded garbage. The discriminator is that each entry's frontPic
+tag equals its own index, so a real table counts 0, 1, 2, … with its
+entries. That finds exactly 170 fronts, matching TRAINER_PIC_FRONT_COUNT,
+and all 170 decompress byte-exact to graphics/trainers/front_pics/*.4bpp.
 `gTrainerClasses` is {u8 name[13]; u8 money; u16 ball} = 16 bytes.
 Text alone cannot find it — a 32 MB ROM is full of 16-byte-aligned
 strings and the longest text run was an unrelated list — so the scan

@@ -461,3 +461,99 @@ input[type='range'] { accent-color: var(--accent); }
 .desc-input.invalid {
   border-color: #d9534f;
 }
+
+/* ---- trainers on the map ------------------------------------------- */
+
+/*
+ * Trainer markers are buttons, so they must opt back into pointer events
+ * that .map-marker turns off for the passive ones.
+ */
+.map-marker.trainer {
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: rgba(220, 38, 38, 0.85);
+  overflow: visible;
+}
+.map-marker.trainer:hover,
+.map-marker.trainer:focus-visible {
+  background: rgba(220, 38, 38, 1);
+  outline: 2px solid #fff;
+}
+.map-marker .marker-glyph {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+}
+/*
+ * The name sits outside the 16px tile and must not widen the marker or
+ * swallow clicks meant for the tiles behind it.
+ */
+.map-marker .marker-name {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 2px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(17, 24, 39, 0.9);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.trainer-overview {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.trainer-pic {
+  width: 128px;
+  height: 128px;
+  flex: none;
+  image-rendering: pixelated;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.15);
+}
+.trainer-pic.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  opacity: 0.6;
+}
+.trainer-spots {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.location-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.location-coords {
+  font-size: 11px;
+  opacity: 0.7;
+}
+/* Large maps scroll inside the card instead of stretching the page. */
+.location-canvas {
+  max-height: 260px;
+  overflow: auto;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.12);
+}
+.location-canvas canvas {
+  display: block;
+  image-rendering: pixelated;
+}

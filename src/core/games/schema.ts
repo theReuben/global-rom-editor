@@ -7,6 +7,9 @@
  */
 import type { Rom } from '../rom'
 import type { ItemModule } from '../gba/items'
+import type { TrainerLocationIndex } from '../gba/trainer-locations'
+
+export type { TrainerLocation, TrainerLocationIndex } from '../gba/trainer-locations'
 
 export type FieldKind =
   | 'number' // plain numeric byte/word
@@ -92,6 +95,15 @@ export interface GameAdapter {
   mapModule: MapModule | null
   /** Trainer editing, when supported for this game (null = not yet). */
   trainerModule: TrainerModule | null
+  /**
+   * Where each trainer stands, keyed by trainer id. Null when the game's
+   * object events have not been linked to trainers; a trainer missing
+   * from the map is assigned at run time (Battle Frontier and similar)
+   * and genuinely has no fixed spot.
+   */
+  trainerLocations: TrainerLocationIndex | null
+  /** Renders a trainer's front sprite by pic id (null = table not found). */
+  trainerSprite: ((picId: number) => RenderedImage | null) | null
   /** Evolution editing (null = not supported / not found). */
   evolutions: EvolutionModule | null
   /** Level-up learnset editing (null = not supported / not found). */

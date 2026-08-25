@@ -421,6 +421,8 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     typeOptions: GEN3_TYPES,
     mapModule,
     trainerModule,
+    trainerLocations: null,
+    trainerSprite: null,
     wildModule,
     itemOptions,
     speciesSprite: spriteViewer ? (id, shiny) => spriteViewer!.front(id, shiny) : null,

@@ -308,6 +308,37 @@ describe('expansion adapter', () => {
     expect(rom.changedByteCount).toBe(0)
   })
 
+  it('links a map trainer to its trainer entry through the script', () => {
+    const { a } = adapter()
+    const spots = a.trainerLocations!.get(3)!
+    // The fixture's trainer NPC stands at (1,2) on both banks' shared map.
+    expect(spots.map((s) => `${s.mapKey}@${s.x},${s.y}`)).toContain('0.0@1,2')
+    expect(spots[0].eventIndex).toBe(1)
+    // The plain NPC on the same map carries no trainerType and must not
+    // be mistaken for a trainer.
+    expect([...a.trainerLocations!.values()].flat().every((s) => s.eventIndex === 1)).toBe(true)
+  })
+
+  it('leaves a trainer unlinked rather than guessing when no id is in the script', () => {
+    const { a } = adapter()
+    // Only trainer 3 is placed; every other trainer has no fixed spot.
+    expect(a.trainerLocations!.has(3)).toBe(true)
+    expect(a.trainerLocations!.has(4)).toBe(false)
+  })
+
+  it('finds the trainer sprite table by its counting tag, not its shape', () => {
+    const { a } = adapter()
+    const img = a.trainerSprite!(0)
+    expect(img).not.toBeNull()
+    expect(img!.width).toBe(64)
+    expect(img!.height).toBe(64)
+    // The decoy run is twice as long but its tags never count, so a
+    // longest-run-wins scan without the tag check would pick it and
+    // return sprites for indices the real table does not have.
+    expect(a.trainerSprite!(29)).not.toBeNull()
+    expect(a.trainerSprite!(30)).toBeNull()
+  })
+
   it('keeps a trainer with no name at all in the table', () => {
     // 30 of the reference ROM's 854 trainers are unnamed, and rejecting
     // those cut discovery off at entry 21.

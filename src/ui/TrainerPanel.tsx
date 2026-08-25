@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import type { GameAdapter } from '../core/games/schema'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { GameAdapter, RenderedImage, TrainerLocation } from '../core/games/schema'
 import { GEN3_AI_FLAG_LABELS } from '../core/games/gen3-constants'
 import { EntryList } from './EntryList'
 
@@ -63,17 +63,122 @@ function Options({
   )
 }
 
+
+function Pic({ image, alt }: { image: RenderedImage | null; alt: string }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas || !image) return
+    canvas.width = image.width
+    canvas.height = image.height
+    canvas
+      .getContext('2d')!
+      // Copy into a fresh buffer: ImageData rejects ArrayBufferLike views.
+      .putImageData(new ImageData(new Uint8ClampedArray(image.pixels), image.width, image.height), 0, 0)
+  }, [image])
+  if (!image) return <div className="trainer-pic empty">no sprite</div>
+  return <canvas className="trainer-pic" ref={ref} role="img" aria-label={alt} />
+}
+
+/**
+ * Where this trainer stands, drawn on the map itself with a marker on the
+ * exact tile. The map is rendered once and scaled down to fit, so the
+ * whole area is visible with the trainer's spot in context.
+ */
+function LocationMap({
+  adapter,
+  spot,
+  onOpenMap,
+}: {
+  adapter: GameAdapter
+  spot: TrainerLocation
+  onOpenMap?: (mapKey: string) => void
+}) {
+  const maps = adapter.mapModule
+  const ref = useRef<HTMLCanvasElement>(null)
+  const label = maps?.entries.find((e) => e.key === spot.mapKey)?.label ?? spot.mapKey
+  const image = useMemo(() => {
+    try {
+      return maps?.render(spot.mapKey) ?? null
+    } catch {
+      return null
+    }
+  }, [maps, spot.mapKey])
+
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas || !image) return
+    canvas.width = image.width
+    canvas.height = image.height
+    const ctx = canvas.getContext('2d')!
+    ctx.putImageData(new ImageData(new Uint8ClampedArray(image.pixels), image.width, image.height), 0, 0)
+    // Ring the trainer's tile rather than covering it.
+    const x = spot.x * 16
+    const y = spot.y * 16
+    ctx.lineWidth = 3
+    ctx.strokeStyle = '#ff3b30'
+    ctx.strokeRect(x - 1.5, y - 1.5, 19, 19)
+    ctx.lineWidth = 1
+    ctx.strokeStyle = '#fff'
+    ctx.strokeRect(x - 3, y - 3, 22, 22)
+  }, [image, spot.x, spot.y])
+
+  return (
+    <div className="trainer-location">
+      <div className="location-head">
+        <strong>{label}</strong>
+        <span className="location-coords">
+          tile {spot.x}, {spot.y}
+        </span>
+        {onOpenMap && (
+          <button className="ghost" onClick={() => onOpenMap(spot.mapKey)}>
+            Open in map editor
+          </button>
+        )}
+      </div>
+      {image ? (
+        <div className="location-canvas">
+          <canvas ref={ref} />
+        </div>
+      ) : (
+        <div className="notice">This map could not be rendered.</div>
+      )}
+    </div>
+  )
+}
+
 /** Stat order of the packed IV word (see TRAINER_PARTY_IVS). */
 const IV_LABELS = ['HP', 'Attack', 'Defense', 'Speed', 'Sp. Atk', 'Sp. Def']
 
-export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: () => void }) {
+export function TrainerPanel({
+  adapter,
+  onEdit,
+  focusTrainerId,
+  onOpenMap,
+}: {
+  adapter: GameAdapter
+  onEdit: () => void
+  /** Trainer to open on mount, e.g. when arriving from a map marker. */
+  focusTrainerId?: number | null
+  onOpenMap?: (mapKey: string) => void
+}) {
   const module = adapter.trainerModule!
-  const [selected, setSelected] = useState(module.entries.find((e) => e.name.trim())?.id ?? 0)
+  const [selected, setSelected] = useState(
+    focusTrainerId ?? module.entries.find((e) => e.name.trim())?.id ?? 0,
+  )
   const [nameError, setNameError] = useState(false)
 
   const feat = { identity: true, appearance: true, ai: true, items: true, partySize: true, ...module.features }
   const data = module.read(selected)
   const party = module.party(selected)
+  const spots = useMemo(
+    () => adapter.trainerLocations?.get(selected) ?? [],
+    [adapter.trainerLocations, selected],
+  )
+  const sprite = useMemo(
+    () => (feat.appearance ? (adapter.trainerSprite?.(data.pic) ?? null) : null),
+    [adapter, data.pic, feat.appearance],
+  )
   const speciesOptions = adapter.species.map((s) => ({ value: s.id, label: s.name }))
   const moveOptions = [{ value: 0, label: '— none —' }, ...adapter.moves.map((m) => ({ value: m.id, label: m.name }))]
   const itemOptions = adapter.itemOptions ?? []
@@ -132,6 +237,30 @@ export function TrainerPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit
             Revert this trainer
           </button>
         </div>
+
+        {(sprite || spots.length > 0) && (
+          <section className="card">
+            <h3>
+              Appearance and location
+              {spots.length > 1 && <span className="bst">{spots.length} spots</span>}
+            </h3>
+            <div className="trainer-overview">
+              {sprite && <Pic image={sprite} alt={`${data.name} sprite`} />}
+              {spots.length === 0 ? (
+                <div className="notice">
+                  This trainer is not placed on any map. Battle Frontier and Trainer Hill opponents are
+                  chosen at run time, so they have no fixed spot in the world.
+                </div>
+              ) : (
+                <div className="trainer-spots">
+                  {spots.map((spot, i) => (
+                    <LocationMap key={i} adapter={adapter} spot={spot} onOpenMap={onOpenMap} />
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         {(feat.identity || feat.ai || feat.items) && (
         <section className="card">

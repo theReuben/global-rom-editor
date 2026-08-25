@@ -18,7 +18,9 @@ import { Rom } from '../rom'
 import { gen3Codec } from '../text'
 import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import { buildGen3MapModule } from '../gba/maps'
-import { discoverMaps } from '../gba/mapscan'
+import { discoverMaps, type Gen3MapIndex } from '../gba/mapscan'
+import { buildTrainerLocations, type TrainerLocationIndex } from '../gba/trainer-locations'
+import { buildTrainerSprites } from '../gba/trainer-sprites'
 import { buildExpansionTrainers } from '../gba/expansion-trainers'
 import { buildExpansionItems, ITEM_ENTRY } from '../gba/expansion-items'
 import { buildWildModule } from '../gba/wild'
@@ -62,6 +64,7 @@ import type {
   TableRegion,
   TrainerModule,
   WildModule,
+  RenderedImage,
 } from './schema'
 
 /**
@@ -361,11 +364,13 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
    */
   let mapModule: MapModule | null = null
   let mapKeys: Set<string> | null = null
+  let mapIndex: Gen3MapIndex | null = null
   try {
     const gameCode = String.fromCharCode(...bytes.subarray(0xac, 0xb0)).replace(/[^ -~]/g, '')
     const maps = buildGen3MapModule(rom, gameCode)
     if (maps) {
       mapModule = maps.module
+      mapIndex = maps.index
       mapKeys = new Set(maps.module.entries.map((e) => e.key))
       regions.push({
         name: `Map bank table (${maps.index.banks.length} banks, ${maps.module.entries.length} maps)`,
@@ -381,6 +386,7 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     try {
       const index = discoverMaps(bytes, { anyGraphicsCodec: true })
       if (index) {
+        mapIndex = index
         mapKeys = new Set()
         index.banks.forEach((maps, bank) => maps.forEach((_, map) => mapKeys!.add(`${bank}.${map}`)))
       }
@@ -438,12 +444,34 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
   }
   if (!trainerModule) {
     warnings.push("Couldn't verify the trainer table — trainer editing is disabled for this ROM.")
-  } else {
-    warnings.push(
-      'Trainer Pokémon IVs are not editable: the expansion stores six 5-bit IVs per mon, which the single ' +
-        '“IV strength” control cannot represent without flattening the spread. Everything else on a party ' +
-        'member — species, level, held item and moves — is editable.',
-    )
+  }
+
+  /**
+   * Trainer ids in this table are the game's own TRAINER_* constants, so
+   * the ids map scripts reference index straight into it.
+   */
+  let trainerSprite: ((picId: number) => RenderedImage | null) | null = null
+  try {
+    const sprites = buildTrainerSprites(rom)
+    if (sprites) {
+      trainerSprite = sprites.render
+      regions.push({
+        name: `Trainer sprites (${sprites.count})`,
+        offset: sprites.offset,
+        length: sprites.count * 32,
+      })
+    }
+  } catch {
+    trainerSprite = null
+  }
+
+  let trainerLocations: TrainerLocationIndex | null = null
+  if (trainerModule && mapIndex) {
+    try {
+      trainerLocations = buildTrainerLocations(bytes, mapIndex, trainerModule.entries.length)
+    } catch {
+      trainerLocations = null
+    }
   }
 
   // Both LZ77 and the expansion's `smol` codec decode here; anything
@@ -555,6 +583,8 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     typeOptions,
     mapModule,
     trainerModule,
+    trainerLocations,
+    trainerSprite,
     wildModule,
     itemOptions,
     itemModule,

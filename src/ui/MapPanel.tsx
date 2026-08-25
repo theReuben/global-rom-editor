@@ -19,16 +19,40 @@ function drawImage(
   ctx.putImageData(new ImageData(new Uint8ClampedArray(img.pixels), img.width, img.height), 0, 0)
 }
 
+/**
+ * Trainers standing on this map, keyed by their object-event index, so a
+ * marker can name whoever it represents. Trainers assigned at run time
+ * (Battle Frontier and similar) are absent from the index and stay
+ * anonymous rather than being guessed at.
+ */
+function trainersOnMap(adapter: GameAdapter, mapKey: string): Map<number, { id: number; name: string }> {
+  const out = new Map<number, { id: number; name: string }>()
+  const locations = adapter.trainerLocations
+  const trainers = adapter.trainerModule
+  if (!locations || !trainers) return out
+  for (const [id, spots] of locations) {
+    for (const spot of spots) {
+      if (spot.mapKey === mapKey) out.set(spot.eventIndex, { id, name: trainers.entries[id]?.name || `Trainer ${id}` })
+    }
+  }
+  return out
+}
+
 function EventMarkers({
+  adapter,
   module,
   mapKey,
   zoom,
+  onOpenTrainer,
 }: {
+  adapter: GameAdapter
   module: MapModule
   mapKey: string
   zoom: number
+  onOpenTrainer?: (id: number) => void
 }) {
   const events = module.events(mapKey)
+  const trainers = useMemo(() => trainersOnMap(adapter, mapKey), [adapter, mapKey])
   const marker = (x: number, y: number, cls: string, text: string, title: string, k: string) => (
     <div
       key={k}
@@ -41,7 +65,26 @@ function EventMarkers({
   )
   return (
     <>
-      {events.npcs.map((e, i) => marker(e.x, e.y, 'npc', 'N', `NPC ${i} (sprite ${e.graphicsId})`, `n${i}`))}
+      {events.npcs.map((e, i) => {
+        const t = trainers.get(i)
+        if (!t) return marker(e.x, e.y, 'npc', 'N', `NPC ${i} (sprite ${e.graphicsId})`, `n${i}`)
+        return (
+          <button
+            key={`n${i}`}
+            type="button"
+            className="map-marker npc trainer"
+            title={`${t.name} — trainer #${t.id}. Click to open.`}
+            style={{ left: e.x * 16 * zoom, top: e.y * 16 * zoom, width: 16 * zoom, height: 16 * zoom }}
+            onClick={(ev) => {
+              ev.stopPropagation()
+              onOpenTrainer?.(t.id)
+            }}
+          >
+            <span className="marker-glyph">T</span>
+            <span className="marker-name">{t.name}</span>
+          </button>
+        )
+      })}
       {events.warps.map((e, i) =>
         marker(e.x, e.y, 'warp', 'W', `Warp ${i} → map ${e.targetBank}.${e.targetMap}`, `w${i}`),
       )}
@@ -227,9 +270,20 @@ function ResizeControl({
   )
 }
 
-export function MapPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: () => void }) {
+export function MapPanel({
+  adapter,
+  onEdit,
+  focusMapKey,
+  onOpenTrainer,
+}: {
+  adapter: GameAdapter
+  onEdit: () => void
+  /** Map to open on mount, e.g. when arriving from a trainer's location. */
+  focusMapKey?: string | null
+  onOpenTrainer?: (id: number) => void
+}) {
   const module = adapter.mapModule!
-  const [mapKey, setMapKey] = useState(module.entries[0]?.key ?? '')
+  const [mapKey, setMapKey] = useState(focusMapKey ?? module.entries[0]?.key ?? '')
   const [query, setQuery] = useState('')
   const [tool, setTool] = useState<Tool>('paint')
   const [selectedBlock, setSelectedBlock] = useState(1)
@@ -391,7 +445,15 @@ export function MapPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: ()
                 onMouseUp={() => (painting.current = false)}
                 onMouseLeave={() => (painting.current = false)}
               />
-              {showEvents && <EventMarkers module={module} mapKey={mapKey} zoom={zoom} />}
+              {showEvents && (
+                <EventMarkers
+                  adapter={adapter}
+                  module={module}
+                  mapKey={mapKey}
+                  zoom={zoom}
+                  onOpenTrainer={onOpenTrainer}
+                />
+              )}
             </div>
           </div>
         )}
