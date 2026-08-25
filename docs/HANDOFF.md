@@ -5,7 +5,7 @@ for the invariants; this file holds the deeper context.
 
 ## State (as of this handoff)
 
-230 tests green; `npm test` and `npm run build` must stay that way.
+242 tests green; `npm test` and `npm run build` must stay that way.
 Everything below is validated against ROMs built from the pret decomps
 (see Validation methodology) unless noted.
 
@@ -174,14 +174,63 @@ rate 20, Bidoof 2-4) and the full 124-header table.
 NOT decoded yet, and off with a warning rather than guessed:
 trainers and item DATA (both structs differ from vanilla; item and
 ability NAMES are still read and feed the dropdowns), the type chart,
-and TM/HM compatibility. Sprites and map rendering are gated on the
-graphics codec: this hack builds them with the expansion's own `smol`
-compressor (Makefile `%.smol`), which we cannot decode, so
-`spritesAreLz77` and a tileset LZ77 check switch those tabs off. The
-map INDEX is still recovered via `discoverMaps(bytes, {
-anyGraphicsCodec: true })` because the encounter scan needs real map
-keys — enough to enumerate maps, deliberately not enough to draw them.
-Adding `smol` would light up sprites and maps with no other changes.
+and TM/HM compatibility.
+
+**`smol` (src/core/gba/smol.ts)** — the expansion's own codec, which
+replaces LZ77 for graphics in many hacks and used to keep sprites and
+maps switched off. Now decoded, so BOTH are enabled. Two stages:
+an LZ pass over u16 units emitting (length, offset) "instructions"
+plus a literal stream, then an optional tANS (tabled asymmetric
+numeral systems) entropy coder over 4-bit nibbles applied to either
+stream or both. Ported from the decompressor the GAME runs
+(src/decompress.c), not from tools/compresSmol, because the game side
+defines what a valid stream is; the unrolled loops there are pure GBA
+cycle-shaving and collapse to plain arithmetic.
+Header is two u32s: mode:4, imageSize:14 (x4 = bytes), symSize:14 /
+initialState:6, bitstreamSize:13, loSize:13. Modes: 1 BASE_ONLY,
+2 ENCODE_SYMS, 3 ENCODE_DELTA_SYMS, 4 ENCODE_LO, 5 ENCODE_BOTH,
+6 ENCODE_BOTH_DELTA_SYMS (7 frame container / 8 tilemap unsupported).
+LZ77 needs no separate sniffing: its magic 0x10 has a low nibble of 0,
+which IS mode MODE_LZ77, so the formats can't collide.
+Frequencies are 3 u32s of five 6-bit values, with the top 2 bits of
+each word assembling freq[15]. sYkTemplate is COMPUTED, not
+transcribed: for slot n, k is the smallest shift with n<<k >= 64,
+y = (n<<k)-64, mask = (1<<k)-1 (checked against the shipped table).
+LO and symbol streams share ONE bit cursor and are decoded LO-first.
+Deltas are per NIBBLE, mod 16, running across the whole stream.
+Easy thing to get wrong: LZ instructions work in u16 units, and
+`length == 0` means "copy `offset` literals".
+Validated byte-for-byte against all 6954 `.smol` build intermediates
+in the reference tree (modes 1, 2, 3, 5, 6 all appear; 4 never does),
+plus Bulbasaur/Pikachu front and back pics read straight out of the
+ROM matching their `.4bpp` files exactly.
+
+**Codec sniffing is dangerous — two real bugs came from it.**
+`gba/compress.ts` dispatches LZ77 vs smol for graphics, but headers
+here have no magic number, only a 4-bit mode, so unrelated bytes parse
+as a valid-looking stream. (1) Expansion species palettes are stored
+RAW (32 bytes, uncompressed — unlike vanilla's LZ77 gMonPaletteTable),
+and Bulbasaur's first colour 0x6a93 put mode 3 in the low nibble, so
+the palette "decompressed" to 55 KB of noise. (2) Roselia's raw
+palette opens with colour 0x7e10, whose low byte is the LZ77 magic
+0x10, so a magic-byte test called it compressed and lost the sprite
+entirely. Fixes: `isSmol` cross-checks the size fields against each
+other and `smolDecompress` requires the instructions to land EXACTLY
+on imageSize; palettes are read raw unless an LZ77 header DECLARES
+exactly 32 bytes of output. Regression tests in tests/smol.test.ts use
+the real Bulbasaur palette bytes. Rule of thumb: don't sniff a codec
+where the struct already tells you the data is raw.
+
+Sprite IMPORT works on smol ROMs without a smol COMPRESSOR: the
+expansion's decompressor dispatches on the header, so an LZ77 stream
+written into a smol ROM is read back correctly by the game. Imports
+are therefore always LZ77 (usually relocating, since LZ77 re-encodes
+bigger than smol), and palettes are written back raw in place.
+Map tilesets only needed the read path, which now goes through the
+same dispatcher; `scanTilesetHeaders` accepts either codec, which
+keeps it a real filter instead of the relaxed
+`anyGraphicsCodec` escape hatch (still there, now only a fallback so
+wild encounters keep their map-key cross-check if maps ever fail).
 
 Perf mattered here: these ROMs are 32 MB and every full sweep costs
 about a second. `scan.ts` gained `findAllMulti` (bucket patterns by

@@ -17,6 +17,7 @@
  * this works on ROM hacks: hacks move the data, not its structure.
  */
 import { readGbaPointer } from '../freespace'
+import { isKnownCodec } from './compress'
 
 export interface Gen3MapIndex {
   bankTableOffset: number
@@ -41,12 +42,10 @@ function ptrOrZero(bytes: Uint8Array, off: number): boolean {
 
 export interface ScanOptions {
   /**
-   * Accept a compressed tileset whose graphics do not start with the
-   * LZ77 magic byte. pokeemerald-expansion can build its graphics with
-   * its own `smol` codec instead, which this editor cannot decode — but
-   * the map *index* is still worth discovering, because the wild
-   * encounter table is uncompressed and cross-checks against it.
-   * Callers that set this must not try to RENDER the tilesets.
+   * Accept a compressed tileset whose graphics use a codec this editor
+   * cannot decode. The map *index* can still be worth discovering — the
+   * wild encounter table is uncompressed and cross-checks against it —
+   * but callers that set this must not try to RENDER the tilesets.
    */
   anyGraphicsCodec?: boolean
 }
@@ -62,8 +61,10 @@ export function scanTilesetHeaders(bytes: Uint8Array, opts: ScanOptions = {}): S
     if (readGbaPointer(bytes, o + 8) === null) continue
     if (readGbaPointer(bytes, o + 12) === null) continue
     if (!ptrOrZero(bytes, o + 16) || !ptrOrZero(bytes, o + 20)) continue
-    // Compressed ⇒ LZ77 magic, unless the ROM uses another codec.
-    if (!opts.anyGraphicsCodec && bytes[o] === 1 && bytes[gfx] !== 0x10) continue
+    // A compressed tileset must carry a codec header we recognise —
+    // LZ77, or the expansion's `smol`. That is what prunes most of the
+    // false positives at this level, so it stays on by default.
+    if (!opts.anyGraphicsCodec && bytes[o] === 1 && !isKnownCodec(bytes, gfx)) continue
     out.add(o)
   }
   return out

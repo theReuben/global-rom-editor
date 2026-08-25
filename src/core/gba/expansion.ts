@@ -32,8 +32,9 @@ import type { Rom } from '../rom'
 import { findAllMulti } from '../scan'
 import { GBA_ROM_BASE, findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import type { RenderedImage, WildGroup, WildModule, WildSlot } from '../games/schema'
-import { lz77Compress, lz77Decompress } from './lz77'
-import { replaceCompressed, type SpriteViewer } from './sprites'
+import { lz77Compress } from './lz77'
+import { compressedSize, decompressGraphics, isLz77 } from './compress'
+import type { SpriteViewer } from './sprites'
 import { decodeTile4bpp, encodeTile4bpp, readPalette, renderTilesRgba, rgbToBgr555 } from '../tiles'
 import { gen3Bytes, gen3Codec, gen3DecodeText, gen3EncodeText } from '../text'
 
@@ -685,24 +686,96 @@ export function writePointerText(
  * through the same `replaceCompressed` in-place-or-relocate path.
  */
 /**
- * Are this ROM's sprites LZ77, the only codec this editor decodes?
+ * Can this ROM's sprites be decoded at all?
  *
- * pokeemerald-expansion can build graphics with its own `smol` codec
- * instead (Makefile rule `%.smol`), whose streams start with a
- * different header. Rendering those as LZ77 produces noise, so the
- * sprite tab is switched off when the sample disagrees rather than
- * showing garbage.
+ * Expansion builds compress graphics with either LZ77 or their own
+ * `smol` codec, and both are decodable here — but a hack could carry
+ * something else entirely, and rendering that as either would produce
+ * noise. Sampling across the dex keeps one corrupt entry from switching
+ * the whole tab off.
  */
-export function spritesAreLz77(bytes: Uint8Array, table: SpeciesTable): boolean {
+export function spritesDecodable(bytes: Uint8Array, table: SpeciesTable): boolean {
   let checked = 0
-  let lz77 = 0
+  let known = 0
   for (let id = 1; id <= table.count && checked < 32; id += Math.max(1, Math.floor(table.count / 32))) {
     const p = readGbaPointer(bytes, table.base + id * table.stride + SP_GFX.frontPic)
     if (p === null) continue
     checked++
-    if (bytes[p] === 0x10) lz77++
+    if (decompressGraphics(bytes, p) !== null) known++
   }
-  return checked > 0 && lz77 === checked
+  return checked > 0 && known >= checked * 0.9
+}
+
+/** Write a 16-colour palette back over an entry's raw palette slot. */
+function writePaletteBytes(rom: Rom, ptrField: number, palBytes: Uint8Array): void {
+  const target = readGbaPointer(rom.bytes, ptrField)
+  if (target === null) return
+  // A hack that kept LZ77 palettes gets a compressed write instead.
+  if (isLz77Palette(rom.bytes, target)) replaceSmolAware(rom, ptrField, lz77Compress(palBytes))
+  else rom.writeBytes(target, palBytes)
+}
+
+/**
+ * A species palette, as 32 raw bytes.
+ *
+ * Unlike vanilla Gen 3 — whose `gMonPaletteTable` entries point at LZ77
+ * streams — the expansion's `const u16 *palette` points straight at an
+ * uncompressed 16-colour palette. Sniffing the codec here is not just
+ * unnecessary but actively wrong: a raw palette's first colour can
+ * parse as a plausible `smol` header (0x6a93 puts mode 3 in the low
+ * nibble), which decoded Bulbasaur to 55 KB of noise. Only an explicit
+ * LZ77 header is treated as compressed, for hacks that kept that.
+ */
+function readPaletteBytes(bytes: Uint8Array, off: number): Uint8Array {
+  if (isLz77Palette(bytes, off)) {
+    try {
+      const out = decompressGraphics(bytes, off)
+      if (out !== null && out.length >= PALETTE_BYTES) return out
+    } catch {
+      // fall through to reading it raw
+    }
+  }
+  return bytes.subarray(off, Math.min(off + PALETTE_BYTES, bytes.length))
+}
+
+/**
+ * Only accept a palette as LZ77 if its header DECLARES exactly a
+ * palette's worth of output.
+ *
+ * Checking the 0x10 magic byte alone is not enough, and this is not
+ * hypothetical: Roselia's raw palette opens with the colour 0x7e10,
+ * whose low byte is 0x10, so a magic-byte test called it LZ77 and lost
+ * the sprite entirely. The declared size makes the test decisive —
+ * Roselia's would be 0x2a4b7e, nothing like 32.
+ */
+function isLz77Palette(bytes: Uint8Array, off: number): boolean {
+  if (!isLz77(bytes, off) || off + 4 > bytes.length) return false
+  const declared = bytes[off + 1] | (bytes[off + 2] << 8) | (bytes[off + 3] << 16)
+  return declared === PALETTE_BYTES
+}
+
+/** 16 colours, 2 bytes each. */
+const PALETTE_BYTES = 32
+
+/**
+ * Write a compressed stream over its old slot, or relocate + retarget.
+ *
+ * `replaceCompressed` in gba/sprites.ts measures the old slot with
+ * `lz77CompressedSize`, which reads garbage when the slot holds `smol`
+ * data — so the size comes from the codec dispatcher here instead.
+ */
+function replaceSmolAware(rom: Rom, ptrField: number, compressed: Uint8Array): string | null {
+  const oldPtr = readGbaPointer(rom.bytes, ptrField)
+  if (oldPtr === null) return 'The sprite pointer looks corrupt.'
+  if (compressed.length <= compressedSize(rom.bytes, oldPtr)) {
+    rom.writeBytes(oldPtr, compressed)
+    return null
+  }
+  const dest = findFreeSpaceAtEnd(rom.bytes, compressed.length)
+  if (dest === null) return 'The new sprite is larger and the ROM has no free space for it.'
+  rom.writeBytes(dest, compressed)
+  writeGbaPointer(rom, ptrField, dest)
+  return null
 }
 
 export function buildExpansionSprites(rom: Rom, table: SpeciesTable): SpriteViewer {
@@ -719,15 +792,16 @@ export function buildExpansionSprites(rom: Rom, table: SpeciesTable): SpriteView
     try {
       const gfxPtr = readGbaPointer(bytes, field(id, picOff))
       if (gfxPtr !== null) {
-        const gfx = lz77Decompress(bytes, gfxPtr)
+        const gfx = decompressGraphics(bytes, gfxPtr)
         const tiles: Uint8Array[] = []
-        for (let i = 0; i + 32 <= Math.min(gfx.length, PIC_FRAME); i += 32) tiles.push(decodeTile4bpp(gfx, i))
+        if (gfx !== null)
+          for (let i = 0; i + 32 <= Math.min(gfx.length, PIC_FRAME); i += 32) tiles.push(decodeTile4bpp(gfx, i))
         let palette: [number, number, number][] = Array.from(
           { length: 16 },
           (_, i) => [i * 16, i * 16, i * 16] as [number, number, number],
         )
         const palPtr = readGbaPointer(bytes, field(id, shiny ? SP_GFX.shinyPalette : SP_GFX.palette))
-        if (palPtr !== null) palette = readPalette(lz77Decompress(bytes, palPtr), 0)
+        if (palPtr !== null) palette = readPalette(readPaletteBytes(bytes, palPtr), 0)
         if (tiles.length === 64) out = renderTilesRgba(tiles, 8, palette, true)
       }
     } catch {
@@ -776,7 +850,7 @@ export function buildExpansionSprites(rom: Rom, table: SpeciesTable): SpriteView
     if (gfxPtr === null) return 'The sprite pointer looks corrupt.'
     // Animated front pics decompress to several frames; keep the
     // original length so the game's animation code still has data.
-    const origLen = lz77Decompress(bytes, gfxPtr).length
+    const origLen = decompressGraphics(bytes, gfxPtr)?.length ?? PIC_FRAME
     const raw = new Uint8Array(Math.max(origLen, PIC_FRAME))
     for (let o = 0; o < raw.length; o += PIC_FRAME)
       raw.set(frame.subarray(0, Math.min(PIC_FRAME, raw.length - o)), o)
@@ -786,11 +860,17 @@ export function buildExpansionSprites(rom: Rom, table: SpeciesTable): SpriteView
       palBytes[i * 2] = w & 0xff
       palBytes[i * 2 + 1] = w >> 8
     })
-    const gfxError = replaceCompressed(rom, gfxEntry, lz77Compress(raw))
+    // Imports are always written as LZ77, even into a `smol` ROM: the
+    // expansion's decompressor dispatches on the header, so the game
+    // reads it back correctly and this editor needs no smol COMPRESSOR.
+    // The catch is size — an LZ77 re-encode of smol data is bigger, so
+    // it rarely fits the original slot and usually relocates.
+    const gfxError = replaceSmolAware(rom, gfxEntry, lz77Compress(raw))
     if (gfxError) return gfxError
-    const palError = replaceCompressed(rom, field(id, SP_GFX.palette), lz77Compress(palBytes))
-    if (palError) return palError
-    replaceCompressed(rom, field(id, SP_GFX.shinyPalette), lz77Compress(palBytes))
+    // Palettes are stored raw and are a fixed 32 bytes, so they always
+    // fit their existing slot — no compression, no relocation.
+    writePaletteBytes(rom, field(id, SP_GFX.palette), palBytes)
+    writePaletteBytes(rom, field(id, SP_GFX.shinyPalette), palBytes)
     cache.clear()
     return null
   }

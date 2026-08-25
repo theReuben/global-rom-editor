@@ -750,6 +750,28 @@ function addMapData(rom: Uint8Array): void {
   put(rom, bankTable, [...ptr(group0), ...ptr(group1)])
 }
 
+/**
+ * A `smol` stream in BASE_ONLY mode (what `.fastSmol` builds produce):
+ * no entropy coding, so the whole payload is one "copy N literals"
+ * instruction plus the literals themselves. Enough to exercise the
+ * header parse and the LZ instruction layer from synthetic data.
+ */
+export function makeSmolBaseOnly(raw: Uint8Array): Uint8Array {
+  if (raw.length % 2 !== 0) throw new Error('smol works in u16 units')
+  const symCount = raw.length / 2
+  // length = 0 means "copy `offset` literals"; offset is a 7-bit varint.
+  const lo = [0x00, (symCount & 0x7f) | 0x80, symCount >> 7]
+  const out = new Uint8Array(8 + raw.length + lo.length)
+  const w0 = (1 | ((raw.length / 4) << 4) | (symCount << 18)) >>> 0
+  // initialState and bitstreamSize are both 0 in BASE_ONLY.
+  const w1 = (lo.length << 19) >>> 0
+  new DataView(out.buffer).setUint32(0, w0, true)
+  new DataView(out.buffer).setUint32(4, w1, true)
+  out.set(raw, 8)
+  out.set(lo, 8 + raw.length)
+  return out
+}
+
 /* -------------------------------------------- Gen 3 (expansion) */
 
 /**
@@ -788,10 +810,40 @@ export function makeGen3ExpansionRom(): Uint8Array {
   // { method LEVEL, param 16, target 2, pad, params NULL } then terminator
   put(rom, evoList, [...u16(1), ...u16(16), ...u16(2), 0, 0, 0, 0, 0, 0, ...u16(0xffff)])
 
+  /* ---- graphics: smol-compressed pics, raw palettes ---- */
+  // A recognisable 64x64 4bpp pattern: every tile a flat colour index.
+  const picBytes = new Uint8Array(0x800)
+  for (let t = 0; t < 64; t++) {
+    const idx = t % 15 + 1
+    picBytes.fill(idx | (idx << 4), t * 32, t * 32 + 32)
+  }
+  const frontPic = 0x050000
+  const backPic = 0x051000
+  put(rom, frontPic, makeSmolBaseOnly(picBytes))
+  put(rom, backPic, makeSmolBaseOnly(picBytes))
+  // Palettes are stored RAW in the expansion, not compressed.
+  const palette = 0x052000
+  const shinyPalette = 0x052020
+  // Deliberately opens with 0x10 — the LZ77 magic byte — because a raw
+  // palette that looks compressed is exactly what broke Roselia.
+  const palBytes: number[] = [0x10, 0x7e]
+  for (let i = 1; i < 16; i++) palBytes.push((i * 0x11) & 0xff, (i * 7) & 0x7f)
+  put(rom, palette, palBytes)
+  // Differ in a VISIBLE colour, not just slot 0 — slot 0 is the
+  // transparent one and never reaches the rendered pixels.
+  const shinyBytes = [...palBytes]
+  for (let i = 1; i < 16; i++) shinyBytes[i * 2] = (shinyBytes[i * 2] + 0x40) & 0xff
+  put(rom, shinyPalette, shinyBytes)
+
   /* ---- gSpeciesInfo ---- */
   const SPECIES_BASE = 0x010000
   const STRIDE = 0x120
   const PTR_BLOCK = 160
+  // Unconditional sprite pointer offsets in struct SpeciesInfo.
+  const SP_FRONT_PIC = 88
+  const SP_BACK_PIC = 92
+  const SP_PALETTE = 96
+  const SP_SHINY_PALETTE = 100
   const SPECIES_COUNT = 160
   const named: Record<number, string> = {
     1: 'Bulbasaur',
@@ -819,6 +871,10 @@ export function makeGen3ExpansionRom(): Uint8Array {
     put(rom, o + 30, [0]) // safari flee rate
     put(rom, o + 31, fixed('Seed', 13))
     put(rom, o + 44, fixed(named[id] ?? `Mon${id}`, 13))
+    put(rom, o + SP_FRONT_PIC, ptr(frontPic))
+    put(rom, o + SP_BACK_PIC, ptr(backPic))
+    put(rom, o + SP_PALETTE, ptr(palette))
+    put(rom, o + SP_SHINY_PALETTE, ptr(shinyPalette))
     put(rom, o + PTR_BLOCK + 0, ptr(learnset))
     put(rom, o + PTR_BLOCK + 8, ptr(eggList))
     put(rom, o + PTR_BLOCK + 12, ptr(evoList))

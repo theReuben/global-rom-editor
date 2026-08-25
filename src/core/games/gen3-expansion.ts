@@ -30,7 +30,7 @@ import {
   SPECIES_NAME_LEN,
   buildExpansionSprites,
   buildExpansionWildModule,
-  spritesAreLz77,
+  spritesDecodable,
   findAbilityNames,
   findItemNames,
   findMoveTable,
@@ -341,64 +341,40 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
   /* --------------------------------------- maps / wild encounters */
 
   /**
-   * Maps, in one discovery pass rather than two.
-   *
-   * `buildGen3MapModule` runs its own strict `discoverMaps`, which
-   * rejects every tileset when the ROM's graphics use a codec this
-   * editor can't decode — several seconds spent to learn nothing. So
-   * the relaxed pass runs first: it yields the map index either way,
-   * and its tileset set says whether rendering is even possible before
-   * the strict, renderable module is attempted.
+   * Maps. Now that `smol` decodes, expansion tilesets render like any
+   * vanilla ones, so this is the ordinary path again — no relaxed
+   * pre-pass. If discovery still fails, the map index is re-derived
+   * with the codec check relaxed purely so wild encounters (which are
+   * uncompressed) keep their map-key cross-check.
    */
   let mapModule: MapModule | null = null
   let mapKeys: Set<string> | null = null
-  let tilesetsRenderable = false
   try {
-    const index = discoverMaps(bytes, { anyGraphicsCodec: true })
-    if (index) {
-      mapKeys = new Set()
-      index.banks.forEach((maps, bank) => maps.forEach((_, map) => mapKeys!.add(`${bank}.${map}`)))
-      // A tileset header is {compressed, secondary, 0, 0, gfx, ...}; a
-      // compressed one must start with the LZ77 magic byte to be drawable.
-      let compressed = 0
-      let lz77 = 0
-      for (const ts of index.tilesetOffsets) {
-        if (bytes[ts] !== 1) continue
-        const gfx = readGbaPointer(bytes, ts + 4)
-        if (gfx === null) continue
-        compressed++
-        if (bytes[gfx] === 0x10) lz77++
-      }
-      tilesetsRenderable = compressed === 0 || lz77 === compressed
+    const gameCode = String.fromCharCode(...bytes.subarray(0xac, 0xb0)).replace(/[^ -~]/g, '')
+    const maps = buildGen3MapModule(rom, gameCode)
+    if (maps) {
+      mapModule = maps.module
+      mapKeys = new Set(maps.module.entries.map((e) => e.key))
+      regions.push({
+        name: `Map bank table (${maps.index.banks.length} banks, ${maps.module.entries.length} maps)`,
+        offset: maps.index.bankTableOffset,
+        length: maps.index.banks.length * 4,
+      })
     }
   } catch {
-    mapKeys = null
-  }
-
-  if (tilesetsRenderable) {
-    try {
-      const gameCode = String.fromCharCode(...bytes.subarray(0xac, 0xb0)).replace(/[^ -~]/g, '')
-      const maps = buildGen3MapModule(rom, gameCode)
-      if (maps) {
-        mapModule = maps.module
-        mapKeys = new Set(maps.module.entries.map((e) => e.key))
-        regions.push({
-          name: `Map bank table (${maps.index.banks.length} banks, ${maps.module.entries.length} maps)`,
-          offset: maps.index.bankTableOffset,
-          length: maps.index.banks.length * 4,
-        })
-      }
-    } catch {
-      mapModule = null
-    }
+    mapModule = null
   }
   if (!mapModule) {
-    warnings.push(
-      mapKeys && !tilesetsRenderable
-        ? "Map editing is disabled: this ROM's tilesets are not LZ77-compressed, so they cannot be drawn. " +
-            'The map list was still recovered, which is what the wild encounter editor needs.'
-        : "Couldn't verify the map data structures — map editing is disabled for this ROM.",
-    )
+    warnings.push("Couldn't verify the map data structures — map editing is disabled for this ROM.")
+    try {
+      const index = discoverMaps(bytes, { anyGraphicsCodec: true })
+      if (index) {
+        mapKeys = new Set()
+        index.banks.forEach((maps, bank) => maps.forEach((_, map) => mapKeys!.add(`${bank}.${map}`)))
+      }
+    } catch {
+      mapKeys = null
+    }
   }
 
   let wildModule: WildModule | null = null
@@ -442,14 +418,13 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
       'and are not decoded. Item and ability NAMES are read from the ROM and used in the dropdowns.',
   )
 
-  // Sprites only when the ROM's graphics are LZ77; expansion builds
-  // that use the `smol` codec are left without a sprite tab rather
-  // than shown noise.
-  const sprites = spritesAreLz77(bytes, table) ? buildExpansionSprites(rom, table) : null
+  // Both LZ77 and the expansion's `smol` codec decode here; anything
+  // else leaves the tab off rather than rendering noise.
+  const sprites = spritesDecodable(bytes, table) ? buildExpansionSprites(rom, table) : null
   if (!sprites) {
     warnings.push(
-      "This ROM's Pokémon graphics are not LZ77-compressed — it was built with the expansion's own " +
-        '`smol` codec, which this editor cannot decode yet. Sprite viewing and importing are disabled.',
+      "This ROM's Pokémon graphics use a compression this editor doesn't recognise " +
+        '(neither LZ77 nor the expansion\'s `smol`), so sprite viewing and importing are disabled.',
     )
   }
 

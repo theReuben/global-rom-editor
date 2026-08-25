@@ -209,6 +209,59 @@ describe('expansion adapter', () => {
     expect(w!.groups(key)[0]).toEqual(groups[0])
   })
 
+  it('renders smol-compressed sprites with their raw palettes', () => {
+    const { a } = adapter()
+    const front = a.speciesSprite?.(1)
+    expect(front).toMatchObject({ width: 64, height: 64 })
+    expect(a.speciesSpriteBack?.(1)).toMatchObject({ width: 64, height: 64 })
+    expect(a.hasShinySprites).toBe(true)
+    // The fixture's palette opens with 0x10 — the LZ77 magic byte — so
+    // this also pins the Roselia bug: a raw palette must not be taken
+    // for a compressed one and lose the sprite.
+    const px = front!.pixels
+    let opaque = 0
+    for (let i = 0; i < 64 * 64; i++) if (px[i * 4 + 3] === 255) opaque++
+    expect(opaque).toBeGreaterThan(0)
+    // Shiny uses the other palette, so at least one pixel differs.
+    const shiny = a.speciesSprite?.(1, true)!
+    expect(Array.from(shiny.pixels)).not.toEqual(Array.from(px))
+  })
+
+  it('imports a sprite into a smol ROM by writing LZ77', () => {
+    const { rom, a } = adapter()
+    const pixels = new Uint8ClampedArray(64 * 64 * 4)
+    for (let y = 0; y < 64; y++) {
+      for (let x = 0; x < 64; x++) {
+        const i = (y * 64 + x) * 4
+        const band = ((x >> 3) + (y >> 3)) % 8
+        pixels[i] = band * 32
+        pixels[i + 1] = 255 - band * 32
+        pixels[i + 2] = 128
+        pixels[i + 3] = 255
+      }
+    }
+    expect(a.importSpeciesSprite?.(1, { pixels, width: 64, height: 64 })).toBeNull()
+    expect(rom.changedByteCount).toBeGreaterThan(0)
+    // Reading it back goes through the LZ77 branch now, not smol.
+    const back = a.speciesSprite?.(1)
+    expect(back).toMatchObject({ width: 64, height: 64 })
+    let close = 0
+    for (let i = 0; i < 64 * 64; i++) {
+      if (Math.abs(back!.pixels[i * 4] - pixels[i * 4]) < 12) close++
+    }
+    expect(close).toBeGreaterThan(64 * 64 * 0.9)
+    // A different species still decodes from its untouched smol stream.
+    expect(a.speciesSprite?.(2)).toMatchObject({ width: 64, height: 64 })
+  })
+
+  it('enables map editing now that expansion tilesets decode', () => {
+    const { a } = adapter()
+    expect(a.mapModule).not.toBeNull()
+    expect(a.warnings.join(' ')).not.toContain('tilesets')
+    const key = a.mapModule!.entries[0].key
+    expect(a.mapModule!.render(key).width).toBeGreaterThan(0)
+  })
+
   it('disables the editors whose expansion formats are not decoded', () => {
     const { a } = adapter()
     expect(a.trainerModule).toBeNull()

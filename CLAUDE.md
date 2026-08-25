@@ -39,8 +39,8 @@ npm run dev      # local dev server
 ## Layout
 
 - `src/core/` — engine (rom, scan, text codecs, ips, checksum, freespace,
-  tiles, gba/{lz77,mapscan,maps,trainers,wild,script,species-extras,
-  expansion})
+  tiles, gba/{lz77,smol,compress,mapscan,maps,trainers,wild,script,
+  species-extras,expansion})
 - `src/core/games/` — schema + gen1/gen2/gen3/gen3-expansion adapters
   + generated constants (gen1-constants, gen3-constants — regenerate
   from decomps, don't hand-edit)
