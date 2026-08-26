@@ -171,7 +171,7 @@ export function decompileScript(bytes: Uint8Array, offset: number): ScriptStep[]
     let end = at
     while (end < bytes.length && bytes[end] !== 0xff) end++
     if (end >= bytes.length) return null
-    return decodeScriptText(bytes.subarray(at, end))
+    return decodeScriptTextBytes(bytes.subarray(at, end))
   }
 
   const steps: ScriptStep[] = []
@@ -237,7 +237,7 @@ export function decompileScript(bytes: Uint8Array, offset: number): ScriptStep[]
 }
 
 /** Inverse of encodeScriptText: 0xFE is a line break, 0xFB a new box. */
-function decodeScriptText(raw: Uint8Array): string {
+export function decodeScriptTextBytes(raw: Uint8Array): string {
   let out = ''
   let line: number[] = []
   const flush = () => {

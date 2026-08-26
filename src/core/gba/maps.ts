@@ -9,8 +9,9 @@ import { decompressGraphics } from './compress'
 import { decodeTile4bpp, readPalette } from '../tiles'
 import { discoverMaps, type Gen3MapIndex } from './mapscan'
 import { findRegionMap } from './regionmap'
-import { findFreeSpaceAtEnd, readGbaPointer, relocate, writeGbaPointer } from '../freespace'
-import { compileScript, decompileScript } from './script'
+import { GBA_ROM_BASE, findFreeSpaceAtEnd, readGbaPointer, relocate, writeGbaPointer } from '../freespace'
+import { compileScript, decompileScript, encodeScriptText } from './script'
+import { assembleScript, disassembleScript, resolveText } from './disasm'
 import { toTitleCase } from '../text'
 
 /** RSE and FRLG split tiles/metatiles/palettes differently. */
@@ -521,6 +522,61 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
       if (script === null) return { kind: 'none' }
       const steps = decompileScript(bytes, script)
       return steps ? { kind: 'steps', steps } : { kind: 'foreign' }
+    },
+
+    readScriptCommands(key, kind, index) {
+      const m = load(key)
+      const { off, count, size } = eventPtr(m, kind)
+      if (index < 0 || index >= count) return null
+      const script = readGbaPointer(bytes, off + index * size + (kind === 'npc' ? 16 : 8))
+      if (script === null) return null
+      const d = disassembleScript(bytes, script)
+      if (!d) return null
+      for (const ins of d.instructions)
+        for (const arg of ins.args)
+          if (arg.size === 4 && arg.target === null) arg.text = resolveText(bytes, arg.value)
+      return d
+    },
+
+    writeScriptCommands(key, kind, index, instructions) {
+      const m = load(key)
+      const { off, count, size } = eventPtr(m, kind)
+      if (index < 0 || index >= count) return false
+      const ptrOff = off + index * size + (kind === 'npc' ? 16 : 8)
+      const original = readGbaPointer(bytes, ptrOff)
+      if (original === null) return false
+      const before = disassembleScript(bytes, original)
+      if (!before) return false
+
+      // Any dialogue that changed needs somewhere to live. Text is
+      // written first so the command stream can point at it.
+      for (const ins of instructions) {
+        for (const arg of ins.args) {
+          if (arg.text === undefined || arg.text === null) continue
+          const encoded = encodeScriptText(arg.text)
+          if (!encoded) return false
+          const existing = resolveText(bytes, arg.value)
+          if (existing === arg.text) continue
+          const at = findFreeSpaceAtEnd(rom.bytes, encoded.length + 1)
+          if (at === null) return false
+          rom.writeBytes(at, [...encoded, 0xff])
+          arg.value = (at + GBA_ROM_BASE) >>> 0
+        }
+      }
+
+      // Assembling at the old address keeps the script in place when it
+      // still fits; otherwise it moves and the event is repointed.
+      const sameSize = assembleScript(instructions, original).length === before.length
+      if (sameSize) {
+        rom.writeBytes(original, assembleScript(instructions, original))
+        return true
+      }
+      const probe = assembleScript(instructions, 0)
+      const dest = findFreeSpaceAtEnd(rom.bytes, probe.length)
+      if (dest === null) return false
+      rom.writeBytes(dest, assembleScript(instructions, dest))
+      writeGbaPointer(rom, ptrOff, dest)
+      return true
     },
 
     revertBlocks(key) {

@@ -624,3 +624,37 @@ input[type='range'] { accent-color: var(--accent); }
   opacity: 0.85;
   overflow-wrap: anywhere;
 }
+
+/* ---- command-level script editor ------------------------------------ */
+
+.script-editor .script-commands {
+  max-height: 420px;
+  overflow-y: auto;
+  margin: 0 0 10px;
+  padding-left: 26px;
+}
+.script-command {
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 6px;
+}
+.script-command-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.script-command-head code {
+  font-weight: 600;
+  font-size: 12px;
+}
+.script-command .field { margin-bottom: 4px; }
+.script-command textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+.ghost.small { padding: 0 6px; font-size: 11px; line-height: 1.6; }

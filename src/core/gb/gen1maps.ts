@@ -460,6 +460,8 @@ export function buildGen1Maps(
     attachScript: () => false,
     // Gen 1/2 events are not scripted through this editor.
     readScript: () => ({ kind: 'none' as const }),
+    readScriptCommands: () => null,
+    writeScriptCommands: () => false,
 
     revertBlocks(key) {
       const m = byKey.get(key)!
