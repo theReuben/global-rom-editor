@@ -336,6 +336,45 @@ describe('expansion adapter', () => {
     expect(rom.changedByteCount).toBe(0)
   })
 
+  it('disassembles and reassembles a script byte for byte', () => {
+    const { a, rom } = adapter()
+    const maps = a.mapModule!
+    const key = maps.entries[0].key
+    // The fixture's NPC 1 has a hand-written script the step builder
+    // cannot express; the command editor must still read it.
+    const d = maps.readScriptCommands(key, 'npc', 1)!
+    expect(d).not.toBeNull()
+    expect(d.instructions.map((i) => i.name)).toContain('trainerbattle')
+
+    // Writing it back unchanged must not touch a single byte.
+    expect(maps.writeScriptCommands(key, 'npc', 1, d.instructions)).toBe(true)
+    expect(rom.changedByteCount).toBe(0)
+  })
+
+  it('edits a script command and moves the script when it grows', () => {
+    const { a } = adapter()
+    const maps = a.mapModule!
+    const key = maps.entries[0].key
+    const d = maps.readScriptCommands(key, 'npc', 1)!
+    const before = d.instructions.length
+
+    const battle = d.instructions.find((i) => i.name === 'trainerbattle')!
+    const opponent = battle.args.find((arg) => arg.name === 'trainer_a')!
+    opponent.value = 7
+    expect(maps.writeScriptCommands(key, 'npc', 1, d.instructions)).toBe(true)
+    expect(
+      maps.readScriptCommands(key, 'npc', 1)!.instructions
+        .find((i) => i.name === 'trainerbattle')!
+        .args.find((arg) => arg.name === 'trainer_a')!.value,
+    ).toBe(7)
+
+    // Removing a command shortens the script; it must still read back.
+    const fewer = d.instructions.filter((i) => i.name !== 'trainerbattle')
+    expect(maps.writeScriptCommands(key, 'npc', 1, fewer)).toBe(true)
+    const after = maps.readScriptCommands(key, 'npc', 1)!
+    expect(after.instructions.length).toBe(before - 1)
+  })
+
   it('reads an attached script back for editing, and refuses foreign ones', () => {
     const { a } = adapter()
     const maps = a.mapModule!
