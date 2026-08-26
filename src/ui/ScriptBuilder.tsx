@@ -3,6 +3,8 @@ import type { GameAdapter, ScriptStep } from '../core/games/schema'
 
 interface Props {
   adapter: GameAdapter
+  /** The event's current script, so it can be edited rather than only replaced. */
+  existing: { kind: 'steps'; steps: ScriptStep[] } | { kind: 'none' } | { kind: 'foreign' }
   onApply: (steps: ScriptStep[]) => boolean
   onClose: () => void
 }
@@ -39,8 +41,10 @@ function blankStep(kind: ScriptStep['kind']): ScriptStep {
  * Zero-code event scripting: compose steps, and they compile to real
  * game bytecode placed in free space.
  */
-export function ScriptBuilder({ adapter, onApply, onClose }: Props) {
-  const [steps, setSteps] = useState<ScriptStep[]>([{ kind: 'message', text: 'HELLO!' }])
+export function ScriptBuilder({ adapter, existing, onApply, onClose }: Props) {
+  const [steps, setSteps] = useState<ScriptStep[]>(() =>
+    existing.kind === 'steps' ? existing.steps : [{ kind: 'message', text: 'HELLO!' }],
+  )
   const [status, setStatus] = useState<string | null>(null)
 
   const update = (i: number, step: ScriptStep) =>
@@ -52,10 +56,17 @@ export function ScriptBuilder({ adapter, onApply, onClose }: Props) {
 
   return (
     <div className="script-builder">
-      <h4>✨ Custom script</h4>
+      <h4>{existing.kind === 'steps' ? '✏️ Edit script' : '✨ Custom script'}</h4>
       <p className="muted small">
         Runs when the player interacts. Compiles to real script bytecode in free ROM space.
       </p>
+      {existing.kind === 'foreign' && (
+        <div className="notice">
+          This event already has a script, but it uses commands this builder cannot represent —
+          branching, specials and the like — so it can't be shown here. Writing a script below
+          will replace it.
+        </div>
+      )}
       {steps.map((step, i) => (
         <div className="script-step" key={i}>
           <div className="script-step-head">

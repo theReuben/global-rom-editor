@@ -457,7 +457,7 @@ export function TrainerPanel({
           <div className="field-grid" style={{ marginBottom: 12 }}>
             <Num label="Party size" value={data.partySize} min={1} max={data.maxPartySize}
               onChange={(v) => write('partySize', v)}
-              help="Can't grow beyond the space the game originally reserved." />
+              help="Growing past the original size moves the party to free ROM space." />
           </div>
           )}
           <div className="party-grid">

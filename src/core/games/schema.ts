@@ -389,6 +389,17 @@ export interface MapModule {
    * NPC (talk script) or sign. False = encoding failed or no space.
    */
   attachScript(key: string, kind: 'npc' | 'sign', index: number, steps: ScriptStep[]): boolean
+  /**
+   * Reads an event's current script back into steps for editing.
+   * 'none' = the event has no script; 'foreign' = it has one this
+   * builder cannot represent (a hand-written game script), which must be
+   * reported rather than silently replaced.
+   */
+  readScript(
+    key: string,
+    kind: 'npc' | 'sign',
+    index: number,
+  ): { kind: 'steps'; steps: ScriptStep[] } | { kind: 'none' } | { kind: 'foreign' }
   /** Revert all block-grid edits on this map. */
   revertBlocks(key: string): void
 }

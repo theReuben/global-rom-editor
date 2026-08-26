@@ -147,3 +147,114 @@ export function compileScript(steps: ScriptStep[], base: number): CompiledScript
   if (code.length !== codeLength) throw new Error('script size mismatch')
   return { bytes: Uint8Array.from([...code, ...texts.flat()]), codeLength }
 }
+
+/**
+ * Reads a script back into steps, so an event the builder made can be
+ * reopened and edited instead of only overwritten.
+ *
+ * This is the exact inverse of compileScript and recognises nothing
+ * else. Real game scripts branch, call specials and use commands with no
+ * representation here, so anything unfamiliar returns null and the
+ * caller should say the script cannot be shown rather than display a
+ * lossy approximation of it.
+ */
+export function decompileScript(bytes: Uint8Array, offset: number): ScriptStep[] | null {
+  if (offset < 0 || offset + 4 > bytes.length) return null
+  // Every script this builder emits opens with lock, faceplayer.
+  if (bytes[offset] !== 0x6a || bytes[offset + 1] !== 0x5a) return null
+
+  const u16 = (o: number) => bytes[o] | (bytes[o + 1] << 8)
+  const u32 = (o: number) => (u16(o) | (u16(o + 2) << 16)) >>> 0
+  const textAt = (addr: number): string | null => {
+    const at = addr - GBA_ROM_BASE
+    if (at < 0 || at >= bytes.length) return null
+    let end = at
+    while (end < bytes.length && bytes[end] !== 0xff) end++
+    if (end >= bytes.length) return null
+    return decodeScriptText(bytes.subarray(at, end))
+  }
+
+  const steps: ScriptStep[] = []
+  let p = offset + 2
+  const limit = Math.min(bytes.length, offset + 4096)
+
+  while (p < limit) {
+    const op = bytes[p]
+
+    // release, end — the epilogue every compiled script closes with.
+    if (op === 0x6c && bytes[p + 1] === 0x02) return steps
+
+    if (op === 0x0f && bytes[p + 1] === 0x00 && bytes[p + 6] === 0x09) {
+      const text = textAt(u32(p + 2))
+      if (text === null) return null
+      const std = bytes[p + 7]
+      if (std === 0x04) {
+        steps.push({ kind: 'message', text })
+        p += 8
+        continue
+      }
+      if (std === 0x05) {
+        // yesNo also emits compare + goto_if, which carry no user data.
+        if (bytes[p + 8] !== 0x21 || bytes[p + 13] !== 0x06) return null
+        steps.push({ kind: 'yesNo', question: text })
+        p += 19
+        continue
+      }
+      return null
+    }
+
+    if (op === 0x1a && u16(p + 1) === VAR_0X8000 && bytes[p + 5] === 0x1a &&
+        u16(p + 6) === VAR_0X8001 && bytes[p + 10] === 0x09 && bytes[p + 11] === 0x00) {
+      steps.push({ kind: 'giveItem', item: u16(p + 3), quantity: u16(p + 8) })
+      p += 12
+      continue
+    }
+
+    if (op === 0x79) {
+      steps.push({ kind: 'givePokemon', species: u16(p + 1), level: bytes[p + 3] })
+      p += 15
+      continue
+    }
+
+    if (op === 0x29 || op === 0x2a) {
+      steps.push({ kind: op === 0x29 ? 'setFlag' : 'clearFlag', flag: u16(p + 1) })
+      p += 3
+      continue
+    }
+
+    if (op === 0x5c && bytes[p + 1] === 0x00) {
+      const intro = textAt(u32(p + 6))
+      const defeat = textAt(u32(p + 10))
+      if (intro === null || defeat === null) return null
+      steps.push({ kind: 'trainerBattle', trainerId: u16(p + 2), intro, defeat })
+      p += 14
+      continue
+    }
+
+    return null
+  }
+  return null
+}
+
+/** Inverse of encodeScriptText: 0xFE is a line break, 0xFB a new box. */
+function decodeScriptText(raw: Uint8Array): string {
+  let out = ''
+  let line: number[] = []
+  const flush = () => {
+    out += gen3Codec.decode(Uint8Array.from(line))
+    line = []
+  }
+  for (const b of raw) {
+    if (b === 0xfe) {
+      flush()
+      out += '\n'
+    } else if (b === 0xfb) {
+      flush()
+      out += '\n\n'
+    } else {
+      line.push(b)
+    }
+  }
+  flush()
+  return out
+}

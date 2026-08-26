@@ -174,6 +174,7 @@ function EventList({
       {addButtons}
       {scriptTarget && (
         <ScriptBuilder
+          existing={module.readScript(mapKey, scriptTarget.kind, scriptTarget.index)}
           adapter={adapter}
           onApply={(steps) => {
             const ok = module.attachScript(mapKey, scriptTarget.kind, scriptTarget.index, steps)
