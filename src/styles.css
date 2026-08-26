@@ -658,3 +658,27 @@ input[type='range'] { accent-color: var(--accent); }
   resize: vertical;
 }
 .ghost.small { padding: 0 6px; font-size: 11px; line-height: 1.6; }
+
+/* ---- evolution conditions ------------------------------------------- */
+
+.evo-conditions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex-basis: 100%;
+  margin-top: 4px;
+  padding-left: 10px;
+  border-left: 2px solid rgba(148, 163, 184, 0.35);
+}
+.evo-condition {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.14);
+}
+.evo-condition-label { font-size: 11px; font-weight: 600; }
+.evo-condition input { width: 72px; }
+.evo-conditions .muted.small { font-size: 11px; }

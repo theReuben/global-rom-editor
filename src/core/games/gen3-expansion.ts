@@ -18,6 +18,7 @@ import { Rom } from '../rom'
 import { gen3Codec } from '../text'
 import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import { buildGen3MapModule } from '../gba/maps'
+import { EVO_CONDITIONS_END, GEN3_EVO_CONDITIONS } from './gen3-evo-conditions'
 import { discoverMaps, type Gen3MapIndex } from '../gba/mapscan'
 import { buildTrainerLocations, type TrainerLocationIndex } from '../gba/trainer-locations'
 import { buildTrainerSprites } from '../gba/trainer-sprites'
@@ -30,6 +31,9 @@ import {
   MOVE_UNAVAILABLE,
   MV,
   PTR_BLOCK,
+  EVO_CONDITION_ENTRY,
+  parseEvolutionConditions,
+  type EvolutionCondition,
   SP,
   SPECIES_NAME_LEN,
   buildExpansionSprites,
@@ -314,9 +318,67 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
 
   let evolutions: EvolutionModule | null = null
   if (ptr !== null) {
+    /** Locates one evolution entry, or null if the slot is not real. */
+    const evoAt = (id: number, slot: number): number | null => {
+      const pf = blobPtr(id, PTR_BLOCK.evolutions)
+      if (pf === null) return null
+      const p = readGbaPointer(bytes, pf)
+      if (p === null) return null
+      const existing = parseEvolutions(bytes, p, SPECIES_COUNT)
+      if (existing === null || slot >= existing.length) return null
+      return p + slot * EVOLUTION_ENTRY
+    }
+
+    /**
+     * Condition lists this editor has moved: key -> the block it wrote.
+     * Revert needs the size it actually wrote, not the size the list
+     * happens to be now, or removing a condition after adding one leaves
+     * the tail of the old block behind.
+     */
+    const movedConditions = new Map<string, { at: number; size: number }>()
+
+    /**
+     * Writes a condition list somewhere it fits and points the evolution
+     * at it. Lists are stored back to back and sized exactly, so any
+     * change in length has to move rather than overwrite a neighbour.
+     */
+    const writeConditions = (key: string, at: number, list: EvolutionCondition[]): boolean => {
+      const bytesNeeded = (list.length + 1) * EVO_CONDITION_ENTRY
+      const dest = findFreeSpaceAtEnd(rom.bytes, bytesNeeded)
+      if (dest === null) return false
+      const block = new Uint8Array(bytesNeeded)
+      list.forEach((c, i) => {
+        const o = i * EVO_CONDITION_ENTRY
+        block[o] = c.condition & 0xff
+        block[o + 1] = (c.condition >> 8) & 0xff
+        c.args.forEach((v, a) => {
+          block[o + 2 + a * 2] = v & 0xff
+          block[o + 3 + a * 2] = (v >> 8) & 0xff
+        })
+      })
+      const term = list.length * EVO_CONDITION_ENTRY
+      block[term] = EVO_CONDITIONS_END & 0xff
+      block[term + 1] = (EVO_CONDITIONS_END >> 8) & 0xff
+      rom.writeBlock(dest, block)
+      writeGbaPointer(rom, at + 8, dest)
+      const previous = movedConditions.get(key)
+      movedConditions.set(key, {
+        at: dest,
+        size: Math.max(bytesNeeded, previous?.at === dest ? previous.size : 0),
+      })
+      return true
+    }
+
     evolutions = {
       methods: EVO_METHODS,
       itemParamMethods: EVO_ITEM_METHODS,
+      conditionOptions: Object.entries(GEN3_EVO_CONDITIONS).map(([value, c]) => ({
+        value: Number(value),
+        label: c.label,
+        args: c.args,
+        argKind: c.argKind,
+        description: c.description,
+      })),
       read(id) {
         const field = blobPtr(id, PTR_BLOCK.evolutions)
         if (field === null) return []
@@ -326,6 +388,7 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
           method: e.method,
           param: e.param,
           target: e.target,
+          conditions: e.conditions,
         }))
       },
       write(id, slot, field, value) {
@@ -342,13 +405,79 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
         if (off < 0) return
         rom.writeU16LE(at + off, value)
       },
+      writeCondition(id, slot, index, arg, value) {
+        const at = evoAt(id, slot)
+        if (at === null || arg < 0 || arg > 2) return
+        const list = readGbaPointer(bytes, at + 8)
+        if (list === null) return
+        const current = parseEvolutionConditions(bytes, list)
+        if (index < 0 || index >= current.length) return
+        rom.writeU16LE(list + index * EVO_CONDITION_ENTRY + 2 + arg * 2, value)
+      },
+
+      addCondition(id, slot, condition) {
+        const at = evoAt(id, slot)
+        if (at === null) return false
+        const list = readGbaPointer(bytes, at + 8)
+        const current = list === null ? [] : parseEvolutionConditions(bytes, list)
+        if (current.length >= 8) return false
+        return writeConditions(`${id}:${slot}`, at, [...current, { condition, args: [0, 0, 0] }])
+      },
+
+      removeCondition(id, slot, index) {
+        const at = evoAt(id, slot)
+        if (at === null) return false
+        const list = readGbaPointer(bytes, at + 8)
+        if (list === null) return false
+        const current = parseEvolutionConditions(bytes, list)
+        if (index < 0 || index >= current.length) return false
+        const next = current.filter((_, i) => i !== index)
+        // Shrinking fits where it is, so the list stays put and the
+        // pointer does not have to move.
+        const size = (next.length + 1) * EVO_CONDITION_ENTRY
+        const block = new Uint8Array(size)
+        next.forEach((c, i) => {
+          const o = i * EVO_CONDITION_ENTRY
+          block[o] = c.condition & 0xff
+          block[o + 1] = (c.condition >> 8) & 0xff
+          c.args.forEach((v, a) => {
+            block[o + 2 + a * 2] = v & 0xff
+            block[o + 3 + a * 2] = (v >> 8) & 0xff
+          })
+        })
+        block[next.length * EVO_CONDITION_ENTRY] = EVO_CONDITIONS_END & 0xff
+        block[next.length * EVO_CONDITION_ENTRY + 1] = (EVO_CONDITIONS_END >> 8) & 0xff
+        rom.writeBlock(list, block)
+        return true
+      },
+
       revert(id) {
         const pf = blobPtr(id, PTR_BLOCK.evolutions)
         if (pf === null) return
         const p = readGbaPointer(bytes, pf)
         if (p === null) return
         const existing = parseEvolutions(bytes, p, SPECIES_COUNT)
-        if (existing !== null) rom.revertRange(p, (existing.length + 1) * EVOLUTION_ENTRY)
+        if (existing === null) return
+        // Condition lists live outside the evolution blob, so they need
+        // reverting too - both where they are now and where they were,
+        // in case adding a condition moved one.
+        existing.forEach((e, slot) => {
+          // Where the list lives now, where it lived originally, and any
+          // block this editor allocated for it - all three may hold
+          // bytes that differ from the ROM as shipped.
+          const original = readGbaPointer(rom.original, p + slot * EVOLUTION_ENTRY + 8)
+          for (const at of [e.conditionsOffset, original]) {
+            if (at === null) continue
+            const list = parseEvolutionConditions(bytes, at)
+            rom.revertRange(at, (list.length + 1) * EVO_CONDITION_ENTRY)
+          }
+          const moved = movedConditions.get(`${id}:${slot}`)
+          if (moved) {
+            rom.revertRange(moved.at, moved.size)
+            movedConditions.delete(`${id}:${slot}`)
+          }
+        })
+        rom.revertRange(p, (existing.length + 1) * EVOLUTION_ENTRY)
       },
     }
   }

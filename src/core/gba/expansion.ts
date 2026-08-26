@@ -31,6 +31,7 @@
 import type { Rom } from '../rom'
 import { toTitleCase } from '../text'
 import { findAllMulti } from '../scan'
+import { EVO_CONDITIONS_END, GEN3_EVO_CONDITIONS } from '../games/gen3-evo-conditions'
 import { GBA_ROM_BASE, findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import type { RenderedImage, WildGroup, WildModule, WildSlot } from '../games/schema'
 import { lz77Compress } from './lz77'
@@ -410,10 +411,24 @@ export function parseLevelUpLearnset(bytes: Uint8Array, off: number): LevelUpMov
   return null
 }
 
+export interface EvolutionCondition {
+  condition: number
+  args: [number, number, number]
+}
+
 export interface ExpansionEvolution {
   method: number
   param: number
   target: number
+  /**
+   * Extra requirements hanging off this evolution. The expansion moved
+   * friendship, time of day, held items and the rest out of `method`
+   * into this list, which is why so many EVO_LEVEL entries carry a
+   * param of 0 - the real requirement lives here.
+   */
+  conditions: EvolutionCondition[]
+  /** Where the condition list lives, or null when there is none. */
+  conditionsOffset: number | null
 }
 
 /**
@@ -439,9 +454,43 @@ export function parseEvolutions(
     if (method === 0 || method > 200) return null
     const target = bytes[p + 4] | (bytes[p + 5] << 8)
     if (target === 0 || target > speciesCount) return null
-    out.push({ method, param: bytes[p + 2] | (bytes[p + 3] << 8), target })
+    const conditionsOffset = readGbaPointer(bytes, p + 8)
+    out.push({
+      method,
+      param: bytes[p + 2] | (bytes[p + 3] << 8),
+      target,
+      conditions: conditionsOffset === null ? [] : parseEvolutionConditions(bytes, conditionsOffset),
+      conditionsOffset,
+    })
   }
   return null
+}
+
+/** `struct EvolutionParam { u16 condition; u16 arg1, arg2, arg3; }`. */
+export const EVO_CONDITION_ENTRY = 8
+
+/**
+ * Reads a condition list up to its CONDITIONS_END terminator. A list
+ * that runs past the end of the ROM or holds an unknown condition comes
+ * back empty rather than as guesses, since the pointer may not have been
+ * a condition list at all.
+ */
+export function parseEvolutionConditions(bytes: Uint8Array, off: number): EvolutionCondition[] {
+  const out: EvolutionCondition[] = []
+  for (let p = off; p + EVO_CONDITION_ENTRY <= bytes.length && out.length <= 16; p += EVO_CONDITION_ENTRY) {
+    const condition = bytes[p] | (bytes[p + 1] << 8)
+    if (condition === EVO_CONDITIONS_END) return out
+    if (!(condition in GEN3_EVO_CONDITIONS)) return []
+    out.push({
+      condition,
+      args: [
+        bytes[p + 2] | (bytes[p + 3] << 8),
+        bytes[p + 4] | (bytes[p + 5] << 8),
+        bytes[p + 6] | (bytes[p + 7] << 8),
+      ],
+    })
+  }
+  return []
 }
 
 /** A 0xFFFF-terminated u16 move list (egg moves, teachable moves). */

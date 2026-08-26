@@ -148,7 +148,7 @@ describe('expansion adapter', () => {
       { level: 3, move: 22 },
     ])
     expect(a.eggMoves?.read(1)).toEqual([34, 35])
-    expect(a.evolutions?.read(1)).toEqual([{ method: 1, param: 16, target: 2 }])
+    expect(a.evolutions?.read(1)).toMatchObject([{ method: 1, param: 16, target: 2 }])
   })
 
   it('rewrites a learnset in place when it shrinks', () => {
@@ -179,13 +179,43 @@ describe('expansion adapter', () => {
     expect(a.learnsets?.read(1)).toEqual(grownLearnset)
   })
 
+  it('decodes evolution conditions, and adds and removes them', () => {
+    const { a, rom } = adapter()
+    const evo = a.evolutions!
+    // A level-up evolution with param 0 is meaningless on its own; the
+    // requirement lives in the condition list, which is why decoding it
+    // matters.
+    const [first] = evo.read(1)
+    expect(first.conditions).toEqual([{ condition: 3, args: [220, 0, 0] }])
+    expect(evo.conditionOptions?.find((o) => o.value === 3)?.label).toBe('Friendship at least')
+
+    evo.writeCondition!(1, 0, 0, 0, 120)
+    expect(evo.read(1)[0].conditions![0].args[0]).toBe(120)
+
+    // Adding grows the list, which has to move: lists are sized exactly
+    // and packed together.
+    expect(evo.addCondition!(1, 0, 7)).toBe(true)
+    expect(evo.read(1)[0].conditions).toEqual([
+      { condition: 3, args: [120, 0, 0] },
+      { condition: 7, args: [0, 0, 0] },
+    ])
+
+    expect(evo.removeCondition!(1, 0, 0)).toBe(true)
+    expect(evo.read(1)[0].conditions).toEqual([{ condition: 7, args: [0, 0, 0] }])
+
+    // Revert has to reclaim the relocated list too, not just the entry.
+    evo.revert(1)
+    expect(evo.read(1)[0].conditions).toEqual([{ condition: 3, args: [220, 0, 0] }])
+    expect(rom.changedByteCount).toBe(0)
+  })
+
   it('edits an existing evolution entry and reverts it', () => {
     const { a } = adapter()
     a.evolutions?.write(1, 0, 'param', 22)
     a.evolutions?.write(1, 0, 'target', 3)
-    expect(a.evolutions?.read(1)).toEqual([{ method: 1, param: 22, target: 3 }])
+    expect(a.evolutions?.read(1)).toMatchObject([{ method: 1, param: 22, target: 3 }])
     a.evolutions?.revert(1)
-    expect(a.evolutions?.read(1)).toEqual([{ method: 1, param: 16, target: 2 }])
+    expect(a.evolutions?.read(1)).toMatchObject([{ method: 1, param: 16, target: 2 }])
   })
 
   it('reads time-of-day wild encounters and writes them back', () => {
