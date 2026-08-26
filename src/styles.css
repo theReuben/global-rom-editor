@@ -557,3 +557,70 @@ input[type='range'] { accent-color: var(--accent); }
   display: block;
   image-rendering: pixelated;
 }
+
+/* ---- trainer sprite picker ------------------------------------------ */
+
+.sprite-field { position: relative; }
+.sprite-current {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+.sprite-current:hover { border-color: rgba(148, 163, 184, 0.8); }
+.sprite-current .trainer-pic { width: 48px; height: 48px; }
+.sprite-caption { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sprite-caption strong { font-size: 12px; }
+.sprite-id { font-size: 11px; opacity: 0.6; }
+
+/* Floats over the form so the grid does not push the fields around. */
+.sprite-picker {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  width: min(420px, 80vw);
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  border-radius: 8px;
+  background: var(--panel, #111827);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.sprite-search { width: 100%; margin-bottom: 8px; }
+.sprite-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.sprite-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+.sprite-choice:hover { border-color: rgba(148, 163, 184, 0.6); }
+.sprite-choice.selected { border-color: #3b82f6; background: rgba(59, 130, 246, 0.12); }
+.sprite-choice .trainer-pic { width: 64px; height: 64px; }
+.sprite-choice-label {
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: center;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}

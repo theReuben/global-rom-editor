@@ -451,10 +451,12 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
    * the ids map scripts reference index straight into it.
    */
   let trainerSprite: ((picId: number) => RenderedImage | null) | null = null
+  let trainerSpriteCount: number | null = null
   try {
     const sprites = buildTrainerSprites(rom)
     if (sprites) {
       trainerSprite = sprites.render
+      trainerSpriteCount = sprites.count
       regions.push({
         name: `Trainer sprites (${sprites.count})`,
         offset: sprites.offset,
@@ -463,6 +465,7 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     }
   } catch {
     trainerSprite = null
+    trainerSpriteCount = null
   }
 
   let trainerLocations: TrainerLocationIndex | null = null
@@ -585,6 +588,7 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     trainerModule,
     trainerLocations,
     trainerSprite,
+    trainerSpriteCount,
     wildModule,
     itemOptions,
     itemModule,
