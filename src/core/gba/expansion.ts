@@ -860,7 +860,14 @@ export function spritesDecodable(bytes: Uint8Array, table: SpeciesTable): boolea
 /** Write a 16-colour palette back over an entry's raw palette slot. */
 function writePaletteBytes(rom: Rom, ptrField: number, palBytes: Uint8Array): void {
   const target = readGbaPointer(rom.bytes, ptrField)
-  if (target === null) return
+  // Blank slot: no palette to overwrite, so give it one.
+  if (target === null) {
+    const fresh = findFreeSpaceAtEnd(rom.bytes, palBytes.length)
+    if (fresh === null) return
+    rom.writeBytes(fresh, palBytes)
+    writeGbaPointer(rom, ptrField, fresh)
+    return
+  }
   // A hack that kept LZ77 palettes gets a compressed write instead.
   if (isLz77Palette(rom.bytes, target)) replaceSmolAware(rom, ptrField, lz77Compress(palBytes))
   else rom.writeBytes(target, palBytes)
@@ -917,7 +924,16 @@ const PALETTE_BYTES = 32
  */
 function replaceSmolAware(rom: Rom, ptrField: number, compressed: Uint8Array): string | null {
   const oldPtr = readGbaPointer(rom.bytes, ptrField)
-  if (oldPtr === null) return 'The sprite pointer looks corrupt.'
+  // A blank species slot has no graphics at all. There is nothing to
+  // overwrite, so allocate and point at it - the same path a sprite that
+  // outgrows its slot already takes.
+  if (oldPtr === null) {
+    const fresh = findFreeSpaceAtEnd(rom.bytes, compressed.length)
+    if (fresh === null) return 'The ROM has no free space for a new sprite.'
+    rom.writeBytes(fresh, compressed)
+    writeGbaPointer(rom, ptrField, fresh)
+    return null
+  }
   if (compressed.length <= compressedSize(rom.bytes, oldPtr)) {
     rom.writeBytes(oldPtr, compressed)
     return null
@@ -998,10 +1014,10 @@ export function buildExpansionSprites(rom: Rom, table: SpeciesTable): SpriteView
     }
     const gfxEntry = field(id, picOff)
     const gfxPtr = readGbaPointer(bytes, gfxEntry)
-    if (gfxPtr === null) return 'The sprite pointer looks corrupt.'
     // Animated front pics decompress to several frames; keep the
-    // original length so the game's animation code still has data.
-    const origLen = decompressGraphics(bytes, gfxPtr)?.length ?? PIC_FRAME
+    // original length so the game's animation code still has data. A
+    // blank slot has no pointer and so no original length to keep.
+    const origLen = gfxPtr === null ? PIC_FRAME : (decompressGraphics(bytes, gfxPtr)?.length ?? PIC_FRAME)
     const raw = new Uint8Array(Math.max(origLen, PIC_FRAME))
     for (let o = 0; o < raw.length; o += PIC_FRAME)
       raw.set(frame.subarray(0, Math.min(PIC_FRAME, raw.length - o)), o)

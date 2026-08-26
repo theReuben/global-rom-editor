@@ -222,6 +222,18 @@ describe('expansion adapter', () => {
     expect(rom.changedByteCount).toBe(0)
   })
 
+  it('fills a blank species slot with sprites instead of refusing', () => {
+    const { a } = adapter()
+    // A blank slot has no graphics pointer at all. Import used to bail
+    // on that ("the sprite pointer looks corrupt"), which is exactly the
+    // slot a hand-built form wants to use.
+    const blank = a.species.find((s) => s.label.includes('(blank)'))!
+    expect(a.speciesSprite!(blank.id)).toBeNull()
+    const source = a.speciesSprite!(1)!
+    expect(a.importSpeciesSprite!(blank.id, source)).toBeNull() // null = no error
+    expect(a.speciesSprite!(blank.id)).not.toBeNull()
+  })
+
   it('reads mega triggers from the form change table, and edits them', () => {
     const { a, rom } = adapter()
     const fc = a.formChanges!
