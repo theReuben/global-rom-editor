@@ -329,6 +329,14 @@ export interface SpeciesTable extends TableLocation {
 }
 
 /** Does this entry look like a filled-in `struct SpeciesInfo`? */
+/**
+ * How many blank entries in a row end the species table. The reference
+ * ROM has exactly one internal gap; a little slack covers hacks that
+ * disable a few neighbouring species, without running off the end into
+ * whatever follows the table.
+ */
+const MAX_SPECIES_GAP = 8
+
 function speciesEntrySane(bytes: Uint8Array, off: number, stride: number): boolean {
   if (off + stride > bytes.length) return false
   if (bytes[off + SP.growthRate] > 5) return false
@@ -353,9 +361,21 @@ export function findSpeciesTable(bytes: Uint8Array, scan = scanExpansion(bytes))
   const zeroStats = [0, 1, 2, 3, 4, 5].every((i) => bytes[found.base + i] === 0)
   if (!zeroStats) return null
 
-  let count = 1
-  while (count < 4096 && speciesEntrySane(bytes, found.base + count * found.stride, found.stride)) count++
-  count -= 1 // ids run 1..count
+  // The table is not gap-free: a disabled or placeholder species leaves a
+  // blank entry mid-table, and stopping at the first one truncated this
+  // ROM at 1434 of its 1572 species - losing the whole tail, which is
+  // where the Mega and Gigantamax forms live. Scan on through short gaps
+  // and take the last entry that was real.
+  let count = 0
+  let blanks = 0
+  for (let id = 1; id < 4096 && blanks <= MAX_SPECIES_GAP; id++) {
+    if (speciesEntrySane(bytes, found.base + id * found.stride, found.stride)) {
+      count = id
+      blanks = 0
+    } else {
+      blanks++
+    }
+  }
   if (count < 100) return null
 
   return { ...found, count, pointerBlock: findSpeciesPointerBlock(bytes, found, count) }
@@ -491,6 +511,49 @@ export function parseEvolutionConditions(bytes: Uint8Array, off: number): Evolut
     })
   }
   return []
+}
+
+/**
+ * The species flags word, and the form each bit names.
+ *
+ * `struct SpeciesInfo` ends with a u32 of boolean flags, two shadow
+ * offsets and a u16 before the pointer block, so the flags sit eight
+ * bytes before the block this scan already located - no new offset to
+ * guess. Verified against the decomp: the reference ROM's counts match
+ * its sources exactly for all seven form flags (97 Mega, 34 Gigantamax,
+ * 20 Alolan, 20 Galarian, 16 Hisuian, 4 Paldean, 2 Primal).
+ *
+ * Ordered by how a name should read: a Mega Charizard is a Mega first.
+ */
+const SPECIES_FORM_FLAGS: [number, string][] = [
+  [6, 'Mega'],
+  [7, 'Primal'],
+  [9, 'Gigantamax'],
+  [8, 'Ultra Burst'],
+  [10, 'Tera'],
+  [11, 'Alolan'],
+  [12, 'Galarian'],
+  [13, 'Hisuian'],
+  [14, 'Paldean'],
+  [5, 'Totem'],
+]
+
+/**
+ * Names the form a species is, or null for an ordinary one.
+ *
+ * Form species carry the same speciesName as the base -
+ * SPECIES_TYPHLOSION_HISUI is called "Typhlosion" - so a list built from
+ * names alone shows duplicates with no way to tell them apart.
+ */
+export function speciesFormLabel(bytes: Uint8Array, table: SpeciesTable, id: number): string | null {
+  // The flags are located relative to the pointer block, so a ROM whose
+  // block was never found gets no form labels rather than a guess.
+  if (table.pointerBlock === null) return null
+  const off = table.base + id * table.stride + table.pointerBlock - 8
+  if (off < 0 || off + 4 > bytes.length) return null
+  const flags = (bytes[off] | (bytes[off + 1] << 8) | (bytes[off + 2] << 16) | (bytes[off + 3] << 24)) >>> 0
+  for (const [bit, label] of SPECIES_FORM_FLAGS) if (flags & (1 << bit)) return label
+  return null
 }
 
 /** A 0xFFFF-terminated u16 move list (egg moves, teachable moves). */
