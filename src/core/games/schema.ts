@@ -7,6 +7,9 @@
  */
 import type { Rom } from '../rom'
 import type { ItemModule } from '../gba/items'
+import type { ScriptInstruction } from '../gba/disasm'
+
+export type { ScriptInstruction, ScriptArgValue } from '../gba/disasm'
 import type { TrainerLocationIndex } from '../gba/trainer-locations'
 
 export type { TrainerLocation, TrainerLocationIndex } from '../gba/trainer-locations'
@@ -400,6 +403,25 @@ export interface MapModule {
     kind: 'npc' | 'sign',
     index: number,
   ): { kind: 'steps'; steps: ScriptStep[] } | { kind: 'none' } | { kind: 'foreign' }
+  /**
+   * The event's script as its actual commands, for full editing. Null
+   * when the event has no script or one command has no known layout.
+   */
+  readScriptCommands(
+    key: string,
+    kind: 'npc' | 'sign',
+    index: number,
+  ): { instructions: ScriptInstruction[]; start: number; length: number } | null
+  /**
+   * Writes edited commands back, moving the script and any changed
+   * dialogue into free space when they no longer fit.
+   */
+  writeScriptCommands(
+    key: string,
+    kind: 'npc' | 'sign',
+    index: number,
+    instructions: ScriptInstruction[],
+  ): boolean
   /** Revert all block-grid edits on this map. */
   revertBlocks(key: string): void
 }

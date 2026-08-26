@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import type { GameAdapter, MapModule } from '../core/games/schema'
 import { GEN3_MOVEMENT_TYPES } from '../core/games/gen3-constants'
 import { ScriptBuilder } from './ScriptBuilder'
+import { ScriptEditor } from './ScriptEditor'
 
 type Tool = 'paint' | 'inspect'
 
@@ -172,7 +173,19 @@ function EventList({
   return (
     <div className="event-list">
       {addButtons}
-      {scriptTarget && (
+      {scriptTarget &&
+        // An event that already has a script opens in the command editor,
+        // which can show anything the game runs. The step builder is for
+        // events with no script, where there is nothing to preserve.
+        (module.readScriptCommands(mapKey, scriptTarget.kind, scriptTarget.index) ? (
+          <ScriptEditor
+            adapter={adapter}
+            mapKey={mapKey}
+            target={scriptTarget}
+            onEdit={onEdit}
+            onClose={() => setScriptTarget(null)}
+          />
+        ) : (
         <ScriptBuilder
           existing={module.readScript(mapKey, scriptTarget.kind, scriptTarget.index)}
           adapter={adapter}
@@ -183,7 +196,7 @@ function EventList({
           }}
           onClose={() => setScriptTarget(null)}
         />
-      )}
+        ))}
       {events.npcs.map((e, i) => (
         <div className="event-card" key={`n${i}`}>
           <h4>
