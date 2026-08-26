@@ -458,6 +458,9 @@ export function buildGen1Maps(
       editEvents(byKey.get(key)!, kind, index)
     },
     attachScript: () => false,
+    // Gen 1/2 events are not scripted through this editor.
+    readScript: () => ({ kind: 'none' as const }),
+
     revertBlocks(key) {
       const m = byKey.get(key)!
       rom.revertRange(m.blocksOff, m.width * m.height)

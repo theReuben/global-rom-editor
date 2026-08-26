@@ -9,8 +9,9 @@ import { decompressGraphics } from './compress'
 import { decodeTile4bpp, readPalette } from '../tiles'
 import { discoverMaps, type Gen3MapIndex } from './mapscan'
 import { findRegionMap } from './regionmap'
-import { findFreeSpaceAtEnd, relocate, writeGbaPointer } from '../freespace'
-import { compileScript } from './script'
+import { findFreeSpaceAtEnd, readGbaPointer, relocate, writeGbaPointer } from '../freespace'
+import { compileScript, decompileScript } from './script'
+import { toTitleCase } from '../text'
 
 /** RSE and FRLG split tiles/metatiles/palettes differently. */
 interface Family {
@@ -97,7 +98,8 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
         key,
         bank,
         map,
-        label: name ? `${bank}.${map} — ${name} (${w}×${h})` : `${bank}.${map} — ${w}×${h}`,
+        label: name ? `${bank}.${map} — ${toTitleCase(name)} (${w}×${h})` : `${bank}.${map} — ${w}×${h}`,
+        areaName: name || undefined,
       })
     })
   })
@@ -508,6 +510,17 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
       const ptrOff = off + index * size + (kind === 'npc' ? 16 : 8)
       writeGbaPointer(rom, ptrOff, base)
       return true
+    },
+
+    readScript(key, kind, index) {
+      const m = load(key)
+      const { off, count, size } = eventPtr(m, kind)
+      if (index < 0 || index >= count) return { kind: 'none' }
+      const ptrOff = off + index * size + (kind === 'npc' ? 16 : 8)
+      const script = readGbaPointer(bytes, ptrOff)
+      if (script === null) return { kind: 'none' }
+      const steps = decompileScript(bytes, script)
+      return steps ? { kind: 'steps', steps } : { kind: 'foreign' }
     },
 
     revertBlocks(key) {

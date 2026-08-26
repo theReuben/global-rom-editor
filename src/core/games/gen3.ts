@@ -269,11 +269,16 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
   }
 
   // Wild encounters: cross-checked against the discovered map index.
+  // Area names come from the map module, so the Wild tab labels its maps
+  // the same way the Maps tab does.
+  const areaName = (key: string) =>
+    mapModule?.entries.find((e) => e.key === key)?.areaName
+
   let wildModule: WildModule | null = null
   try {
     if (mapModule) {
       const mapKeys = new Set(mapModule.entries.map((e) => e.key))
-      const wild = buildWildModule(rom, mapKeys)
+      const wild = buildWildModule(rom, mapKeys, areaName)
       if (wild) {
         wildModule = wild.module
         regions.push({

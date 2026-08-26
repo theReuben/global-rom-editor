@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { Rom } from '../src/core/rom'
+import type { ScriptStep } from '../src/core/games/schema'
 import { buildAdapter } from '../src/core/games'
 import { findSpeciesTable, findMoveTable, voteTable } from '../src/core/gba/expansion'
 import { makeGen3ExpansionRom, makeGen3Rom } from './fixtures'
@@ -265,7 +266,9 @@ describe('expansion adapter', () => {
   it('names maps from the region-map table', () => {
     const { a } = adapter()
     // The fixture's map header points at region-map section 1.
-    expect(a.mapModule!.entries[0].label).toContain('VIRIDIAN CITY')
+    // Labels are title-cased for display; the raw stored name stays put.
+    expect(a.mapModule!.entries[0].label).toContain('Viridian City')
+    expect(a.mapModule!.entries[0].areaName).toBe('VIRIDIAN CITY')
   })
 
   it('reads trainers, their classes and their parties', () => {
@@ -306,6 +309,59 @@ describe('expansion adapter', () => {
     t.writePartyField(0, 0, 'iv2', 15)
     expect(ivWord()).toBe(before)
     expect(rom.changedByteCount).toBe(0)
+  })
+
+  it('grows a trainer party past its original size by moving it', () => {
+    const { a, rom } = adapter()
+    const t = a.trainerModule!
+    const before = t.read(0).partySize
+    expect(before).toBeLessThan(6)
+
+    t.write(0, 'partySize', 6)
+    expect(t.read(0).partySize).toBe(6)
+    // The party moved, so the new slots must be real, editable mons and
+    // not whatever bytes happened to follow the original block.
+    const party = t.party(0)
+    expect(party).toHaveLength(6)
+    expect(party[5].species).toBeGreaterThan(0)
+    t.writePartyField(0, 5, 'species', 25)
+    expect(t.party(0)[5].species).toBe(25)
+    // The mons that were already there must survive the move.
+    expect(t.party(0)[0].species).toBe(1)
+
+    t.revert(0)
+    expect(t.read(0).partySize).toBe(before)
+    // Reverting has to reclaim the relocated block too, or the ROM keeps
+    // bytes nothing points at.
+    expect(rom.changedByteCount).toBe(0)
+  })
+
+  it('reads an attached script back for editing, and refuses foreign ones', () => {
+    const { a } = adapter()
+    const maps = a.mapModule!
+    const key = maps.entries[0].key
+
+    // The fixture's NPC has a hand-written script this builder cannot
+    // represent; approximating it would silently lose the real one.
+    expect(maps.readScript(key, 'npc', 1).kind).toBe('foreign')
+
+    const steps: ScriptStep[] = [
+      { kind: 'message', text: 'HELLO!' },
+      { kind: 'giveItem', item: 13, quantity: 2 },
+      { kind: 'trainerBattle', trainerId: 3, intro: 'FIGHT!', defeat: 'YOU WIN!' },
+    ]
+    expect(maps.attachScript(key, 'npc', 0, steps)).toBe(true)
+    const back = maps.readScript(key, 'npc', 0)
+    expect(back.kind).toBe('steps')
+    if (back.kind === 'steps') expect(back.steps).toEqual(steps)
+  })
+
+  it('labels wild encounter maps with their area name', () => {
+    const { a } = adapter()
+    const wild = a.wildModule!
+    // Without the region-map name a wild entry reads only as "Map 0.0",
+    // which says nothing about where the encounters actually are.
+    expect(wild.entries[0].label).toBe('0.0 — Viridian City')
   })
 
   it('links a map trainer to its trainer entry through the script', () => {

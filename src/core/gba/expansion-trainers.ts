@@ -28,7 +28,7 @@
  */
 import type { Rom } from '../rom'
 import type { EntryHandle, PartyMon, SelectOption, TrainerData, TrainerModule } from '../games/schema'
-import { readGbaPointer } from '../freespace'
+import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import { gen3Codec } from '../text'
 
 export const TRAINER_ENTRY = 52
@@ -46,6 +46,8 @@ export const TR = {
 } as const
 const NAME_LEN = 11
 const MAX_ITEMS = 4
+/** The game's hard limit on a trainer's party. */
+const MAX_PARTY = 6
 
 /**
  * `struct TrainerMon`, 36 bytes. `nickname` and `ev` are pointers and
@@ -275,6 +277,41 @@ export function buildExpansionTrainers(rom: Rom, speciesCount: number, moveCount
 
   const partyPtr = (id: number) => readGbaPointer(bytes, base(id) + TR.party)
 
+  /**
+   * Parties this editor has moved, id -> where it put them. Party arrays
+   * are packed back to back in the ROM, so a trainer that outgrows its
+   * original slot count has to move rather than overwrite its neighbour.
+   */
+  const moved = new Map<number, number>()
+
+  /** How many mons the trainer's current party block has room for. */
+  const capacity = (id: number) =>
+    moved.has(id) ? MAX_PARTY : rom.original[base(id) + TR.partySize]
+
+  /**
+   * Moves a party to free space with room for a full six, copying the
+   * mons it already has and giving the new slots something legal to be.
+   * Returns false when the ROM has no room, leaving everything as it was.
+   */
+  const growParty = (id: number): boolean => {
+    const o = base(id)
+    const dest = findFreeSpaceAtEnd(bytes, MAX_PARTY * TRAINER_MON_ENTRY)
+    if (dest === null) return false
+    const src = partyPtr(id)
+    const have = bytes[o + TR.partySize]
+    const block = new Uint8Array(MAX_PARTY * TRAINER_MON_ENTRY)
+    if (src !== null) block.set(bytes.subarray(src, src + have * TRAINER_MON_ENTRY), 0)
+    for (let i = have; i < MAX_PARTY; i++) {
+      const m = i * TRAINER_MON_ENTRY
+      block[m + TM.species] = 1
+      block[m + TM.level] = 5
+    }
+    rom.writeBlock(dest, block)
+    writeGbaPointer(rom, o + TR.party, dest)
+    moved.set(id, dest)
+    return true
+  }
+
   const module: TrainerModule = {
     entries,
     nameLength: NAME_LEN - 1,
@@ -297,10 +334,9 @@ export function buildExpansionTrainers(rom: Rom, speciesCount: number, moveCount
         aiFlags: (bytes[o] | (bytes[o + 1] << 8) | (bytes[o + 2] << 16) | (bytes[o + 3] << 24)) >>> 0,
         items: Array.from({ length: MAX_ITEMS }, (_, i) => u16(bytes, o + TR.items + i * 2)),
         partySize: bytes[o + TR.partySize],
-        // Growth is capped at the original allocation: party arrays are
-        // packed back to back, so writing a 6th mon into a slot sized
-        // for 2 would overwrite the next trainer's party.
-        maxPartySize: Math.max(bytes[o + TR.partySize], rom.original[o + TR.partySize]),
+        // Growing past the original allocation moves the party to free
+        // space first, so the game's own limit of six is the real cap.
+        maxPartySize: MAX_PARTY,
       }
     },
 
@@ -322,8 +358,12 @@ export function buildExpansionTrainers(rom: Rom, speciesCount: number, moveCount
           rom.writeU16LE(o + 2, (value >>> 16) & 0xffff)
           return
         case 'partySize': {
-          const max = Math.max(bytes[o + TR.partySize], rom.original[o + TR.partySize])
-          return rom.writeU8(o + TR.partySize, Math.max(1, Math.min(max, value)))
+          const want = Math.max(1, Math.min(MAX_PARTY, value))
+          // Only move when the party actually outgrows its block; a
+          // shrink, or a regrow within a block already moved, writes in
+          // place.
+          if (want > capacity(id) && !growParty(id)) return
+          return rom.writeU8(o + TR.partySize, want)
         }
       }
     },
@@ -388,14 +428,22 @@ export function buildExpansionTrainers(rom: Rom, speciesCount: number, moveCount
 
     revert(id) {
       const o = base(id)
-      const p = partyPtr(id)
       // The party lives outside the 52-byte entry, so it needs its own
-      // revert. This editor never moves a party, so the current pointer
-      // is still the original one; the size is the larger of current
-      // and original so a shrink-then-revert restores every slot.
-      if (p !== null) {
+      // revert. If this editor moved the party, the block it was moved
+      // into has to go back too, or the ROM keeps bytes nothing points
+      // at any more.
+      const dest = moved.get(id)
+      if (dest !== undefined) {
+        rom.revertRange(dest, MAX_PARTY * TRAINER_MON_ENTRY)
+        moved.delete(id)
+      }
+      // Revert the party where it originally lived, sized by the larger
+      // of current and original so a shrink-then-revert restores every
+      // slot.
+      const origin = readGbaPointer(rom.original, o + TR.party)
+      if (origin !== null) {
         const size = Math.max(bytes[o + TR.partySize], rom.original[o + TR.partySize])
-        rom.revertRange(p, size * TRAINER_MON_ENTRY)
+        rom.revertRange(origin, size * TRAINER_MON_ENTRY)
       }
       rom.revertRange(o, TRAINER_ENTRY)
       refresh(id)

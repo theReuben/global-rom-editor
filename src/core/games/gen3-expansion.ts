@@ -395,13 +395,18 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     }
   }
 
+  // Area names come from the map module, so the Wild tab labels its maps
+  // the same way the Maps tab does.
+  const areaName = (key: string) =>
+    mapModule?.entries.find((e) => e.key === key)?.areaName
+
   let wildModule: WildModule | null = null
   try {
     if (mapKeys) {
       // The expansion's time-of-day header first, since that is what
       // these ROMs normally carry; a hack that kept vanilla's flat
       // 20-byte header still works through the vanilla scanner.
-      const wild = buildExpansionWildModule(rom, mapKeys, SPECIES_COUNT)
+      const wild = buildExpansionWildModule(rom, mapKeys, SPECIES_COUNT, areaName)
       if (wild) {
         wildModule = wild.module
         regions.push({
@@ -412,7 +417,7 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
           length: wild.table.count * wild.table.headerSize,
         })
       } else {
-        const vanilla = buildWildModule(rom, mapKeys)
+        const vanilla = buildWildModule(rom, mapKeys, areaName)
         if (vanilla) {
           wildModule = vanilla.module
           regions.push({

@@ -223,3 +223,35 @@ export function gen3Bytes(text: string): number[] {
   if (!out) throw new Error(`cannot encode: ${text}`)
   return out
 }
+
+/**
+ * Formats a SHOUTED game name for display: "MT. CHIMNEY" -> "Mt. Chimney".
+ *
+ * Gen 1-3 store names in caps because that is how the games render them,
+ * which makes long names hard to scan in a list. This is presentation
+ * only - never write the result back to a ROM, or the stored bytes stop
+ * matching what the game expects.
+ *
+ * Minor words are lowercased unless they lead, so "CAVE OF ORIGIN" reads
+ * as "Cave of Origin". A word already containing lowercase is left alone,
+ * so names that are not shouted survive untouched.
+ */
+const MINOR_WORDS = new Set(['of', 'the', 'and', 'in', 'on', 'to', 'a', 'an'])
+
+export function toTitleCase(name: string): string {
+  if (/[a-z]/.test(name)) return name
+  return name
+    .toLowerCase()
+    .split(' ')
+    .map((word, i) => {
+      if (i > 0 && MINOR_WORDS.has(word)) return word
+      // Capitalise each dot-separated part, so initials survive:
+      // "S.S. TIDAL" -> "S.S. Tidal", "MT." -> "Mt.". A part with no
+      // letters, like "101", is left as it is.
+      return word
+        .split('.')
+        .map((part) => part.replace(/[a-z]/, (c) => c.toUpperCase()))
+        .join('.')
+    })
+    .join(' ')
+}
