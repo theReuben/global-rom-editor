@@ -13,6 +13,7 @@
  * the 0xFF,0xFF terminator.
  */
 import type { Rom } from '../rom'
+import { toTitleCase } from '../text'
 import type { WildGroup, WildModule } from '../games/schema'
 import { readGbaPointer } from '../freespace'
 
@@ -82,6 +83,8 @@ export function findWildTable(
 export function buildWildModule(
   rom: Rom,
   mapKeys: Set<string>,
+  /** Area name for a map key, so entries read as more than "Map 0.16". */
+  mapName?: (key: string) => string | undefined,
 ): { module: WildModule; offset: number; count: number } | null {
   const bytes = rom.bytes
   const table = findWildTable(bytes, mapKeys)
@@ -95,7 +98,8 @@ export function buildWildModule(
     const key = `${bytes[o]}.${bytes[o + 1]}`
     if (entryByKey.has(key)) continue
     entryByKey.set(key, o)
-    entries.push({ key, label: `Map ${key}` })
+    const area = mapName?.(key)
+    entries.push({ key, label: area ? `${key} — ${toTitleCase(area)}` : `Map ${key}` })
   }
 
   const groupPtr = (key: string, g: number): number | null => {

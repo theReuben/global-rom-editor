@@ -293,6 +293,12 @@ export interface MapEntry {
   bank: number
   map: number
   label: string
+  /**
+   * Region-map area name as stored (SHOUTED), or undefined when the
+   * game has no region-map table. `label` already carries a formatted
+   * version; this is here for panels that want to render it themselves.
+   */
+  areaName?: string
 }
 
 export interface RenderedImage {

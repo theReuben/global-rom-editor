@@ -11,6 +11,7 @@ import { discoverMaps, type Gen3MapIndex } from './mapscan'
 import { findRegionMap } from './regionmap'
 import { findFreeSpaceAtEnd, relocate, writeGbaPointer } from '../freespace'
 import { compileScript } from './script'
+import { toTitleCase } from '../text'
 
 /** RSE and FRLG split tiles/metatiles/palettes differently. */
 interface Family {
@@ -97,7 +98,8 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
         key,
         bank,
         map,
-        label: name ? `${bank}.${map} — ${name} (${w}×${h})` : `${bank}.${map} — ${w}×${h}`,
+        label: name ? `${bank}.${map} — ${toTitleCase(name)} (${w}×${h})` : `${bank}.${map} — ${w}×${h}`,
+        areaName: name || undefined,
       })
     })
   })

@@ -265,7 +265,9 @@ describe('expansion adapter', () => {
   it('names maps from the region-map table', () => {
     const { a } = adapter()
     // The fixture's map header points at region-map section 1.
-    expect(a.mapModule!.entries[0].label).toContain('VIRIDIAN CITY')
+    // Labels are title-cased for display; the raw stored name stays put.
+    expect(a.mapModule!.entries[0].label).toContain('Viridian City')
+    expect(a.mapModule!.entries[0].areaName).toBe('VIRIDIAN CITY')
   })
 
   it('reads trainers, their classes and their parties', () => {
@@ -306,6 +308,14 @@ describe('expansion adapter', () => {
     t.writePartyField(0, 0, 'iv2', 15)
     expect(ivWord()).toBe(before)
     expect(rom.changedByteCount).toBe(0)
+  })
+
+  it('labels wild encounter maps with their area name', () => {
+    const { a } = adapter()
+    const wild = a.wildModule!
+    // Without the region-map name a wild entry reads only as "Map 0.0",
+    // which says nothing about where the encounters actually are.
+    expect(wild.entries[0].label).toBe('0.0 — Viridian City')
   })
 
   it('links a map trainer to its trainer entry through the script', () => {

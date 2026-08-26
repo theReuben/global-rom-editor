@@ -29,6 +29,7 @@
  *    so a build whose head layout differs is rejected, never guessed at.
  */
 import type { Rom } from '../rom'
+import { toTitleCase } from '../text'
 import { findAllMulti } from '../scan'
 import { GBA_ROM_BASE, findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import type { RenderedImage, WildGroup, WildModule, WildSlot } from '../games/schema'
@@ -1017,6 +1018,8 @@ export function buildExpansionWildModule(
   rom: Rom,
   mapKeys: Set<string>,
   speciesCount: number,
+  /** Area name for a map key, so entries read as more than "Map 0.16". */
+  mapName?: (key: string) => string | undefined,
 ): { module: WildModule; table: ExpansionWildTable } | null {
   const bytes = rom.bytes
   const table = findExpansionWildTable(bytes, mapKeys, speciesCount)
@@ -1029,7 +1032,8 @@ export function buildExpansionWildModule(
     const key = `${bytes[o]}.${bytes[o + 1]}`
     if (headerByKey.has(key)) continue
     headerByKey.set(key, o)
-    entries.push({ key, label: `Map ${key}` })
+    const area = mapName?.(key)
+    entries.push({ key, label: area ? `${key} — ${toTitleCase(area)}` : `Map ${key}` })
   }
 
   /** Group index → the WildPokemonInfo it points at, or null. */
