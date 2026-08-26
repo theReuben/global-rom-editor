@@ -31,6 +31,7 @@ import {
   MOVE_UNAVAILABLE,
   MV,
   PTR_BLOCK,
+  speciesFormLabel,
   EVO_CONDITION_ENTRY,
   parseEvolutionConditions,
   type EvolutionCondition,
@@ -683,9 +684,45 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
   /* ------------------------------------------------- handles */
 
   const species: EntryHandle[] = []
+  const formOf = new Map<number, string | null>()
   for (let id = 1; id <= SPECIES_COUNT; id++) {
     const name = speciesName(id)
-    species.push({ id, label: `#${String(id).padStart(4, '0')} ${name || '(blank)'}`, name })
+    // Form species share the base form's name, so without this the list
+    // shows several identical "Typhlosion" rows.
+    formOf.set(id, speciesFormLabel(bytes, table, id))
+    species.push({ id, label: '', name })
+  }
+
+  /**
+   * Labels the list, numbering forms that would otherwise collide.
+   * Charizard has two Mega forms and the flags cannot tell X from Y, so
+   * they become "(Mega 1)" and "(Mega 2)" rather than two identical rows
+   * the user has to open to distinguish.
+   */
+  {
+    const total = new Map<string, number>()
+    for (const h of species) {
+      const form = formOf.get(h.id)
+      if (form) total.set(`${h.name}|${form}`, (total.get(`${h.name}|${form}`) ?? 0) + 1)
+    }
+    const seen = new Map<string, number>()
+    for (const h of species) {
+      const form = formOf.get(h.id)
+      let suffix = ''
+      if (form) {
+        const key = `${h.name}|${form}`
+        if ((total.get(key) ?? 0) > 1) {
+          const n = (seen.get(key) ?? 0) + 1
+          seen.set(key, n)
+          suffix = ` (${form} ${n})`
+        } else {
+          suffix = ` (${form})`
+        }
+      }
+      // A blank slot decodes to spaces, not an empty string, so it has
+      // to be trimmed or it shows as a nameless row.
+      h.label = `#${String(h.id).padStart(4, '0')} ${h.name.trim() || '(blank)'}${suffix}`
+    }
   }
   const moves: EntryHandle[] =
     moveTable === null
@@ -698,7 +735,7 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
   const refreshSpecies = (id: number) => {
     const h = species[id - 1]
     h.name = speciesName(id)
-    h.label = `#${String(id).padStart(4, '0')} ${h.name || '(blank)'}`
+    h.label = `#${String(id).padStart(4, '0')} ${h.name.trim() || '(blank)'}`
   }
   const refreshMove = (id: number) => {
     const h = moves[id - 1]

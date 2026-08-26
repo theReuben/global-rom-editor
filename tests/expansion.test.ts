@@ -179,6 +179,28 @@ describe('expansion adapter', () => {
     expect(a.learnsets?.read(1)).toEqual(grownLearnset)
   })
 
+  it('scans past a gap in the species table and labels form species', () => {
+    const { a } = adapter()
+    // A blank entry mid-table used to end the scan, truncating the list
+    // and losing everything after it - which in a real ROM is where the
+    // Mega and Gigantamax forms live.
+    expect(a.species.length).toBe(160)
+    expect(a.species.some((s) => s.id > 60)).toBe(true)
+    // The blank slot is still listed - it is a real, fillable slot - but
+    // named so it cannot be mistaken for a species. It decodes to spaces
+    // rather than an empty string, so the label has to trim.
+    expect(a.species.find((s) => s.id === 60)!.label).toContain('(blank)')
+
+    // Form species share the base form's name, so the label has to say
+    // which form it is or the list shows two identical rows.
+    const pikachus = a.species.filter((s) => s.name === 'Pikachu')
+    expect(pikachus).toHaveLength(2)
+    expect(pikachus.map((p) => p.label.replace(/^#\d+ /, ''))).toEqual([
+      'Pikachu',
+      'Pikachu (Hisuian)',
+    ])
+  })
+
   it('decodes evolution conditions, and adds and removes them', () => {
     const { a, rom } = adapter()
     const evo = a.evolutions!

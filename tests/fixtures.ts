@@ -977,7 +977,14 @@ export function makeGen3ExpansionRom(): Uint8Array {
   // Entry 0 is SPECIES_NONE: zero stats, placeholder names.
   put(rom, SPECIES_BASE + 31, fixed('Unknown', 13))
   put(rom, SPECIES_BASE + 44, fixed('??????????', 13))
+  // Species 60 is a blank placeholder and 61 a Hisuian form sharing
+  // Pikachu's name. Real ROMs have both: a gap mid-table (which used to
+  // truncate the scan and lose every Mega and Gigantamax form) and form
+  // species that carry the base form's name.
+  const BLANK_ID = 60
+  const FORM_ID = 61
   for (let id = 1; id <= SPECIES_COUNT; id++) {
+    if (id === BLANK_ID) continue // left all zeroes: no name terminator
     const o = SPECIES_BASE + id * STRIDE
     put(rom, o, [45, 49, 49, 45, 65, 65]) // stats
     put(rom, o + 6, [13, 4]) // Grass / Poison
@@ -990,7 +997,10 @@ export function makeGen3ExpansionRom(): Uint8Array {
     put(rom, o + 24, [...u16(65), ...u16(0), ...u16(34)]) // abilities
     put(rom, o + 30, [0]) // safari flee rate
     put(rom, o + 31, fixed('Seed', 13))
-    put(rom, o + 44, fixed(named[id] ?? `Mon${id}`, 13))
+    put(rom, o + 44, fixed(id === FORM_ID ? 'Pikachu' : (named[id] ?? `Mon${id}`), 13))
+    // isHisuianForm is bit 13 of the flags word, which sits eight bytes
+    // before the pointer block.
+    if (id === FORM_ID) put(rom, o + PTR_BLOCK - 8, [0, 0x20, 0, 0])
     put(rom, o + SP_FRONT_PIC, ptr(frontPic))
     put(rom, o + SP_BACK_PIC, ptr(backPic))
     put(rom, o + SP_PALETTE, ptr(palette))
