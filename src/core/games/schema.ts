@@ -111,6 +111,8 @@ export interface GameAdapter {
   trainerSpriteCount: number | null
   /** Evolution editing (null = not supported / not found). */
   evolutions: EvolutionModule | null
+  /** Form changes (Mega, Primal, Gigantamax); null when unsupported. */
+  formChanges: FormChangeModule | null
   /** Level-up learnset editing (null = not supported / not found). */
   learnsets: LearnsetModule | null
   /** Egg move editing (null = not supported / not found). */
@@ -220,6 +222,32 @@ export interface EvolutionEntry {
    * condition here. Empty for games with none.
    */
   conditions?: { condition: number; args: [number, number, number] }[]
+}
+
+export interface FormChangeEntry {
+  method: number
+  target: number
+  params: [number, number, number, number]
+}
+
+/**
+ * Form changes, for games that keep them apart from evolutions. Mega
+ * Evolution lives here, not in the evolution data, so this is the only
+ * place the stone that triggers a Mega can be seen or changed.
+ */
+export interface FormChangeModule {
+  methods: {
+    value: number
+    label: string
+    params: ({ label: string; kind?: string } | null)[]
+    description: string
+  }[]
+  read(id: number): FormChangeEntry[]
+  write(id: number, slot: number, field: 'method' | 'target' | 'param0' | 'param1' | 'param2' | 'param3', value: number): void
+  /** Appends an entry, relocating the table. False = no free space. */
+  add(id: number, method: number): boolean
+  remove(id: number, slot: number): boolean
+  revert(id: number): void
 }
 
 export interface EvolutionModule {
