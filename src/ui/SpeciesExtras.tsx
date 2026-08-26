@@ -326,3 +326,143 @@ function Conditions({
     </div>
   )
 }
+
+/**
+ * Form changes: Mega Evolution, Primal Reversion, Gigantamax and the
+ * rest.
+ *
+ * These are not evolutions in this engine, so the evolution card cannot
+ * show them - which meant a Mega's trigger, the stone or the move that
+ * causes it, was invisible. Each method documents what its parameters
+ * mean, so an item parameter is shown as an item rather than a number.
+ */
+export function FormChangeCard({
+  adapter,
+  speciesId,
+  onEdit,
+}: {
+  adapter: GameAdapter
+  speciesId: number
+  onEdit: () => void
+}) {
+  const module = adapter.formChanges!
+  const entries = module.read(speciesId)
+  const [adding, setAdding] = useState('')
+
+  const optionsFor = (kind?: string) =>
+    kind === 'item' ? adapter.itemOptions
+    : kind === 'move' ? adapter.moves.map((m) => ({ value: m.id, label: m.name }))
+    : kind === 'species' ? adapter.species.map((s) => ({ value: s.id, label: s.name }))
+    : null
+
+  return (
+    <section className="card">
+      <h3>
+        Form changes
+        <span className="bst">{entries.length}</span>
+      </h3>
+      <p className="muted small">
+        Mega Evolution, Primal Reversion and Gigantamax live here rather than with evolutions.
+      </p>
+      <div className="learnset-list">
+        {entries.map((entry, slot) => {
+          const method = module.methods.find((m) => m.value === entry.method)
+          return (
+            <div className="wild-slot" key={slot}>
+              <select
+                value={entry.method}
+                onChange={(e) => {
+                  module.write(speciesId, slot, 'method', Number(e.target.value))
+                  onEdit()
+                }}
+              >
+                {!method && <option value={entry.method}>Unknown ({entry.method})</option>}
+                {module.methods.map((m) => (
+                  <option key={m.value} value={m.value} title={m.description}>{m.label}</option>
+                ))}
+              </select>
+              {method?.params.map((p, i) => {
+                if (!p) return null
+                const choices = optionsFor(p.kind)
+                const field = `param${i}` as 'param0' | 'param1' | 'param2' | 'param3'
+                return choices ? (
+                  <select
+                    key={i}
+                    title={p.label}
+                    value={entry.params[i]}
+                    onChange={(e) => {
+                      module.write(speciesId, slot, field, Number(e.target.value))
+                      onEdit()
+                    }}
+                  >
+                    {!choices.some((o) => o.value === entry.params[i]) && (
+                      <option value={entry.params[i]}>#{entry.params[i]}</option>
+                    )}
+                    {choices.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    key={i}
+                    type="number"
+                    min={0}
+                    max={65535}
+                    title={p.label}
+                    value={entry.params[i]}
+                    onChange={(e) => {
+                      const n = Math.round(Number(e.target.value))
+                      if (!Number.isFinite(n)) return
+                      module.write(speciesId, slot, field, n)
+                      onEdit()
+                    }}
+                  />
+                )
+              })}
+              <span className="muted">→</span>
+              <select
+                value={entry.target}
+                onChange={(e) => {
+                  module.write(speciesId, slot, 'target', Number(e.target.value))
+                  onEdit()
+                }}
+              >
+                {!adapter.species.some((s) => s.id === entry.target) && (
+                  <option value={entry.target}>Species #{entry.target}</option>
+                )}
+                {adapter.species.map((s) => (
+                  <option key={s.id} value={s.id}>{s.label.replace(/^#\d+ /, '')}</option>
+                ))}
+              </select>
+              <button
+                className="ghost small"
+                title="Remove this form change"
+                onClick={() => {
+                  module.remove(speciesId, slot)
+                  onEdit()
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          )
+        })}
+        {entries.length === 0 && <div className="muted small">No form changes</div>}
+        <select
+          value={adding}
+          onChange={(e) => {
+            if (!e.target.value) return
+            module.add(speciesId, Number(e.target.value))
+            setAdding('')
+            onEdit()
+          }}
+        >
+          <option value="">+ Add form change…</option>
+          {module.methods.map((m) => (
+            <option key={m.value} value={m.value} title={m.description}>{m.label}</option>
+          ))}
+        </select>
+      </div>
+    </section>
+  )
+}
