@@ -10,6 +10,8 @@ records the methodology, validated byte-format facts, and the roadmap.
 npm test         # vitest — must stay green; runs on synthetic fixtures only
 npm run build    # tsc --noEmit && vite build — both must pass
 npm run dev      # local dev server
+
+npm run audit:formchanges <rom.gba>   # every battle form can revert
 ```
 
 ## Non-negotiable invariants
