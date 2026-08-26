@@ -34,6 +34,11 @@ KINDS = [
 
 def kind_of(text):
     low = text.lower()
+    # A parameter described as a STATUS_FIELD_* flag is a bitmask, not a
+    # status condition; without this it matches 'status' and gets offered
+    # a status dropdown it has no business having.
+    if 'status_field' in low:
+        return None
     for word, kind in KINDS:
         if word in low:
             return kind

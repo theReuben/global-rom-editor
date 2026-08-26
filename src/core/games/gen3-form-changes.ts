@@ -53,4 +53,5 @@ export const GEN3_FORM_CHANGES: Record<number, FormChangeMethod> = {
   31: { name: "FORM_CHANGE_OVERWORLD_WEATHER", label: "Overworld weather", params: [{ label: "weather to check", kind: "weather" }], description: "Form change that activates when overworld weather changes. param1: weather to check." },
   32: { name: "FORM_CHANGE_DEPOSIT", label: "Deposit", params: [], description: "Form change that activates when the Pok\u00e9mon is deposited into the PC or Daycare." },
   33: { name: "FORM_CHANGE_BEGIN_WILD_ENCOUNTER", label: "Begin wild encounter", params: [], description: "Form change for Minior, which appears unchanged when encountered in the wild" },
+  34: { name: "FORM_CHANGE_BATTLE_TERRAIN", label: "Terrain", params: [{ label: "terrain to check, as a STATUS_FIELD_* flag. 0 means \"no" }, { label: "ability to require, optional", kind: "ability" }], description: "Form change that activates when a terrain is set during battle. The weather equivalent of this is FORM_CHANGE_BATTLE_WEATHER; terrain had no counterpart until now. param1: terrain to check, as a STATU" },
 }
