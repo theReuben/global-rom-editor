@@ -32,6 +32,7 @@ import type { Rom } from '../rom'
 import { toTitleCase } from '../text'
 import { findAllMulti } from '../scan'
 import { EVO_CONDITIONS_END, GEN3_EVO_CONDITIONS } from '../games/gen3-evo-conditions'
+import { FORM_CHANGE_ENTRY, FORM_CHANGE_TERMINATOR, GEN3_FORM_CHANGES } from '../games/gen3-form-changes'
 import { GBA_ROM_BASE, findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import type { RenderedImage, WildGroup, WildModule, WildSlot } from '../games/schema'
 import { lz77Compress } from './lz77'
@@ -106,6 +107,8 @@ export const PTR_BLOCK = {
   teachableLearnset: 4,
   eggMoveLearnset: 8,
   evolutions: 12,
+  formSpeciesIdTable: 16,
+  formChangeTable: 20,
 } as const
 
 export const LEVEL_UP_MOVE_END = 0xffff
@@ -554,6 +557,41 @@ export function speciesFormLabel(bytes: Uint8Array, table: SpeciesTable, id: num
   const flags = (bytes[off] | (bytes[off + 1] << 8) | (bytes[off + 2] << 16) | (bytes[off + 3] << 24)) >>> 0
   for (const [bit, label] of SPECIES_FORM_FLAGS) if (flags & (1 << bit)) return label
   return null
+}
+
+export interface FormChangeEntry {
+  method: number
+  target: number
+  params: [number, number, number, number]
+}
+
+/**
+ * Reads a species' form-change table.
+ *
+ * Mega Evolution is not an evolution in this engine - it is a form
+ * change, listed here with the stone that triggers it - so nothing that
+ * reads only the evolution data can see how a Mega is reached.
+ *
+ * A table whose first entry is not a known method comes back empty
+ * rather than as guesses, since a null or stale pointer would otherwise
+ * decode into nonsense.
+ */
+export function parseFormChanges(bytes: Uint8Array, off: number, speciesCount: number): FormChangeEntry[] {
+  const out: FormChangeEntry[] = []
+  const u16 = (o: number) => bytes[o] | (bytes[o + 1] << 8)
+  for (let p = off; p + FORM_CHANGE_ENTRY <= bytes.length && out.length <= 32; p += FORM_CHANGE_ENTRY) {
+    const method = u16(p)
+    if (method === FORM_CHANGE_TERMINATOR) return out
+    if (!(method in GEN3_FORM_CHANGES)) return []
+    const target = u16(p + 2)
+    if (target > speciesCount) return []
+    out.push({
+      method,
+      target,
+      params: [u16(p + 4), u16(p + 6), u16(p + 8), u16(p + 10)],
+    })
+  }
+  return []
 }
 
 /** A 0xFFFF-terminated u16 move list (egg moves, teachable moves). */

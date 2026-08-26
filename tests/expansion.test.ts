@@ -179,6 +179,32 @@ describe('expansion adapter', () => {
     expect(a.learnsets?.read(1)).toEqual(grownLearnset)
   })
 
+  it('reads mega triggers from the form change table, and edits them', () => {
+    const { a, rom } = adapter()
+    const fc = a.formChanges!
+    // Mega Evolution is not an evolution here, so it is invisible to the
+    // evolution data - the stone that triggers it lives only in this
+    // table.
+    expect(a.evolutions!.read(25).some((e) => e.target === 61)).toBe(false)
+    expect(fc.read(25)).toEqual([{ method: 14, target: 61, params: [3, 0, 0, 0] }])
+    const mega = fc.methods.find((m) => m.value === 14)!
+    expect(mega.label).toBe('Mega evolution item')
+    expect(mega.params[0]?.kind).toBe('item')
+
+    fc.write(25, 0, 'param0', 9)
+    expect(fc.read(25)[0].params[0]).toBe(9)
+
+    // Adding grows the table, so it has to move.
+    expect(fc.add(25, 20)).toBe(true)
+    expect(fc.read(25)).toHaveLength(2)
+    expect(fc.remove(25, 1)).toBe(true)
+    expect(fc.read(25)).toHaveLength(1)
+
+    fc.revert(25)
+    expect(fc.read(25)).toEqual([{ method: 14, target: 61, params: [3, 0, 0, 0] }])
+    expect(rom.changedByteCount).toBe(0)
+  })
+
   it('scans past a gap in the species table and labels form species', () => {
     const { a } = adapter()
     // A blank entry mid-table used to end the scan, truncating the list

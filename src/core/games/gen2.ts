@@ -944,6 +944,7 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     importSpeciesSprite: sprites ? (id, image) => sprites.importFront(id, image) : null,
     importSpeciesSpriteBack: sprites ? (id, image) => sprites.importBack(id, image) : null,
     evolutions: evosMoves?.evolutions ?? null,
+    formChanges: null,
     learnsets: evosMoves?.learnsets ?? null,
     eggMoves: eggMoves?.module ?? null,
     itemModule: null,

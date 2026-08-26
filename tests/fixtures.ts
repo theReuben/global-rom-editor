@@ -921,6 +921,11 @@ export function makeGen3ExpansionRom(): Uint8Array {
   put(rom, learnset, [...u16(33), ...u16(1), ...u16(45), ...u16(1), ...u16(22), ...u16(3), ...u16(0xffff)])
   const eggList = 0x044100
   put(rom, eggList, [...u16(34), ...u16(35), ...u16(0xffff)])
+  const formChangeList = 0x044300
+  // FORM_CHANGE_BATTLE_MEGA_EVOLUTION_ITEM (14) -> species 61 with item 3,
+  // then the method-0 terminator.
+  put(rom, formChangeList, [...u16(14), ...u16(61), ...u16(3), ...u16(0), ...u16(0), ...u16(0), ...u16(0)])
+
   const evoList = 0x044200
   const evoConditions = 0x044280
   // { method LEVEL, param 16, target 2, pad, params } then terminator.
@@ -1008,6 +1013,9 @@ export function makeGen3ExpansionRom(): Uint8Array {
     put(rom, o + PTR_BLOCK + 0, ptr(learnset))
     put(rom, o + PTR_BLOCK + 8, ptr(eggList))
     put(rom, o + PTR_BLOCK + 12, ptr(evoList))
+    // Species 25 megas with a stone; Mega Evolution is a form change in
+    // this engine, not an evolution, so it lives in its own table.
+    if (id === 25) put(rom, o + PTR_BLOCK + 20, ptr(formChangeList))
   }
 
   /* ---- gMovesInfo: name and description are POINTERS here ---- */

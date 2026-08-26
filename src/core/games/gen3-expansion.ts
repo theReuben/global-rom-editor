@@ -19,6 +19,7 @@ import { gen3Codec } from '../text'
 import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import { buildGen3MapModule } from '../gba/maps'
 import { EVO_CONDITIONS_END, GEN3_EVO_CONDITIONS } from './gen3-evo-conditions'
+import { FORM_CHANGE_ENTRY, GEN3_FORM_CHANGES } from './gen3-form-changes'
 import { discoverMaps, type Gen3MapIndex } from '../gba/mapscan'
 import { buildTrainerLocations, type TrainerLocationIndex } from '../gba/trainer-locations'
 import { buildTrainerSprites } from '../gba/trainer-sprites'
@@ -34,6 +35,8 @@ import {
   speciesFormLabel,
   EVO_CONDITION_ENTRY,
   parseEvolutionConditions,
+  parseFormChanges,
+  type FormChangeEntry,
   type EvolutionCondition,
   SP,
   SPECIES_NAME_LEN,
@@ -58,6 +61,7 @@ import type {
   EggMoveModule,
   EntryHandle,
   EvolutionModule,
+  FormChangeModule,
   FieldSpec,
   FieldValue,
   GameAdapter,
@@ -483,6 +487,115 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     }
   }
 
+  /* --------------------------------------------- form changes */
+
+  /**
+   * Mega Evolution is a form change here, not an evolution, so this is
+   * the only place its trigger - the stone, or the move - can be seen.
+   */
+  let formChanges: FormChangeModule | null = null
+  if (ptr !== null) {
+    const tableAt = (id: number): number | null => {
+      const field = blobPtr(id, PTR_BLOCK.formChangeTable)
+      return field === null ? null : readGbaPointer(bytes, field)
+    }
+    const readEntries = (id: number): FormChangeEntry[] => {
+      const at = tableAt(id)
+      return at === null ? [] : parseFormChanges(bytes, at, SPECIES_COUNT)
+    }
+    /** Blocks this editor allocated, so revert can reclaim them whole. */
+    const movedTables = new Map<number, { at: number; size: number }>()
+
+    const writeTable = (id: number, list: FormChangeEntry[]): boolean => {
+      const field = blobPtr(id, PTR_BLOCK.formChangeTable)
+      if (field === null) return false
+      const size = (list.length + 1) * FORM_CHANGE_ENTRY
+      const dest = findFreeSpaceAtEnd(rom.bytes, size)
+      if (dest === null) return false
+      const block = new Uint8Array(size)
+      list.forEach((e, i) => {
+        const o = i * FORM_CHANGE_ENTRY
+        const put = (at: number, v: number) => {
+          block[at] = v & 0xff
+          block[at + 1] = (v >> 8) & 0xff
+        }
+        put(o, e.method)
+        put(o + 2, e.target)
+        e.params.forEach((v, n) => put(o + 4 + n * 2, v))
+      })
+      // Terminator is method 0, which the zero fill already provides.
+      rom.writeBlock(dest, block)
+      writeGbaPointer(rom, field, dest)
+      const previous = movedTables.get(id)
+      movedTables.set(id, {
+        at: dest,
+        size: Math.max(size, previous?.at === dest ? previous.size : 0),
+      })
+      return true
+    }
+
+    formChanges = {
+      methods: Object.entries(GEN3_FORM_CHANGES).map(([value, m]) => ({
+        value: Number(value),
+        label: m.label,
+        params: m.params,
+        description: m.description,
+      })),
+      read: readEntries,
+      write(id, slot, field, value) {
+        const at = tableAt(id)
+        const list = readEntries(id)
+        if (at === null || slot >= list.length) return
+        const o = at + slot * FORM_CHANGE_ENTRY
+        const m = /^param(\d)$/.exec(field)
+        if (m) return rom.writeU16LE(o + 4 + Number(m[1]) * 2, value)
+        if (field === 'method') return rom.writeU16LE(o, value)
+        if (field === 'target') return rom.writeU16LE(o + 2, value)
+      },
+      add(id, method) {
+        const list = readEntries(id)
+        if (list.length >= 16) return false
+        return writeTable(id, [...list, { method, target: 0, params: [0, 0, 0, 0] }])
+      },
+      remove(id, slot) {
+        const at = tableAt(id)
+        const list = readEntries(id)
+        if (at === null || slot >= list.length) return false
+        const next = list.filter((_, i) => i !== slot)
+        // Shrinking fits where it is, so the table stays put.
+        const block = new Uint8Array((next.length + 1) * FORM_CHANGE_ENTRY)
+        next.forEach((e, i) => {
+          const o = i * FORM_CHANGE_ENTRY
+          const put = (a: number, v: number) => {
+            block[a] = v & 0xff
+            block[a + 1] = (v >> 8) & 0xff
+          }
+          put(o, e.method)
+          put(o + 2, e.target)
+          e.params.forEach((v, n) => put(o + 4 + n * 2, v))
+        })
+        rom.writeBlock(at, block)
+        return true
+      },
+      revert(id) {
+        const field = blobPtr(id, PTR_BLOCK.formChangeTable)
+        if (field === null) return
+        const original = readGbaPointer(rom.original, field)
+        for (const at of [tableAt(id), original]) {
+          if (at === null) continue
+          const list = parseFormChanges(bytes, at, SPECIES_COUNT)
+          rom.revertRange(at, (list.length + 1) * FORM_CHANGE_ENTRY)
+        }
+        const moved = movedTables.get(id)
+        if (moved) {
+          rom.revertRange(moved.at, moved.size)
+          movedTables.delete(id)
+        }
+        rom.revertRange(field, 4)
+      },
+    }
+  }
+
   /* --------------------------------------- maps / wild encounters */
 
   /**
@@ -765,6 +878,7 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     itemModule,
     typeChart: null,
     evolutions,
+    formChanges,
     learnsets,
     eggMoves,
     speciesSprite: sprites ? (id, shiny) => sprites.front(id, shiny) : null,
