@@ -829,34 +829,70 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
   }
 
   /**
-   * Labels the list, numbering forms that would otherwise collide.
-   * Charizard has two Mega forms and the flags cannot tell X from Y, so
-   * they become "(Mega 1)" and "(Mega 2)" rather than two identical rows
-   * the user has to open to distinguish.
+   * Names every entry so it can be told from the others.
+   *
+   * Form species carry the base form's name - all nine Castforms are
+   * called "Castform" - so a list or dropdown built from the name alone
+   * repeats the same word. Each duplicate is given the least it needs to
+   * be distinct, in order of how much it explains:
+   *
+   *   1. the form flag, which covers most of them ("Mega", "Hisuian")
+   *   2. the typing, which separates Castform's weather and terrain
+   *      forms and Rotom's appliances, and tells Charizard's Mega X
+   *      from its Mega Y where the flags cannot
+   *   3. a number, only where even that leaves them identical - Deoxys'
+   *      four forms are all plain Psychic
    */
   {
-    const total = new Map<string, number>()
-    for (const h of species) {
-      const form = formOf.get(h.id)
-      if (form) total.set(`${h.name}|${form}`, (total.get(`${h.name}|${form}`) ?? 0) + 1)
+    const typeName = (v: number) => typeOptions.find((o) => o.value === v)?.label ?? String(v)
+    const typing = (id: number) => {
+      const t1 = typeName(bytes[entry(id) + SP.type1])
+      const t2 = typeName(bytes[entry(id) + SP.type2])
+      return t1 === t2 ? t1 : `${t1}/${t2}`
     }
-    const seen = new Map<string, number>()
-    for (const h of species) {
-      const form = formOf.get(h.id)
-      let suffix = ''
-      if (form) {
-        const key = `${h.name}|${form}`
-        if ((total.get(key) ?? 0) > 1) {
-          const n = (seen.get(key) ?? 0) + 1
-          seen.set(key, n)
-          suffix = ` (${form} ${n})`
-        } else {
-          suffix = ` (${form})`
+
+    const byName = new Map<string, EntryHandle[]>()
+    for (const h of species) byName.set(h.name, [...(byName.get(h.name) ?? []), h])
+
+    for (const [, group] of byName) {
+      if (group.length === 1) {
+        group[0].displayName = group[0].name.trim() || '(blank)'
+      } else {
+        const flag = (h: EntryHandle) => formOf.get(h.id) ?? ''
+        // The typing only earns its place when the group does not all
+        // share one: sixteen Pikachu are every bit as Electric as each
+        // other, and saying so on each row explains nothing.
+        const typesDiffer = new Set(group.map((h) => typing(h.id))).size > 1
+
+        const describe = (h: EntryHandle) => {
+          const parts: string[] = []
+          if (flag(h)) parts.push(flag(h))
+          if (typesDiffer) parts.push(typing(h.id))
+          return parts
+        }
+
+        // Number only within a key that is genuinely identical, so the
+        // one Gigantamax Pikachu keeps its name while its sixteen
+        // indistinguishable cousins are numbered.
+        const totals = new Map<string, number>()
+        for (const h of group) {
+          const key = describe(h).join('|')
+          totals.set(key, (totals.get(key) ?? 0) + 1)
+        }
+        const seen = new Map<string, number>()
+        for (const h of group) {
+          const parts = describe(h)
+          const key = parts.join('|')
+          if ((totals.get(key) ?? 0) > 1) {
+            const n = (seen.get(key) ?? 0) + 1
+            seen.set(key, n)
+            parts.push(String(n))
+          }
+          const base = h.name.trim() || '(blank)'
+          h.displayName = parts.length ? `${base} (${parts.join(', ')})` : base
         }
       }
-      // A blank slot decodes to spaces, not an empty string, so it has
-      // to be trimmed or it shows as a nameless row.
-      h.label = `#${String(h.id).padStart(4, '0')} ${h.name.trim() || '(blank)'}${suffix}`
+      for (const h of group) h.label = `#${String(h.id).padStart(4, '0')} ${h.displayName}`
     }
   }
   const moves: EntryHandle[] =

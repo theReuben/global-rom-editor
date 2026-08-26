@@ -132,7 +132,7 @@ export function ScriptBuilder({ adapter, existing, onApply, onClose }: Props) {
             <div className="script-step-row">
               <select value={step.species} onChange={(e) => update(i, { ...step, species: Number(e.target.value) })}>
                 {speciesOptions.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                  <option key={s.id} value={s.id}>{s.displayName ?? s.name}</option>
                 ))}
               </select>
               <label>

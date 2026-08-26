@@ -203,7 +203,7 @@ export function EvolutionCard({
                     <option value={evo.target}>Species #{evo.target}</option>
                   )}
                   {adapter.species.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
+                    <option key={s.id} value={s.id}>{s.displayName ?? s.name}</option>
                   ))}
                 </select>
               </>
@@ -248,7 +248,7 @@ function Conditions({
 
   const optionsFor = (kind?: string) =>
     kind === 'item' ? adapter.itemOptions
-    : kind === 'species' ? adapter.species.map((sp) => ({ value: sp.id, label: sp.name }))
+    : kind === 'species' ? adapter.species.map((sp) => ({ value: sp.id, label: sp.displayName ?? sp.name }))
     : kind === 'move' ? adapter.moves.map((m) => ({ value: m.id, label: m.name }))
     : null
 
@@ -352,7 +352,7 @@ export function FormChangeCard({
   const optionsFor = (kind?: string) =>
     kind === 'item' ? adapter.itemOptions
     : kind === 'move' ? adapter.moves.map((m) => ({ value: m.id, label: m.name }))
-    : kind === 'species' ? adapter.species.map((s) => ({ value: s.id, label: s.name }))
+    : kind === 'species' ? adapter.species.map((s) => ({ value: s.id, label: s.displayName ?? s.name }))
     : null
 
   return (
@@ -431,7 +431,7 @@ export function FormChangeCard({
                   <option value={entry.target}>Species #{entry.target}</option>
                 )}
                 {adapter.species.map((s) => (
-                  <option key={s.id} value={s.id}>{s.label.replace(/^#\d+ /, '')}</option>
+                  <option key={s.id} value={s.id}>{s.displayName ?? s.name}</option>
                 ))}
               </select>
               <button

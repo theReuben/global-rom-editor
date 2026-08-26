@@ -285,7 +285,7 @@ export function TrainerPanel({
     () => (feat.appearance ? (adapter.trainerSprite?.(data.pic) ?? null) : null),
     [adapter, data.pic, feat.appearance],
   )
-  const speciesOptions = adapter.species.map((s) => ({ value: s.id, label: s.name }))
+  const speciesOptions = adapter.species.map((s) => ({ value: s.id, label: s.displayName ?? s.name }))
   const moveOptions = [{ value: 0, label: '— none —' }, ...adapter.moves.map((m) => ({ value: m.id, label: m.name }))]
   const itemOptions = adapter.itemOptions ?? []
 

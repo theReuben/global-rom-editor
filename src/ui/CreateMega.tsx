@@ -49,7 +49,7 @@ export function CreateMega({
         .filter((s) => s.id !== speciesId)
         .map((s) => ({
           id: s.id,
-          label: `${s.label.replace(/^#\d+ /, '').trim()}${targeted.has(s.id) ? '' : ' — unused'}`,
+          label: `${s.displayName ?? s.name}${targeted.has(s.id) ? '' : ' — unused'}`,
           free: !targeted.has(s.id),
         }))
         .sort((a, b) => Number(b.free) - Number(a.free)),

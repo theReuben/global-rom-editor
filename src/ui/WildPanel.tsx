@@ -7,7 +7,7 @@ export function WildPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: (
   const [query, setQuery] = useState('')
 
   const speciesOptions = useMemo(
-    () => adapter.species.map((s) => ({ value: s.id, label: s.name })),
+    () => adapter.species.map((s) => ({ value: s.id, label: s.displayName ?? s.name })),
     [adapter],
   )
   const filtered = useMemo(() => {

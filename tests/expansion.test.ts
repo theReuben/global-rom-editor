@@ -276,10 +276,10 @@ describe('expansion adapter', () => {
     // which form it is or the list shows two identical rows.
     const pikachus = a.species.filter((s) => s.name === 'Pikachu')
     expect(pikachus).toHaveLength(2)
-    expect(pikachus.map((p) => p.label.replace(/^#\d+ /, ''))).toEqual([
-      'Pikachu',
-      'Pikachu (Hisuian)',
-    ])
+    expect(pikachus.map((p) => p.displayName)).toEqual(['Pikachu', 'Pikachu (Hisuian)'])
+    // A name nothing else shares needs no qualifier at all.
+    const lone = a.species.find((s) => s.name === 'Gengar')!
+    expect(lone.displayName).toBe('Gengar')
   })
 
   it('decodes evolution conditions, and adds and removes them', () => {

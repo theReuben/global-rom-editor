@@ -49,6 +49,14 @@ export interface EntryHandle {
   /** Display label, e.g. "#001 BULBASAUR". */
   label: string
   name: string
+  /**
+   * The name plus whatever it takes to tell this entry from others
+   * sharing it - "Castform (Fire)", "Charizard (Mega, Fire/Dragon)".
+   * Form species carry the base form's name, so a dropdown built from
+   * `name` alone shows the same word nine times. Falls back to `name`
+   * when nothing shares it.
+   */
+  displayName?: string
 }
 
 export interface TableRegion {
