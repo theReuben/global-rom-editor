@@ -10,7 +10,13 @@ import { Rom } from '../src/core/rom'
 import type { ScriptStep } from '../src/core/games/schema'
 import { buildAdapter } from '../src/core/games'
 import { findSpeciesTable, findMoveTable, voteTable } from '../src/core/gba/expansion'
-import { makeGen3ExpansionRom, makeGen3Rom } from './fixtures'
+import {
+  EXPANSION_SPECIES_BASE,
+  EXPANSION_SPECIES_PTR_BLOCK,
+  EXPANSION_SPECIES_STRIDE,
+  makeGen3ExpansionRom,
+  makeGen3Rom,
+} from './fixtures'
 
 function adapter() {
   const rom = new Rom('expansion.gba', makeGen3ExpansionRom())
@@ -177,6 +183,43 @@ describe('expansion adapter', () => {
     expect(a.eggMoves?.write(1, [34, 35, 36, 37])).toBe(true)
     expect(a.eggMoves?.read(1)).toEqual([34, 35, 36, 37])
     expect(a.learnsets?.read(1)).toEqual(grownLearnset)
+  })
+
+  it('edits species flags without disturbing the count sharing their word', () => {
+    const { a, rom } = adapter()
+    const flags = a.speciesFields.find((f) => f.key === 'formFlags')!
+    expect(flags.kind).toBe('flags')
+    const megaBit = flags.flagLabels!.indexOf('Mega evolution')
+    const hisuiBit = flags.flagLabels!.indexOf('Hisuian form')
+    expect(megaBit).toBeGreaterThanOrEqual(0)
+
+    // Species 61 is the fixture's Hisuian form.
+    expect((a.readSpecies(61).formFlags as boolean[])[hisuiBit]).toBe(true)
+    expect((a.readSpecies(25).formFlags as boolean[])[megaBit]).toBe(false)
+
+    // Setting the flag must also change how the species is listed, since
+    // that is what tells a form apart from the base it is named after.
+    const next = (a.readSpecies(25).formFlags as boolean[]).slice()
+    next[megaBit] = true
+    a.writeSpeciesField(25, 'formFlags', next)
+    expect((a.readSpecies(25).formFlags as boolean[])[megaBit]).toBe(true)
+
+    // perfectIVCount occupies bits 16-18 of the same word; flipping a
+    // checkbox must not corrupt it.
+    const flagWord = () => {
+      const at =
+        EXPANSION_SPECIES_BASE + 26 * EXPANSION_SPECIES_STRIDE + EXPANSION_SPECIES_PTR_BLOCK - 8
+      return (rom.readU16LE(at) | (rom.readU16LE(at + 2) << 16)) >>> 0
+    }
+    expect((flagWord() >>> 16) & 7).toBe(3)
+    const edit = (a.readSpecies(26).formFlags as boolean[]).slice()
+    edit[megaBit] = true
+    a.writeSpeciesField(26, 'formFlags', edit)
+    expect((flagWord() >>> 16) & 7).toBe(3) // still 3, not clobbered
+    expect((flagWord() >>> megaBit) & 1).toBe(1)
+    a.revertSpecies(25)
+    a.revertSpecies(26)
+    expect(rom.changedByteCount).toBe(0)
   })
 
   it('reads mega triggers from the form change table, and edits them', () => {

@@ -20,6 +20,7 @@ import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespac
 import { buildGen3MapModule } from '../gba/maps'
 import { EVO_CONDITIONS_END, GEN3_EVO_CONDITIONS } from './gen3-evo-conditions'
 import { FORM_CHANGE_ENTRY, GEN3_FORM_CHANGES } from './gen3-form-changes'
+import { GEN3_SPECIES_FLAGS, GEN3_SPECIES_FLAG_PRESERVE_MASK } from './gen3-species-flags'
 import { discoverMaps, type Gen3MapIndex } from '../gba/mapscan'
 import { buildTrainerLocations, type TrainerLocationIndex } from '../gba/trainer-locations'
 import { buildTrainerSprites } from '../gba/trainer-sprites'
@@ -743,6 +744,14 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
       ? { key, label, kind: 'select', options: itemOptions, group: 'battle', help }
       : { key, label, kind: 'number', min: 0, max: 65535, group: 'battle', help: `Item ID (0 = none). ${help}` }
 
+  /**
+   * The one-bit species flags. They sit in a u32 eight bytes before the
+   * pointer block: the struct ends with the flags, two shadow offsets
+   * and a u16 before that block, so no separate offset has to be found.
+   */
+  const flagsOffset = (id: number): number | null =>
+    table.pointerBlock === null ? null : entry(id) + table.pointerBlock - 8
+
   const speciesFields: FieldSpec[] = [
     { key: 'hp', label: 'HP', kind: 'number', min: 1, max: 255, group: 'stats' },
     { key: 'atk', label: 'Attack', kind: 'number', min: 1, max: 255, group: 'stats' },
@@ -782,6 +791,19 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     { key: 'eggGroup2', label: 'Egg group 2', kind: 'select', options: EGG_GROUPS, group: 'breeding' },
     { key: 'safariFleeRate', label: 'Safari flee rate', kind: 'number', min: 0, max: 255, group: 'breeding' },
   ]
+  if (table.pointerBlock !== null) {
+    // Whether a species IS a Mega, a Hisuian form, a legendary and so on.
+    // isMegaEvolution is not cosmetic: it drives IsBattlerMegaEvolved,
+    // disables affection hearts, changes the cry and shows in the dex,
+    // so a form built by hand needs it set to behave like a real one.
+    speciesFields.push({
+      key: 'formFlags',
+      label: 'Species flags',
+      kind: 'flags',
+      flagLabels: GEN3_SPECIES_FLAGS.map((f) => f.label),
+      group: 'flags',
+    })
+  }
 
   const moveFields: FieldSpec[] = [
     { key: 'power', label: 'Power', kind: 'number', min: 0, max: 511, help: 'The expansion widened this to 9 bits.' },
@@ -895,10 +917,29 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
       for (const [key, word] of Object.entries(STAT_WORDS)) out[key] = rom.readU16LE(base + word)
       const ev = rom.readU16LE(base + SP.evYield)
       for (const [key, idx] of EV_STATS) out[key] = (ev >> (idx * 2)) & 3
+      const flags = flagsOffset(id)
+      if (flags !== null) {
+        const word = rom.readU16LE(flags) | (rom.readU16LE(flags + 2) << 16)
+        out.formFlags = GEN3_SPECIES_FLAGS.map((f) => ((word >>> f.bit) & 1) === 1)
+      }
       return out
     },
 
     writeSpeciesField(id, key, value) {
+      if (key === 'formFlags' && Array.isArray(value)) {
+        const at = flagsOffset(id)
+        if (at === null) return
+        const current = (rom.readU16LE(at) | (rom.readU16LE(at + 2) << 16)) >>> 0
+        // perfectIVCount shares this word and is three bits wide, so the
+        // bits it owns are carried across untouched.
+        let next = current & GEN3_SPECIES_FLAG_PRESERVE_MASK
+        GEN3_SPECIES_FLAGS.forEach((f, i) => {
+          if (value[i]) next |= 1 << f.bit
+        })
+        rom.writeU16LE(at, next & 0xffff)
+        rom.writeU16LE(at + 2, (next >>> 16) & 0xffff)
+        return
+      }
       if (typeof value !== 'number') return
       const base = entry(id)
       const word = STAT_WORDS[key]

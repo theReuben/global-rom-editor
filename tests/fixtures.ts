@@ -897,6 +897,12 @@ function addRegionMap(rom: Uint8Array, ptr: (off: number) => number[], text: (t:
  * and the pointer block sits at a different offset, so the tests fail if
  * anything starts assuming a layout instead of discovering it.
  */
+/** Layout of the expansion fixture's species table, for tests that need
+ * to read a field the adapter does not expose. */
+export const EXPANSION_SPECIES_BASE = 0x010000
+export const EXPANSION_SPECIES_STRIDE = 0x120
+export const EXPANSION_SPECIES_PTR_BLOCK = 160
+
 export function makeGen3ExpansionRom(): Uint8Array {
   const rom = new Uint8Array(4 * 1024 * 1024)
   rom.fill(0xff, 0x3e0000) // trailing padding, like a real GBA ROM
@@ -961,8 +967,8 @@ export function makeGen3ExpansionRom(): Uint8Array {
   put(rom, shinyPalette, shinyBytes)
 
   /* ---- gSpeciesInfo ---- */
-  const SPECIES_BASE = 0x010000
-  const STRIDE = 0x120
+  const SPECIES_BASE = EXPANSION_SPECIES_BASE
+  const STRIDE = EXPANSION_SPECIES_STRIDE
   const PTR_BLOCK = 160
   // Unconditional sprite pointer offsets in struct SpeciesInfo.
   const SP_FRONT_PIC = 88
@@ -1006,6 +1012,9 @@ export function makeGen3ExpansionRom(): Uint8Array {
     // isHisuianForm is bit 13 of the flags word, which sits eight bytes
     // before the pointer block.
     if (id === FORM_ID) put(rom, o + PTR_BLOCK - 8, [0, 0x20, 0, 0])
+    // Species 26 has perfectIVCount = 3 (bits 16-18) in the same word as
+    // the flags, so tests can prove a flag edit does not corrupt it.
+    if (id === 26) put(rom, o + PTR_BLOCK - 8, [0, 0, 3, 0])
     put(rom, o + SP_FRONT_PIC, ptr(frontPic))
     put(rom, o + SP_BACK_PIC, ptr(backPic))
     put(rom, o + SP_PALETTE, ptr(palette))
