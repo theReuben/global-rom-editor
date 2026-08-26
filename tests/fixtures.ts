@@ -922,8 +922,13 @@ export function makeGen3ExpansionRom(): Uint8Array {
   const eggList = 0x044100
   put(rom, eggList, [...u16(34), ...u16(35), ...u16(0xffff)])
   const evoList = 0x044200
-  // { method LEVEL, param 16, target 2, pad, params NULL } then terminator
-  put(rom, evoList, [...u16(1), ...u16(16), ...u16(2), 0, 0, 0, 0, 0, 0, ...u16(0xffff)])
+  const evoConditions = 0x044280
+  // { method LEVEL, param 16, target 2, pad, params } then terminator.
+  // The params pointer is what makes a level of 0 meaningful in the
+  // expansion, so the fixture carries a real condition list.
+  put(rom, evoList, [...u16(1), ...u16(16), ...u16(2), 0, 0, ...ptr(evoConditions), ...u16(0xffff)])
+  // IF_MIN_FRIENDSHIP (3) with arg1 = 220, then CONDITIONS_END (39).
+  put(rom, evoConditions, [...u16(3), ...u16(220), ...u16(0), ...u16(0), ...u16(39)])
 
   /* ---- graphics: smol-compressed pics, raw palettes ---- */
   // A recognisable 64x64 4bpp pattern: every tile a flat colour index.

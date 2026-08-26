@@ -213,6 +213,13 @@ export interface EvolutionEntry {
   method: number
   param: number
   target: number
+  /**
+   * Extra requirements, for games that keep them separate from the
+   * method. The expansion does: Golbat evolves by "level up" with a
+   * param of 0, and the real requirement is a minimum-friendship
+   * condition here. Empty for games with none.
+   */
+  conditions?: { condition: number; args: [number, number, number] }[]
 }
 
 export interface EvolutionModule {
@@ -222,8 +229,26 @@ export interface EvolutionModule {
    * itemOptions exist). Defaults to Gen 3's use-item/trade-item pair.
    */
   itemParamMethods?: number[]
+  /**
+   * The condition vocabulary, when this game separates conditions from
+   * the evolution method. Null hides the conditions UI entirely.
+   */
+  conditionOptions?: {
+    value: number
+    label: string
+    /** How many of the three arguments the game reads. */
+    args: number
+    argKind?: 'item' | 'species' | 'move' | 'type'
+    description: string
+  }[]
   read(id: number): EvolutionEntry[]
   write(id: number, slot: number, field: string, value: number): void
+  /** Edits one argument of one condition. */
+  writeCondition?(id: number, slot: number, index: number, arg: number, value: number): void
+  /** Appends a condition, relocating the list. False = no free space. */
+  addCondition?(id: number, slot: number, condition: number): boolean
+  /** Removes a condition, rewriting the list in place. */
+  removeCondition?(id: number, slot: number, index: number): boolean
   revert(id: number): void
 }
 

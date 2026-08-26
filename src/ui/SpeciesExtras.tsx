@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { GameAdapter, LearnsetEntry } from '../core/games/schema'
+import type { GameAdapter, LearnsetEntry, EvolutionModule, EvolutionEntry } from '../core/games/schema'
 
 /** Level-up learnset editor card (shown when the adapter supports it). */
 export function LearnsetCard({
@@ -208,9 +208,121 @@ export function EvolutionCard({
                 </select>
               </>
             )}
+            {module.conditionOptions && evo.method !== 0 && (
+              <Conditions adapter={adapter} module={module} id={speciesId} slot={slot} evo={evo} onEdit={onEdit} />
+            )}
           </div>
         ))}
       </div>
     </section>
+  )
+}
+
+/**
+ * The extra requirements hanging off an evolution.
+ *
+ * The expansion keeps these separate from the method, which is why so
+ * many "level up" evolutions carry a level of 0 - Golbat's real
+ * requirement is a friendship condition, not a level. Without this the
+ * editor shows a bare 0 and no way to see or change what actually
+ * triggers the evolution.
+ */
+function Conditions({
+  adapter,
+  module,
+  id,
+  slot,
+  evo,
+  onEdit,
+}: {
+  adapter: GameAdapter
+  module: EvolutionModule
+  id: number
+  slot: number
+  evo: EvolutionEntry
+  onEdit: () => void
+}) {
+  const options = module.conditionOptions!
+  const conditions = evo.conditions ?? []
+  const [adding, setAdding] = useState('')
+
+  const optionsFor = (kind?: string) =>
+    kind === 'item' ? adapter.itemOptions
+    : kind === 'species' ? adapter.species.map((sp) => ({ value: sp.id, label: sp.name }))
+    : kind === 'move' ? adapter.moves.map((m) => ({ value: m.id, label: m.name }))
+    : null
+
+  return (
+    <div className="evo-conditions">
+      {conditions.length === 0 && <span className="muted small">No extra conditions</span>}
+      {conditions.map((c, index) => {
+        const def = options.find((o) => o.value === c.condition)
+        const choices = optionsFor(def?.argKind)
+        return (
+          <div className="evo-condition" key={index}>
+            <span className="evo-condition-label" title={def?.description}>
+              {def?.label ?? `Condition #${c.condition}`}
+            </span>
+            {Array.from({ length: def?.args ?? 0 }, (_, a) =>
+              choices && a === 0 ? (
+                <select
+                  key={a}
+                  value={c.args[a]}
+                  onChange={(e) => {
+                    module.writeCondition?.(id, slot, index, a, Number(e.target.value))
+                    onEdit()
+                  }}
+                >
+                  {!choices.some((o) => o.value === c.args[a]) && (
+                    <option value={c.args[a]}>#{c.args[a]}</option>
+                  )}
+                  {choices.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  key={a}
+                  type="number"
+                  min={0}
+                  max={65535}
+                  value={c.args[a]}
+                  onChange={(e) => {
+                    const n = Math.round(Number(e.target.value))
+                    if (!Number.isFinite(n)) return
+                    module.writeCondition?.(id, slot, index, a, n)
+                    onEdit()
+                  }}
+                />
+              ),
+            )}
+            <button
+              className="ghost small"
+              title="Remove this condition"
+              onClick={() => {
+                module.removeCondition?.(id, slot, index)
+                onEdit()
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )
+      })}
+      <select
+        value={adding}
+        onChange={(e) => {
+          if (!e.target.value) return
+          module.addCondition?.(id, slot, Number(e.target.value))
+          setAdding('')
+          onEdit()
+        }}
+      >
+        <option value="">+ Add condition…</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value} title={o.description}>{o.label}</option>
+        ))}
+      </select>
+    </div>
   )
 }
