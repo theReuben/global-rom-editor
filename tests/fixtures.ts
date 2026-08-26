@@ -788,7 +788,17 @@ function addTrainerOnMap(rom: Uint8Array, ptr: (off: number) => number[], u16: (
   const script = 0x312600
   put(rom, events, [2]) // NPC count 1 -> 2
   put(rom, npcs + 24, [2, 6, 0, 0, ...u16(1), ...u16(2), 3, 1, 0x11, 0, ...u16(1), ...u16(0), ...ptr(script), ...u16(0), ...u16(0)])
+  // trainerbattle is 40 bytes, then release + end - without a
+  // terminator the walker runs on into whatever follows.
   put(rom, script, [0x6a, 0x5a, 0x5c, 0x00, 0x00, ...u16(3)])
+  put(rom, script + 42, [0x6c, 0x02])
+  // A shop on the plain NPC: pokemart (0x86) with a pointer to a
+  // zero-terminated item list.
+  const shopScript = 0x312680
+  const shopList = 0x3126a0
+  put(rom, shopScript, [0x86, ...ptr(shopList), 0x02])
+  put(rom, shopList, [...u16(13), ...u16(14), ...u16(0)])
+  put(rom, npcs + 16, ptr(shopScript))
 }
 
 /**

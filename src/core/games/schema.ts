@@ -393,6 +393,16 @@ export interface SignEvent {
   kind: number
 }
 
+export interface ShopEntry {
+  /**
+   * Address of the pokemart command's pointer argument, which is both a
+   * stable identity for the shop and where a relocation writes.
+   */
+  id: number
+  label: string
+  products: number[]
+}
+
 export interface MapEvents {
   npcs: NpcEvent[]
   warps: WarpEvent[]
@@ -475,6 +485,17 @@ export interface MapModule {
     index: number,
     instructions: ScriptInstruction[],
   ): boolean
+  /**
+   * Shops on this map. A shop is not a table but a `pokemart` script
+   * command pointing at a zero-terminated item list, so a map can host
+   * several - Slateport has a TM stall and a vitamin counter.
+   */
+  readShops(key: string): ShopEntry[]
+  /** Replaces one slot. In-place: the list does not change length. */
+  setShopProduct(key: string, shopId: number, slot: number, item: number): void
+  /** Appends a product, relocating the list. False = no free space. */
+  addShopProduct(key: string, shopId: number, item: number): boolean
+  removeShopProduct(key: string, shopId: number, slot: number): boolean
   /** Revert all block-grid edits on this map. */
   revertBlocks(key: string): void
 }

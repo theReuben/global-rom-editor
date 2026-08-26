@@ -457,6 +457,41 @@ describe('expansion adapter', () => {
     expect(rom.changedByteCount).toBe(0)
   })
 
+  it('reads and edits shop stock, moving the list when it grows', () => {
+    const { a, rom } = adapter()
+    const maps = a.mapModule!
+    const key = maps.entries[0].key
+    const shops = maps.readShops(key)
+    // A shop is a pokemart command inside a script, not a table, so
+    // finding one at all means the scripts were walked correctly.
+    expect(shops).toHaveLength(1)
+    expect(shops[0].products).toEqual([13, 14])
+
+    maps.setShopProduct(key, shops[0].id, 0, 20)
+    expect(maps.readShops(key)[0].products).toEqual([20, 14])
+
+    // The list is sized exactly and packed against its neighbours, so
+    // adding has to relocate rather than overwrite what follows.
+    expect(maps.addShopProduct(key, shops[0].id, 30)).toBe(true)
+    expect(maps.readShops(key)[0].products).toEqual([20, 14, 30])
+
+    const moved = maps.readShops(key)[0]
+    expect(maps.removeShopProduct(key, moved.id, 1)).toBe(true)
+    expect(maps.readShops(key)[0].products).toEqual([20, 30])
+    expect(rom.changedByteCount).toBeGreaterThan(0)
+  })
+
+  it('leaves decoration shops alone', () => {
+    const { a } = adapter()
+    const maps = a.mapModule!
+    // pokemartdecoration sells decorations, whose ids are a separate
+    // namespace: id 25 is a Red Brick, not a Poke Ball. Offering them an
+    // item dropdown would write item ids into a decoration list.
+    for (const e of maps.entries)
+      for (const shop of maps.readShops(e.key))
+        expect(shop.label).not.toContain('decoration')
+  })
+
   it('disassembles and reassembles a script byte for byte', () => {
     const { a, rom } = adapter()
     const maps = a.mapModule!

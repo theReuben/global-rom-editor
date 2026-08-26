@@ -462,6 +462,11 @@ export function buildGen1Maps(
     readScript: () => ({ kind: 'none' as const }),
     readScriptCommands: () => null,
     writeScriptCommands: () => false,
+    // Gen 1/2 shops are not script-driven the way Gen 3's are.
+    readShops: () => [],
+    setShopProduct: () => {},
+    addShopProduct: () => false,
+    removeShopProduct: () => false,
 
     revertBlocks(key) {
       const m = byKey.get(key)!

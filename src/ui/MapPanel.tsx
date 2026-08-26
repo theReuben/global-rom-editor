@@ -3,6 +3,7 @@ import type { GameAdapter, MapModule } from '../core/games/schema'
 import { GEN3_MOVEMENT_TYPES } from '../core/games/gen3-constants'
 import { ScriptBuilder } from './ScriptBuilder'
 import { ScriptEditor } from './ScriptEditor'
+import { ShopCard } from './ShopCard'
 
 type Tool = 'paint' | 'inspect'
 
@@ -173,6 +174,8 @@ function EventList({
   return (
     <div className="event-list">
       {addButtons}
+      <ShopCard adapter={adapter} mapKey={mapKey} onEdit={onEdit} />
+
       {scriptTarget &&
         // An event that already has a script opens in the command editor,
         // which can show anything the game runs. The step builder is for

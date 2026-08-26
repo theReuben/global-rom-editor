@@ -4,7 +4,7 @@
  * movement permissions, NPC/warp/sign fields).
  */
 import type { Rom } from '../rom'
-import type { CellInfo, MapEntry, MapEvents, MapModule, EventKind } from '../games/schema'
+import type { CellInfo, MapEntry, MapEvents, MapModule, EventKind, ShopEntry } from '../games/schema'
 import { decompressGraphics } from './compress'
 import { decodeTile4bpp, readPalette } from '../tiles'
 import { discoverMaps, type Gen3MapIndex } from './mapscan'
@@ -13,6 +13,16 @@ import { GBA_ROM_BASE, findFreeSpaceAtEnd, readGbaPointer, relocate, writeGbaPoi
 import { compileScript, decompileScript, encodeScriptText } from './script'
 import { assembleScript, disassembleScript, resolveText } from './disasm'
 import { toTitleCase } from '../text'
+
+/**
+ * Only the item shop. pokemartdecoration and pokemartdecoration2 sell
+ * DECORATIONS, whose ids are a separate namespace - id 25 is a Red
+ * Brick, not a Poke Ball - so offering them an item dropdown would write
+ * item ids into a decoration list and quietly corrupt the shop.
+ */
+const MART_COMMANDS = new Set(['pokemart'])
+/** A guard against a runaway read of a list that is not really a shop. */
+const MAX_SHOP_PRODUCTS = 64
 
 /** RSE and FRLG split tiles/metatiles/palettes differently. */
 interface Family {
@@ -24,6 +34,17 @@ interface Family {
 
 const RSE: Family = { primaryTiles: 512, primaryMetatiles: 512, totalMetatiles: 1024, primaryPalettes: 6 }
 const FRLG: Family = { primaryTiles: 640, primaryMetatiles: 640, totalMetatiles: 1024, primaryPalettes: 7 }
+
+/** A shop's stock: u16 item ids, terminated by 0. */
+function readProductsFrom(bytes: Uint8Array, off: number): number[] {
+  const out: number[] = []
+  for (let p = off; p + 2 <= bytes.length && out.length < MAX_SHOP_PRODUCTS; p += 2) {
+    const id = bytes[p] | (bytes[p + 1] << 8)
+    if (id === 0) break
+    out.push(id)
+  }
+  return out
+}
 
 export function familyForGameCode(code: string): Family {
   if (code.startsWith('AX') || code.startsWith('BPE')) return RSE
@@ -576,6 +597,70 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
       if (dest === null) return false
       rom.writeBytes(dest, assembleScript(instructions, dest))
       writeGbaPointer(rom, ptrOff, dest)
+      return true
+    },
+
+    readShops(key) {
+      const m = load(key)
+      const out: ShopEntry[] = []
+      // A shop is a pokemart command inside an event's script, so the
+      // scripts have to be walked to find them - there is no shop table.
+      for (const kind of ['npc', 'sign'] as const) {
+        const { off, count, size } = eventPtr(m, kind)
+        for (let i = 0; i < count; i++) {
+          const script = readGbaPointer(bytes, off + i * size + (kind === 'npc' ? 16 : 8))
+          if (script === null) continue
+          const d = disassembleScript(bytes, script)
+          if (!d) continue
+          for (const ins of d.instructions) {
+            if (!MART_COMMANDS.has(ins.name)) continue
+            // The pointer argument follows the opcode byte.
+            const argAt = ins.offset + 1
+            const list = readGbaPointer(bytes, argAt)
+            if (list === null) continue
+            out.push({
+              id: argAt,
+              label: `${kind === 'npc' ? 'NPC' : 'Sign'} ${i + 1}${ins.name === 'pokemart' ? '' : ` (${ins.name})`}`,
+              products: readProductsFrom(bytes, list),
+            })
+          }
+        }
+      }
+      return out
+    },
+
+    setShopProduct(_key, shopId, slot, item) {
+      const list = readGbaPointer(bytes, shopId)
+      if (list === null) return
+      const products = readProductsFrom(bytes, list)
+      if (slot < 0 || slot >= products.length) return
+      rom.writeU16LE(list + slot * 2, item)
+    },
+
+    addShopProduct(_key, shopId, item) {
+      const list = readGbaPointer(bytes, shopId)
+      if (list === null) return false
+      const products = [...readProductsFrom(bytes, list), item]
+      if (products.length > MAX_SHOP_PRODUCTS) return false
+      // The list is sized exactly and packed against its neighbours, so
+      // growing it has to move rather than overwrite what follows.
+      const dest = findFreeSpaceAtEnd(rom.bytes, (products.length + 1) * 2)
+      if (dest === null) return false
+      products.forEach((p, i) => rom.writeU16LE(dest + i * 2, p))
+      rom.writeU16LE(dest + products.length * 2, 0)
+      writeGbaPointer(rom, shopId, dest)
+      return true
+    },
+
+    removeShopProduct(_key, shopId, slot) {
+      const list = readGbaPointer(bytes, shopId)
+      if (list === null) return false
+      const products = readProductsFrom(bytes, list)
+      if (slot < 0 || slot >= products.length) return false
+      const next = products.filter((_, i) => i !== slot)
+      // Shrinking fits where it is, so the list stays put.
+      next.forEach((p, i) => rom.writeU16LE(list + i * 2, p))
+      rom.writeU16LE(list + next.length * 2, 0)
       return true
     },
 
