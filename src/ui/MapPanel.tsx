@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { GEN3_BG_EVENT_KINDS, GEN3_OBJ_EVENT_GFX, symbolOptions } from '../core/games/gen3-symbols'
 import type { GameAdapter, MapModule } from '../core/games/schema'
 import { GEN3_MOVEMENT_TYPES } from '../core/games/gen3-constants'
 import { ScriptBuilder } from './ScriptBuilder'
@@ -214,6 +215,35 @@ function EventList({
     </label>
   )
 
+  /** A named field whose numbers the decomp gives names to. */
+  const choice = (
+    kind: 'npc' | 'warp' | 'sign',
+    index: number,
+    field: string,
+    value: number,
+    label: string,
+    table: Record<number, string>,
+  ) => {
+    const options = symbolOptions(table)
+    return (
+      <label className="event-field" key={field}>
+        <span>{label}</span>
+        <select
+          value={value}
+          onChange={(e) => {
+            module.updateEvent(mapKey, kind, index, field, Number(e.target.value))
+            onEdit()
+          }}
+        >
+          {!options.some((o) => o.value === value) && <option value={value}>Unknown ({value})</option>}
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </label>
+    )
+  }
+
   const addButtons = (
     <div className="button-row" style={{ marginBottom: 8 }}>
       {(['npc', 'warp', 'sign'] as const).map((kind) => (
@@ -302,7 +332,7 @@ function EventList({
           )}
           {num('npc', i, 'x', e.x, 'X')}
           {num('npc', i, 'y', e.y, 'Y')}
-          {num('npc', i, 'graphicsId', e.graphicsId, 'Sprite')}
+          {choice('npc', i, 'graphicsId', e.graphicsId, 'Sprite', GEN3_OBJ_EVENT_GFX)}
           <label className="event-field">
             <span>Movement</span>
             <select
@@ -333,6 +363,11 @@ function EventList({
           {num('warp', i, 'targetBank', e.targetBank, 'To bank')}
           {num('warp', i, 'targetMap', e.targetMap, 'To map')}
           {num('warp', i, 'warpId', e.warpId, 'To warp')}
+          {/* Two numbers name a map only to whoever has the bank list
+              memorised. */}
+          <p className="muted small">
+            → {module.entries.find((m) => m.key === `${e.targetBank}.${e.targetMap}`)?.label ?? 'unknown map'}
+          </p>
         </div>
       ))}
       {events.signs.map((e, i) => (
@@ -342,7 +377,7 @@ function EventList({
           </h4>
           {num('sign', i, 'x', e.x, 'X')}
           {num('sign', i, 'y', e.y, 'Y')}
-          {num('sign', i, 'kind', e.kind, 'Kind')}
+          {choice('sign', i, 'kind', e.kind, 'Kind', GEN3_BG_EVENT_KINDS)}
         </div>
       ))}
     </div>

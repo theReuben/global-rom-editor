@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { GEN3_ENCOUNTER_MUSIC, symbolOptions } from '../core/games/gen3-symbols'
 import type { GameAdapter, RenderedImage, TrainerLocation } from '../core/games/schema'
 import { GEN3_AI_FLAG_LABELS } from '../core/games/gen3-constants'
 import { EntryList } from './EntryList'
@@ -396,7 +397,12 @@ export function TrainerPanel({
                   options={[{ value: 0, label: 'Male' }, { value: 1, label: 'Female' }]}
                   onChange={(v) => write('gender', v)}
                 />
-                <Num label="Encounter music" value={data.music} min={0} max={127} onChange={(v) => write('music', v)} />
+                <Options
+                  label="Encounter music"
+                  value={data.music}
+                  options={symbolOptions(GEN3_ENCOUNTER_MUSIC)}
+                  onChange={(v) => write('music', v)}
+                />
               </>
             )}
             <Options

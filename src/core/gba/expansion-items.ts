@@ -26,6 +26,13 @@
  *   +0x28 const u16 *iconPalette
  */
 import type { Rom } from '../rom'
+import {
+  GEN3_HOLD_EFFECTS,
+  GEN3_ITEM_BATTLE_USE,
+  GEN3_ITEM_SORT_TYPES,
+  GEN3_ITEM_USE_TYPES,
+  symbolOptions,
+} from '../games/gen3-symbols'
 import type { EntryHandle, FieldSpec, ItemModule, SelectOption } from '../games/schema'
 import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import { gen3DecodeText, gen3EncodeText } from '../text'
@@ -126,10 +133,10 @@ export function buildExpansionItems(rom: Rom, table: { offset: number; count: nu
 
   const fields: FieldSpec[] = [
     { key: 'price', label: 'Price', kind: 'number', min: 0, max: 0xffffffff, group: 'shop', help: 'The expansion widened this to 32 bits.' },
-    { key: 'holdEffect', label: 'Hold effect', kind: 'number', min: 0, max: 255, group: 'battle', help: 'Hold effect id — see the decomp constants.' },
+    { key: 'holdEffect', label: 'Hold effect', kind: 'select', options: symbolOptions(GEN3_HOLD_EFFECTS), group: 'battle' },
     { key: 'holdEffectParam', label: 'Hold effect value', kind: 'number', min: 0, max: 255, group: 'battle' },
     { key: 'flingPower', label: 'Fling power', kind: 'number', min: 0, max: 255, group: 'battle' },
-    { key: 'battleUsage', label: 'Battle usage', kind: 'number', min: 0, max: 255, group: 'battle' },
+    { key: 'battleUsage', label: 'Battle usage', kind: 'select', options: [{ value: 0, label: 'Not usable in battle' }, ...symbolOptions(GEN3_ITEM_BATTLE_USE)], group: 'battle' },
     { key: 'pocket', label: 'Pocket', kind: 'select', options: POCKETS, group: 'bag' },
     {
       key: 'importance',
@@ -143,9 +150,9 @@ export function buildExpansionItems(rom: Rom, table: { offset: number; count: nu
       group: 'bag',
     },
     { key: 'notConsumed', label: 'Not consumed on use', kind: 'select', options: [{ value: 0, label: 'No' }, { value: 1, label: 'Yes' }], group: 'bag' },
-    { key: 'type', label: 'Field use type', kind: 'number', min: 0, max: 255, group: 'bag' },
+    { key: 'type', label: 'Field use type', kind: 'select', options: symbolOptions(GEN3_ITEM_USE_TYPES), group: 'bag' },
     { key: 'secondaryId', label: 'Secondary id', kind: 'number', min: 0, max: 65535, group: 'bag', help: 'Ball id, TM number, or berry id depending on the item.' },
-    { key: 'sortType', label: 'Sort type', kind: 'number', min: 0, max: 255, group: 'bag' },
+    { key: 'sortType', label: 'Sort type', kind: 'select', options: symbolOptions(GEN3_ITEM_SORT_TYPES), group: 'bag' },
   ]
 
   const module: ItemModule = {

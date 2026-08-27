@@ -13,7 +13,7 @@
  * decomp macros' own parameters and so track the source rather than a
  * transcription of it.
  */
-import { GEN3_FLAG_NAMES, GEN3_SPECIAL_NAMES, GEN3_STD_SCRIPTS, GEN3_VAR_NAMES } from '../core/games/gen3-script-symbols'
+import { GEN3_FLAG_NAMES, GEN3_SPECIAL_NAMES, GEN3_STD_SCRIPTS, GEN3_VAR_NAMES } from '../core/games/gen3-symbols'
 
 /** What a script argument's number refers to. */
 export type ArgKind = 'flag' | 'var' | 'std' | 'special' | 'condition' | 'item' | 'species' | 'move' | 'trainer' | 'plain'
