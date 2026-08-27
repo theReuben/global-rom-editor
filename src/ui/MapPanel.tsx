@@ -235,33 +235,38 @@ function EventList({
   return (
     <div className="event-list">
       {addButtons}
-      <ShopCard adapter={adapter} mapKey={mapKey} onEdit={onEdit} />
-      <ItemsCard adapter={adapter} mapKey={mapKey} onEdit={onEdit} />
-
       {scriptTarget &&
         // An event that already has a script opens in the command editor,
         // which can show anything the game runs. The step builder is for
         // events with no script, where there is nothing to preserve.
-        (module.readScriptCommands(mapKey, scriptTarget.kind, scriptTarget.index) ? (
-          <ScriptEditor
-            adapter={adapter}
-            mapKey={mapKey}
-            target={scriptTarget}
-            onEdit={onEdit}
-            onClose={() => setScriptTarget(null)}
-          />
-        ) : (
-        <ScriptBuilder
-          existing={module.readScript(mapKey, scriptTarget.kind, scriptTarget.index)}
-          adapter={adapter}
-          onApply={(steps) => {
-            const ok = module.attachScript(mapKey, scriptTarget.kind, scriptTarget.index, steps)
-            if (ok) onEdit()
-            return ok
-          }}
-          onClose={() => setScriptTarget(null)}
-        />
-        ))}
+        // A script is far too wide for the side panel, so it opens over
+        // the map instead of inside the list.
+        (
+          <div className="modal-backdrop" onClick={() => setScriptTarget(null)}>
+            <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+              {module.readScriptCommands(mapKey, scriptTarget.kind, scriptTarget.index) ? (
+                <ScriptEditor
+                  adapter={adapter}
+                  mapKey={mapKey}
+                  target={scriptTarget}
+                  onEdit={onEdit}
+                  onClose={() => setScriptTarget(null)}
+                />
+              ) : (
+                <ScriptBuilder
+                  existing={module.readScript(mapKey, scriptTarget.kind, scriptTarget.index)}
+                  adapter={adapter}
+                  onApply={(steps) => {
+                    const ok = module.attachScript(mapKey, scriptTarget.kind, scriptTarget.index, steps)
+                    if (ok) onEdit()
+                    return ok
+                  }}
+                  onClose={() => setScriptTarget(null)}
+                />
+              )}
+            </div>
+          </div>
+        )}
       {events.npcs.map((e, i) => (
         <div {...cardProps('npc', i)} key={`n${i}`}>
           <h4>
@@ -375,6 +380,7 @@ export function MapPanel({
   const [showEvents, setShowEvents] = useState(true)
   const [inspected, setInspected] = useState<{ x: number; y: number } | null>(null)
   const [selectedEvent, setSelectedEvent] = useState<EventRef | null>(null)
+  const [sideTab, setSideTab] = useState<'events' | 'items' | 'blocks'>('events')
   const [renderError, setRenderError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
 
@@ -436,6 +442,9 @@ export function MapPanel({
   }
 
   const desc = module.describe(mapKey)
+  const mapEvents = module.events(mapKey)
+  const eventCount = mapEvents.npcs.length + mapEvents.warps.length + mapEvents.signs.length
+  const itemCount = module.readItems(mapKey).length + module.readShops(mapKey).length
   const inspectedCell = inspected ? module.cell(mapKey, inspected.x, inspected.y) : null
 
   return (
@@ -579,6 +588,25 @@ export function MapPanel({
       </div>
 
       <div className="map-side">
+        <div className="side-tabs">
+          {(
+            [
+              ['events', `Events (${eventCount})`],
+              ['items', `Items (${itemCount})`],
+              ['blocks', 'Blocks'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              className={sideTab === id ? 'primary' : ''}
+              onClick={() => setSideTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className={sideTab === 'blocks' ? '' : 'hidden'}>
         <h3>Blocks</h3>
         <p className="muted small">Click a block, then paint on the map.</p>
         <div className="block-picker">
@@ -598,7 +626,15 @@ export function MapPanel({
         </div>
         <h3>Map size</h3>
         <ResizeControl module={module} mapKey={mapKey} onEdit={bump} />
-        <h3>Events</h3>
+        </div>
+
+        <div className={sideTab === 'items' ? '' : 'hidden'}>
+          <ShopCard adapter={adapter} mapKey={mapKey} onEdit={bump} />
+          <ItemsCard adapter={adapter} mapKey={mapKey} onEdit={bump} />
+          {itemCount === 0 && <p className="muted small">Nothing to pick up on this map.</p>}
+        </div>
+
+        <div className={sideTab === 'events' ? '' : 'hidden'}>
         <EventList
           adapter={adapter}
           module={module}
@@ -608,6 +644,7 @@ export function MapPanel({
           onSelect={setSelectedEvent}
           onOpenTrainer={onOpenTrainer}
         />
+        </div>
       </div>
     </div>
   )

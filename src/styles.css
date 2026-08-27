@@ -309,7 +309,7 @@ input[type='range'] { accent-color: var(--accent); }
 /* ------------------------------------------------------------ map editor */
 .map-layout {
   display: grid;
-  grid-template-columns: 240px 1fr 300px;
+  grid-template-columns: 230px 1fr 360px;
   height: 100%;
 }
 .map-main {
@@ -793,3 +793,55 @@ input[type='range'] { accent-color: var(--accent); }
 .map-item-head .small { margin: 0; }
 .map-item select { width: 100%; }
 .event-tag { padding: 0 7px; }
+
+/*
+ * The side panel used to stack the block picker, the map size, the
+ * shops, the items and every event card in one 300px column. It is a
+ * little wider now and split into tabs, so each section gets the room
+ * it needs instead of a share of one scroll.
+ */
+.side-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  position: sticky;
+  top: -14px;
+  background: var(--bg2);
+  padding: 4px 0 8px;
+  z-index: 2;
+}
+.side-tabs button { flex: 1; padding: 5px 4px; font-size: 12.5px; }
+.hidden { display: none; }
+
+/*
+ * A script is a wide thing - a command, its arguments and their names -
+ * so it opens over the map rather than inside the side panel.
+ */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.6);
+}
+.modal-card {
+  width: min(820px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.modal-card .script-builder { margin: 0; }
+
+/* With the width to spare, an argument sits on one line. */
+.modal-card .script-command { display: block; }
+.modal-card .field {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+}
+.modal-card .field-label { margin: 0; }
+.modal-card .script-command-head { margin-bottom: 6px; }
