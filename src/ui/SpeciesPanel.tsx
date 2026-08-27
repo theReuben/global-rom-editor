@@ -59,7 +59,7 @@ function OneSprite({
       {importSprite && (
         <>
           <button className="ghost sprite-import" onClick={() => fileRef.current?.click()}>
-            Import {label}…
+            ⬆ {label}
           </button>
           <input
             ref={fileRef}

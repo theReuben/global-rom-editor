@@ -71,6 +71,17 @@ function EventMarkers({
 }) {
   const events = module.events(mapKey)
   const trainers = useMemo(() => trainersOnMap(adapter, mapKey), [adapter, mapKey])
+  // Pickups are ordinary events - a Ball is an NPC - so without this
+  // they are indistinguishable from the people standing around.
+  const items = useMemo(() => {
+    const out = new Map<string, string>()
+    const names = adapter.itemOptions
+    for (const it of module.readItems(mapKey)) {
+      const name = names?.find((o) => o.value === it.item)?.label ?? `item #${it.item}`
+      out.set(`${it.event.kind}${it.event.index}`, name)
+    }
+    return out
+  }, [adapter, module, mapKey])
   const marker = (
     kind: EventKind,
     index: number,
@@ -100,6 +111,7 @@ function EventMarkers({
     <>
       {events.npcs.map((e, i) => {
         const t = trainers.get(i)
+        const item = items.get(`npc${i}`)
         return marker(
           'npc',
           i,
@@ -107,12 +119,14 @@ function EventMarkers({
           e.y,
           t
             ? `NPC ${i} — ${t.name} (trainer #${t.id})`
-            : `NPC ${i} (sprite ${e.graphicsId}) at ${e.x}, ${e.y}`,
+            : item
+              ? `NPC ${i} — ${item}`
+              : `NPC ${i} (sprite ${e.graphicsId}) at ${e.x}, ${e.y}`,
           <>
-            <span className="marker-glyph">{i}</span>
+            <span className="marker-glyph">{item && !t ? '◆' : i}</span>
             {t && <span className="marker-name">{t.name}</span>}
           </>,
-          t ? 'trainer' : '',
+          t ? 'trainer' : item ? 'item' : '',
         )
       })}
       {events.warps.map((e, i) =>
@@ -125,9 +139,18 @@ function EventMarkers({
           <span className="marker-glyph">{i}</span>,
         ),
       )}
-      {events.signs.map((e, i) =>
-        marker('sign', i, e.x, e.y, `Sign ${i} at ${e.x}, ${e.y}`, <span className="marker-glyph">{i}</span>),
-      )}
+      {events.signs.map((e, i) => {
+        const item = items.get(`sign${i}`)
+        return marker(
+          'sign',
+          i,
+          e.x,
+          e.y,
+          item ? `Sign ${i} — hidden ${item}` : `Sign ${i} at ${e.x}, ${e.y}`,
+          <span className="marker-glyph">{item ? '◆' : i}</span>,
+          item ? 'item' : '',
+        )
+      })}
     </>
   )
 }
@@ -385,6 +408,7 @@ export function MapPanel({
   const [tick, setTick] = useState(0)
 
   const mapCanvas = useRef<HTMLCanvasElement>(null)
+  const mapScroll = useRef<HTMLDivElement>(null)
   const blockCanvas = useRef<HTMLCanvasElement>(null)
   const painting = useRef(false)
 
@@ -442,6 +466,17 @@ export function MapPanel({
   }
 
   const desc = module.describe(mapKey)
+  /**
+   * Scale the map to the space it has. Big routes are 100 blocks wide
+   * and small interiors a dozen, so a fixed 1x/2x/3x either overflows
+   * or wastes most of the panel.
+   */
+  const fitZoom = () => {
+    const box = mapScroll.current
+    if (!box) return
+    const scale = (box.clientWidth - 24) / (desc.widthBlocks * 16)
+    setZoom(Math.max(0.25, Math.min(6, Math.round(scale * 20) / 20)))
+  }
   const mapEvents = module.events(mapKey)
   const eventCount = mapEvents.npcs.length + mapEvents.warps.length + mapEvents.signs.length
   const itemCount = module.readItems(mapKey).length + module.readShops(mapKey).length
@@ -494,6 +529,13 @@ export function MapPanel({
                 {z}×
               </button>
             ))}
+            <button
+              className={![1, 2, 3].includes(zoom) ? 'primary' : ''}
+              title="Scale the map to fit the space"
+              onClick={fitZoom}
+            >
+              ⤢ Fit
+            </button>
           </div>
           <span className="muted">
             {desc.widthBlocks}×{desc.heightBlocks} blocks · painting block #{selectedBlock}
@@ -524,7 +566,7 @@ export function MapPanel({
         {renderError ? (
           <div className="notice err">Couldn't render this map: {renderError}</div>
         ) : (
-          <div className="map-scroll">
+          <div className="map-scroll" ref={mapScroll}>
             <div className="map-stage" style={{ width: desc.widthBlocks * 16 * zoom }}>
               <canvas
                 ref={mapCanvas}

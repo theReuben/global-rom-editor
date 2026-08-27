@@ -722,6 +722,7 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
         out.push({
           id: o + 8,
           source: 'hidden',
+          event: { kind: 'sign', index: i },
           label: `Hidden ${out.length + 1}`,
           x: s16(bytes, o),
           y: s16(bytes, o + 2),
@@ -781,6 +782,7 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
             out.push({
               id: itemAt,
               source,
+              event: { kind, index: i },
               label: `${source === 'ball' ? 'Ball' : 'Gift'} - ${kind === 'npc' ? 'NPC' : 'Sign'} ${i + 1}`,
               x: s16(bytes, o + (kind === 'npc' ? 4 : 0)),
               y: s16(bytes, o + (kind === 'npc' ? 6 : 2)),
