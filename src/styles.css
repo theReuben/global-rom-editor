@@ -347,12 +347,54 @@ input[type='range'] { accent-color: var(--accent); }
   font-size: 10px;
   font-weight: 700;
   color: #fff;
-  pointer-events: none;
   border-radius: 3px;
 }
 .map-marker.npc { background: rgba(239, 68, 68, 0.65); }
 .map-marker.warp { background: rgba(59, 130, 246, 0.65); }
 .map-marker.sign { background: rgba(234, 179, 8, 0.65); }
+
+/*
+ * Every marker is clickable now: it is the only way to tell which card
+ * in the side list is which figure on the map. The selected one is
+ * ringed in white so it stays findable at 1x zoom, where a marker is
+ * 16 real pixels.
+ */
+.map-marker {
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 0;
+  border: 1px solid transparent;
+  font: inherit;
+}
+.map-marker:hover { filter: brightness(1.35); }
+.map-marker.selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55), 0 0 0 4px #fff;
+  z-index: 3;
+}
+
+/* The number shared by a marker and its card in the list. */
+.event-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+.event-tag.npc { background: rgba(239, 68, 68, 0.85); }
+.event-tag.warp { background: rgba(59, 130, 246, 0.85); }
+.event-tag.sign { background: rgba(202, 138, 4, 0.9); }
+
+.event-card { scroll-margin: 12px; }
+.event-card.selected {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 1px #60a5fa;
+}
 
 .inspect-bar {
   display: flex;
@@ -703,3 +745,35 @@ input[type='range'] { accent-color: var(--accent); }
   background: rgba(148, 163, 184, 0.14);
 }
 .shop-item select { max-width: 190px; }
+
+/*
+ * A script command reads as a sentence first and its decomp name second:
+ * the name is what guides and forum posts use, so it stays visible, but
+ * it should not be the first thing the eye lands on.
+ */
+.command-label {
+  font-weight: 600;
+}
+.script-command-head code {
+  font-size: 11.5px;
+  opacity: 0.65;
+}
+/* The name behind a number sits beside it, never replacing it. */
+.arg-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.arg-value input { flex: 0 0 88px; }
+.arg-symbol {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

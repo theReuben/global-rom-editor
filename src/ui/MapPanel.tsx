@@ -8,6 +8,13 @@ import { ItemsCard } from './ItemsCard'
 
 type Tool = 'paint' | 'inspect'
 
+type EventKind = 'npc' | 'warp' | 'sign'
+/** Which event both the map and the side list are pointing at. */
+interface EventRef {
+  kind: EventKind
+  index: number
+}
+
 const BLOCKS_PER_ROW = 8
 
 function drawImage(
@@ -41,57 +48,86 @@ function trainersOnMap(adapter: GameAdapter, mapKey: string): Map<number, { id: 
   return out
 }
 
+/**
+ * The markers on the map and the cards in the side list are the same
+ * events, so both are labelled with the same number and clicking either
+ * highlights the other. Without that the list is just an unordered pile
+ * of coordinates with no way to tell which figure on the map it means.
+ */
 function EventMarkers({
   adapter,
   module,
   mapKey,
   zoom,
-  onOpenTrainer,
+  selected,
+  onSelect,
 }: {
   adapter: GameAdapter
   module: MapModule
   mapKey: string
   zoom: number
-  onOpenTrainer?: (id: number) => void
+  selected: EventRef | null
+  onSelect: (ref: EventRef) => void
 }) {
   const events = module.events(mapKey)
   const trainers = useMemo(() => trainersOnMap(adapter, mapKey), [adapter, mapKey])
-  const marker = (x: number, y: number, cls: string, text: string, title: string, k: string) => (
-    <div
-      key={k}
-      className={`map-marker ${cls}`}
+  const marker = (
+    kind: EventKind,
+    index: number,
+    x: number,
+    y: number,
+    title: string,
+    body: React.ReactNode,
+    extra = '',
+  ) => (
+    <button
+      key={`${kind}${index}`}
+      type="button"
+      className={`map-marker ${kind} ${extra} ${
+        selected?.kind === kind && selected.index === index ? 'selected' : ''
+      }`}
       title={title}
       style={{ left: x * 16 * zoom, top: y * 16 * zoom, width: 16 * zoom, height: 16 * zoom }}
+      onClick={(ev) => {
+        ev.stopPropagation()
+        onSelect({ kind, index })
+      }}
     >
-      {text}
-    </div>
+      {body}
+    </button>
   )
   return (
     <>
       {events.npcs.map((e, i) => {
         const t = trainers.get(i)
-        if (!t) return marker(e.x, e.y, 'npc', 'N', `NPC ${i} (sprite ${e.graphicsId})`, `n${i}`)
-        return (
-          <button
-            key={`n${i}`}
-            type="button"
-            className="map-marker npc trainer"
-            title={`${t.name} — trainer #${t.id}. Click to open.`}
-            style={{ left: e.x * 16 * zoom, top: e.y * 16 * zoom, width: 16 * zoom, height: 16 * zoom }}
-            onClick={(ev) => {
-              ev.stopPropagation()
-              onOpenTrainer?.(t.id)
-            }}
-          >
-            <span className="marker-glyph">T</span>
-            <span className="marker-name">{t.name}</span>
-          </button>
+        return marker(
+          'npc',
+          i,
+          e.x,
+          e.y,
+          t
+            ? `NPC ${i} — ${t.name} (trainer #${t.id})`
+            : `NPC ${i} (sprite ${e.graphicsId}) at ${e.x}, ${e.y}`,
+          <>
+            <span className="marker-glyph">{i}</span>
+            {t && <span className="marker-name">{t.name}</span>}
+          </>,
+          t ? 'trainer' : '',
         )
       })}
       {events.warps.map((e, i) =>
-        marker(e.x, e.y, 'warp', 'W', `Warp ${i} → map ${e.targetBank}.${e.targetMap}`, `w${i}`),
+        marker(
+          'warp',
+          i,
+          e.x,
+          e.y,
+          `Warp ${i} → map ${e.targetBank}.${e.targetMap}`,
+          <span className="marker-glyph">{i}</span>,
+        ),
       )}
-      {events.signs.map((e, i) => marker(e.x, e.y, 'sign', 'S', `Sign ${i}`, `s${i}`))}
+      {events.signs.map((e, i) =>
+        marker('sign', i, e.x, e.y, `Sign ${i} at ${e.x}, ${e.y}`, <span className="marker-glyph">{i}</span>),
+      )}
     </>
   )
 }
@@ -101,13 +137,37 @@ function EventList({
   module,
   mapKey,
   onEdit,
+  selected,
+  onSelect,
+  onOpenTrainer,
 }: {
   adapter: GameAdapter
   module: MapModule
   mapKey: string
   onEdit: () => void
+  selected: EventRef | null
+  onSelect: (ref: EventRef) => void
+  onOpenTrainer?: (id: number) => void
 }) {
   const events = module.events(mapKey)
+  const trainers = useMemo(() => trainersOnMap(adapter, mapKey), [adapter, mapKey])
+  const cards = useRef(new Map<string, HTMLDivElement>())
+  // Picking a marker on the map has to bring its card into view, or the
+  // highlight lands somewhere off-screen in a long list.
+  useEffect(() => {
+    if (!selected) return
+    cards.current
+      .get(`${selected.kind}${selected.index}`)
+      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selected])
+  const cardProps = (kind: EventKind, i: number) => ({
+    className: `event-card ${selected?.kind === kind && selected.index === i ? 'selected' : ''}`,
+    ref: (el: HTMLDivElement | null) => {
+      if (el) cards.current.set(`${kind}${i}`, el)
+      else cards.current.delete(`${kind}${i}`)
+    },
+    onClick: () => onSelect({ kind, index: i }),
+  })
   const [scriptTarget, setScriptTarget] = useState<{ kind: 'npc' | 'sign'; index: number } | null>(null)
   const num = (
     kind: 'npc' | 'warp' | 'sign',
@@ -203,10 +263,15 @@ function EventList({
         />
         ))}
       {events.npcs.map((e, i) => (
-        <div className="event-card" key={`n${i}`}>
+        <div {...cardProps('npc', i)} key={`n${i}`}>
           <h4>
-            🧍 NPC {i} {scriptBtn('npc', i)} {removeBtn('npc', i)}
+            <span className="event-tag npc">{i}</span> NPC {scriptBtn('npc', i)} {removeBtn('npc', i)}
           </h4>
+          {trainers.get(i) && (
+            <button className="ghost small" onClick={() => onOpenTrainer?.(trainers.get(i)!.id)}>
+              🎽 {trainers.get(i)!.name} — open trainer
+            </button>
+          )}
           {num('npc', i, 'x', e.x, 'X')}
           {num('npc', i, 'y', e.y, 'Y')}
           {num('npc', i, 'graphicsId', e.graphicsId, 'Sprite')}
@@ -233,8 +298,8 @@ function EventList({
         </div>
       ))}
       {events.warps.map((e, i) => (
-        <div className="event-card" key={`w${i}`}>
-          <h4>🌀 Warp {i} {removeBtn('warp', i)}</h4>
+        <div {...cardProps('warp', i)} key={`w${i}`}>
+          <h4><span className="event-tag warp">{i}</span> Warp {removeBtn('warp', i)}</h4>
           {num('warp', i, 'x', e.x, 'X')}
           {num('warp', i, 'y', e.y, 'Y')}
           {num('warp', i, 'targetBank', e.targetBank, 'To bank')}
@@ -243,9 +308,9 @@ function EventList({
         </div>
       ))}
       {events.signs.map((e, i) => (
-        <div className="event-card" key={`s${i}`}>
+        <div {...cardProps('sign', i)} key={`s${i}`}>
           <h4>
-            🪧 Sign {i} {scriptBtn('sign', i)} {removeBtn('sign', i)}
+            <span className="event-tag sign">{i}</span> Sign {scriptBtn('sign', i)} {removeBtn('sign', i)}
           </h4>
           {num('sign', i, 'x', e.x, 'X')}
           {num('sign', i, 'y', e.y, 'Y')}
@@ -309,6 +374,7 @@ export function MapPanel({
   const [zoom, setZoom] = useState(1)
   const [showEvents, setShowEvents] = useState(true)
   const [inspected, setInspected] = useState<{ x: number; y: number } | null>(null)
+  const [selectedEvent, setSelectedEvent] = useState<EventRef | null>(null)
   const [renderError, setRenderError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
 
@@ -390,6 +456,7 @@ export function MapPanel({
               onClick={() => {
                 setMapKey(e.key)
                 setInspected(null)
+                setSelectedEvent(null)
               }}
             >
               🗺️ {e.label}
@@ -470,7 +537,8 @@ export function MapPanel({
                   module={module}
                   mapKey={mapKey}
                   zoom={zoom}
-                  onOpenTrainer={onOpenTrainer}
+                  selected={selectedEvent}
+                  onSelect={setSelectedEvent}
                 />
               )}
             </div>
@@ -531,7 +599,15 @@ export function MapPanel({
         <h3>Map size</h3>
         <ResizeControl module={module} mapKey={mapKey} onEdit={bump} />
         <h3>Events</h3>
-        <EventList adapter={adapter} module={module} mapKey={mapKey} onEdit={bump} />
+        <EventList
+          adapter={adapter}
+          module={module}
+          mapKey={mapKey}
+          onEdit={bump}
+          selected={selectedEvent}
+          onSelect={setSelectedEvent}
+          onOpenTrainer={onOpenTrainer}
+        />
       </div>
     </div>
   )
