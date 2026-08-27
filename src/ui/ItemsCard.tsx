@@ -1,4 +1,5 @@
 import type { GameAdapter } from '../core/games/schema'
+import { Sprite } from './Sprite'
 
 /**
  * Every item lying around on the selected map.
@@ -22,6 +23,7 @@ export function ItemsCard({
   const module = adapter.mapModule!
   const found = module.readItems(mapKey)
   const options = adapter.itemOptions ?? []
+  const icon = adapter.itemModule?.icon
 
   if (found.length === 0) return null
 
@@ -35,6 +37,7 @@ export function ItemsCard({
         {found.map((entry) => (
           <div className="map-item" key={`${entry.source}-${entry.id}`}>
             <div className="map-item-head">
+              <Sprite image={icon?.(entry.item) ?? null} scale={1} />
               <span className={`event-tag ${entry.source === 'hidden' ? 'sign' : 'npc'}`}>
                 {entry.source === 'hidden' ? 'Hidden' : entry.source === 'ball' ? 'Ball' : 'Gift'}
               </span>

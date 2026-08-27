@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { GameAdapter } from '../core/games/schema'
 import { EntryList } from './EntryList'
 import { FieldEditor } from './FieldEditor'
+import { Sprite } from './Sprite'
 
 function ItemNameEditor({
   adapter,
@@ -112,6 +113,13 @@ export function ItemsPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: 
       />
       <div className="detail" key={selected}>
         <div className="detail-header">
+          {/* The bag icon says which item this is faster than the name. */}
+          <Sprite
+            image={module.icon?.(selected) ?? null}
+            scale={2}
+            className="item-icon"
+            title={module.entries[selected]?.name}
+          />
           <ItemNameEditor adapter={adapter} id={selected} onEdit={onEdit} />
           <button
             className="ghost"

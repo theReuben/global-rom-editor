@@ -1132,6 +1132,17 @@ export function makeGen3ExpansionRom(): Uint8Array {
     put(rom, o + 28, [0, 20]) // holdEffect, holdEffectParam
     put(rom, o + 30, [(1 << 3) | 0]) // pocket 1 (Poké Balls), importance 0
     put(rom, o + 31, [3, 4, 8, 30]) // sortType, type, battleUsage, flingPower
+    // The bag icon: 3x3 tiles of 4bpp, LZ77'd, and a 16-colour palette
+    // right before it. Item 5 deliberately has none, so the editor has
+    // to cope with an item that cannot be pictured.
+    if (i !== 5) {
+      const icon = 0x0a0000 + i * 0x100
+      put(rom, icon, u16(0)) // colour 0: transparent
+      put(rom, icon + 2, u16(0x7c1f)) // colour 1: magenta
+      put(rom, icon + 32, lz77Compress(new Uint8Array(9 * 32).fill(0x11)))
+      put(rom, o + 36, ptr(icon + 32)) // iconPic
+      put(rom, o + 40, ptr(icon)) // iconPalette
+    }
   }
 
   addTrainerTables(rom, ptr, u16, text)

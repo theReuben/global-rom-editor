@@ -36,6 +36,8 @@ import {
 import type { EntryHandle, FieldSpec, ItemModule, SelectOption } from '../games/schema'
 import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import { gen3DecodeText, gen3EncodeText } from '../text'
+import { decompressGraphics } from './compress'
+import { decodeTile4bpp, readPalette } from '../tiles'
 
 export const ITEM_ENTRY = 44
 export const IT = {
@@ -51,7 +53,13 @@ export const IT = {
   type: 0x20,
   battleUsage: 0x21,
   flingPower: 0x22,
+  iconPic: 0x24,
+  iconPalette: 0x28,
 } as const
+
+/** Bag icons are 3x3 tiles of 8x8. */
+const ICON_SIZE = 24
+const ICON_TILES = 9
 
 const MAX_NAME = 24
 const MAX_DESCRIPTION = 256
@@ -227,6 +235,46 @@ export function buildExpansionItems(rom: Rom, table: { offset: number; count: nu
 
     setDescription(id, text) {
       return writeSharedText(rom, entryAt(id) + IT.description, text, MAX_DESCRIPTION, sharedText(IT.description))
+    },
+
+    /**
+     * The bag icon: 3x3 tiles of 4bpp, compressed, with an uncompressed
+     * 16-colour palette. Both pointers live in the item's own entry, so
+     * unlike vanilla there is no separate icon table to discover.
+     */
+    icon(id) {
+      const entry = entryAt(id)
+      const pic = readGbaPointer(bytes, entry + IT.iconPic)
+      const pal = readGbaPointer(bytes, entry + IT.iconPalette)
+      if (pic === null || pal === null) return null
+      let tiles: Uint8Array | null = null
+      try {
+        tiles = decompressGraphics(bytes, pic)
+      } catch {
+        return null
+      }
+      if (!tiles || tiles.length < ICON_TILES * 32) return null
+      const colors = readPalette(bytes, pal)
+      const pixels = new Uint8ClampedArray(ICON_SIZE * ICON_SIZE * 4)
+      for (let t = 0; t < ICON_TILES; t++) {
+        const tile = decodeTile4bpp(tiles, t * 32)
+        const ox = (t % 3) * 8
+        const oy = Math.floor(t / 3) * 8
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 8; x++) {
+            const c = tile[y * 8 + x]
+            const o = ((oy + y) * ICON_SIZE + ox + x) * 4
+            // Colour 0 is the transparent one in every GBA sprite.
+            if (c === 0) continue
+            const [r, g, b] = colors[c]
+            pixels[o] = r
+            pixels[o + 1] = g
+            pixels[o + 2] = b
+            pixels[o + 3] = 255
+          }
+        }
+      }
+      return { pixels, width: ICON_SIZE, height: ICON_SIZE }
     },
 
     revert(id) {

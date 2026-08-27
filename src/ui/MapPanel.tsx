@@ -6,6 +6,7 @@ import { ScriptBuilder } from './ScriptBuilder'
 import { ScriptEditor } from './ScriptEditor'
 import { ShopCard } from './ShopCard'
 import { ItemsCard } from './ItemsCard'
+import { Sprite } from './Sprite'
 
 type Tool = 'paint' | 'inspect'
 
@@ -332,7 +333,14 @@ function EventList({
           )}
           {num('npc', i, 'x', e.x, 'X')}
           {num('npc', i, 'y', e.y, 'Y')}
-          {choice('npc', i, 'graphicsId', e.graphicsId, 'Sprite', GEN3_OBJ_EVENT_GFX)}
+          <div className="npc-sprite-row">
+            <Sprite
+              image={adapter.overworldSprite?.(e.graphicsId) ?? null}
+              scale={1}
+              title={`Sprite ${e.graphicsId}`}
+            />
+            {choice('npc', i, 'graphicsId', e.graphicsId, 'Sprite', GEN3_OBJ_EVENT_GFX)}
+          </div>
           <label className="event-field">
             <span>Movement</span>
             <select

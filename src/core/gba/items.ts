@@ -27,7 +27,7 @@
  * include/constants/global.h), so the labels are chosen per game.
  */
 import type { Rom } from '../rom'
-import type { EntryHandle, FieldSpec, FieldValue, SelectOption } from '../games/schema'
+import type { EntryHandle, FieldSpec, FieldValue, RenderedImage, SelectOption } from '../games/schema'
 import { gen3Codec, gen3DecodeText, gen3EncodeText } from '../text'
 import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 
@@ -110,6 +110,11 @@ export interface ItemModule {
    * string is this item's alone; otherwise relocates and retargets.
    */
   setDescription(id: number, text: string): boolean
+  /**
+   * The item's bag icon, 24x24 RGBA. Null when the game keeps its icons
+   * somewhere this adapter does not read them from.
+   */
+  icon?(id: number): RenderedImage | null
   revert(id: number): void
 }
 

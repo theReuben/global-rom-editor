@@ -536,6 +536,18 @@ describe('expansion adapter', () => {
     expect(goto.args[0].value).toBe(0x08312800)
   })
 
+  it('decodes an item\'s bag icon, and copes with one that has none', () => {
+    const { a } = adapter()
+    const items = a.itemModule!
+    const icon = items.icon!(3)!
+    expect(icon).not.toBeNull()
+    expect([icon.width, icon.height]).toEqual([24, 24])
+    // Colour 0 is transparent in every GBA sprite, so a tile painted
+    // entirely in colour 1 must come back fully opaque.
+    expect(icon.pixels[3]).toBe(255)
+    expect(items.icon!(5)).toBeNull()
+  })
+
   it('leaves decoration shops alone', () => {
     const { a } = adapter()
     const maps = a.mapModule!

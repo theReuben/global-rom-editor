@@ -850,3 +850,23 @@ input[type='range'] { accent-color: var(--accent); }
 /* Pickups are events like any other, so they get their own colour. */
 .map-marker.item { background: rgba(16, 185, 129, 0.8); }
 .map-marker.item .marker-glyph { font-size: 11px; }
+
+/* Sprites are tiny and must not be smoothed into mush when scaled. */
+.pixel-sprite {
+  image-rendering: pixelated;
+  flex: none;
+}
+.detail-header .item-icon { margin-right: 4px; }
+.map-item-head .pixel-sprite { margin-right: 2px; }
+
+/*
+ * The sprite sits beside its picker: the name tells you which sprite is
+ * selected, the picture tells you who the NPC is.
+ */
+.npc-sprite-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.npc-sprite-row .event-field { flex: 1; min-width: 0; }
+.npc-sprite-row .pixel-sprite { margin-bottom: 4px; }
