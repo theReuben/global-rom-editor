@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { GameAdapter, ScriptInstruction } from '../core/games/schema'
 import { GEN3_SCRIPT_COMMANDS } from '../core/games/gen3-script-commands'
+import { argKindFor, commandLabel, symbolFor, SCRIPT_CONDITIONS, type ArgKind } from './script-labels'
 
 /**
  * Command-level script editing.
@@ -11,6 +12,82 @@ import { GEN3_SCRIPT_COMMANDS } from '../core/games/gen3-script-commands'
  * that holds it, so an event written by the game can be edited rather
  * than replaced.
  */
+
+/**
+ * One argument's value. A number the editor can name - a flag, a var, a
+ * standard script - keeps its number and gains a label beside it, since
+ * a hack may well point it somewhere the decomp never did. Arguments
+ * that address a list the ROM itself carries (items, species, moves,
+ * trainers) become a dropdown of that list instead.
+ */
+function ArgValue({
+  adapter,
+  kind,
+  size,
+  value,
+  onChange,
+}: {
+  adapter: GameAdapter
+  kind: ArgKind
+  size: number
+  value: number
+  onChange: (value: number) => void
+}) {
+  const options =
+    kind === 'item'
+      ? adapter.itemOptions?.map((o) => ({ value: o.value, label: o.label }))
+      : kind === 'species'
+        ? adapter.species.map((s) => ({ value: s.id, label: s.displayName ?? s.name }))
+        : kind === 'move'
+          ? adapter.moves.map((m) => ({ value: m.id, label: m.name }))
+          : kind === 'trainer'
+            ? adapter.trainerModule?.entries.map((t) => ({ value: t.id, label: t.name }))
+            : null
+
+  if (options && options.length > 0) {
+    return (
+      <select value={value} onChange={(e) => onChange(Number(e.target.value))}>
+        {!options.some((o) => o.value === value) && <option value={value}>#{value}</option>}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    )
+  }
+
+  if (kind === 'condition') {
+    return (
+      <select value={value} onChange={(e) => onChange(Number(e.target.value))}>
+        {SCRIPT_CONDITIONS.map((c, i) => (
+          <option key={i} value={i}>{c}</option>
+        ))}
+      </select>
+    )
+  }
+
+  // A 4-byte value in ROM range is an address - of another script, a
+  // movement list, a shop's stock. Nothing here can follow it, but a
+  // 9-digit decimal tells the reader even less than the hex does.
+  const name =
+    symbolFor(kind, value) ??
+    (kind === 'plain' && size === 4 && value >= 0x08000000 && value <= 0x09ffffff
+      ? `0x${value.toString(16).toUpperCase()}`
+      : null)
+  return (
+    <span className="arg-value">
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => {
+          const v = Number(e.target.value)
+          if (Number.isFinite(v)) onChange(v)
+        }}
+      />
+      {name && <span className="arg-symbol" title={`${kind}: ${name}`}>{name}</span>}
+    </span>
+  )
+}
+
 export function ScriptEditor({
   adapter,
   mapKey,
@@ -71,7 +148,8 @@ export function ScriptEditor({
         {instructions.map((ins, i) => (
           <li key={i} className="script-command">
             <div className="script-command-head">
-              <code>{ins.name}</code>
+              <span className="command-label">{commandLabel(ins.name) ?? ins.name}</span>
+              <code className="muted">{ins.name}</code>
               <button
                 className="ghost small"
                 title="Remove this command"
@@ -80,29 +158,32 @@ export function ScriptEditor({
                 ✕
               </button>
             </div>
-            {ins.args.map((arg, j) => (
-              <label className="field" key={j}>
-                <span className="field-label">{arg.name}</span>
-                {arg.text !== undefined && arg.text !== null ? (
-                  <textarea
-                    rows={Math.min(6, arg.text.split('\n').length + 1)}
-                    value={arg.text}
-                    onChange={(e) => mutate((d) => { d[i].args[j].text = e.target.value })}
-                  />
-                ) : arg.target !== null ? (
-                  <span className="field-help">→ command {arg.target + 1} (kept in step)</span>
-                ) : (
-                  <input
-                    type="number"
-                    value={arg.value}
-                    onChange={(e) => {
-                      const v = Number(e.target.value)
-                      if (Number.isFinite(v)) mutate((d) => { d[i].args[j].value = v >>> 0 })
-                    }}
-                  />
-                )}
-              </label>
-            ))}
+            {ins.args.map((arg, j) => {
+              const kind = argKindFor(ins.name, arg.name)
+              const setValue = (v: number) => mutate((d) => { d[i].args[j].value = v >>> 0 })
+              return (
+                <label className="field" key={j}>
+                  <span className="field-label">{arg.name}</span>
+                  {arg.text !== undefined && arg.text !== null ? (
+                    <textarea
+                      rows={Math.min(6, arg.text.split('\n').length + 1)}
+                      value={arg.text}
+                      onChange={(e) => mutate((d) => { d[i].args[j].text = e.target.value })}
+                    />
+                  ) : arg.target !== null ? (
+                    <span className="field-help">→ command {arg.target + 1} (kept in step)</span>
+                  ) : (
+                    <ArgValue
+                      adapter={adapter}
+                      kind={kind}
+                      size={arg.size}
+                      value={arg.value}
+                      onChange={setValue}
+                    />
+                  )}
+                </label>
+              )
+            })}
           </li>
         ))}
       </ol>

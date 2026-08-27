@@ -791,7 +791,12 @@ function addTrainerOnMap(rom: Uint8Array, ptr: (off: number) => number[], u16: (
   // trainerbattle is 40 bytes, then release + end - without a
   // terminator the walker runs on into whatever follows.
   put(rom, script, [0x6a, 0x5a, 0x5c, 0x00, 0x00, ...u16(3)])
-  put(rom, script + 42, [0x6c, 0x02])
+  // release, then a goto whose target is outside this script, followed
+  // by end. The goto's destination points at bytes that decode as text,
+  // which is exactly the trap: a branch must not be offered for editing
+  // as if it were dialogue.
+  put(rom, script + 42, [0x6c, 0x05, ...ptr(0x312800), 0x02])
+  put(rom, 0x312800, [0xbb, 0xbc, 0xbd, 0xff])
   // A shop on the plain NPC: pokemart (0x86) with a pointer to a
   // zero-terminated item list.
   const shopScript = 0x312680

@@ -522,6 +522,20 @@ describe('expansion adapter', () => {
     expect(rom.readU16LE(hidden.id) >> 11).toBe(5)
   })
 
+  it('never offers a branch destination as dialogue', () => {
+    const { a } = adapter()
+    const maps = a.mapModule!
+    const key = maps.entries[0].key
+    const d = maps.readScriptCommands(key, 'npc', 1)!
+    const goto = d.instructions.find((ins) => ins.name === 'goto')!
+    expect(goto).toBeDefined()
+    // Script bytecode decodes as plausible text often enough to fool a
+    // content check, and editing that "dialogue" would write a text
+    // pointer over the jump.
+    expect(goto.args[0].text ?? null).toBeNull()
+    expect(goto.args[0].value).toBe(0x08312800)
+  })
+
   it('leaves decoration shops alone', () => {
     const { a } = adapter()
     const maps = a.mapModule!
