@@ -493,6 +493,35 @@ describe('expansion adapter', () => {
     expect(rom.changedByteCount).toBeGreaterThan(0)
   })
 
+  it('lists both kinds of pickup on a map and edits each in place', () => {
+    const { a, rom } = adapter()
+    const maps = a.mapModule!
+    const key = maps.entries[0].key
+    const found = maps.readItems(key)
+
+    const hidden = found.find((i) => i.source === 'hidden')!
+    expect(hidden).toBeDefined()
+    // The item shares its word with the flag id, so a wider read would
+    // return the flag's bits as part of the item.
+    expect(hidden.item).toBe(21)
+    expect([hidden.x, hidden.y]).toEqual([7, 8])
+
+    // The Ball's script names no item at all - it is read out of the
+    // object's template, which is also where the count comes from.
+    const ball = found.find((i) => i.source === 'ball')!
+    expect(ball).toBeDefined()
+    expect(ball.item).toBe(13)
+    expect(ball.quantity).toBe(2)
+
+    maps.setItem(key, hidden.id, 'hidden', 30)
+    maps.setItem(key, ball.id, 'ball', 31)
+    const after = maps.readItems(key)
+    expect(after.find((i) => i.source === 'hidden')!.item).toBe(30)
+    expect(after.find((i) => i.source === 'ball')!.item).toBe(31)
+    // Writing the item must not disturb the flag id sharing its word.
+    expect(rom.readU16LE(hidden.id) >> 11).toBe(5)
+  })
+
   it('leaves decoration shops alone', () => {
     const { a } = adapter()
     const maps = a.mapModule!

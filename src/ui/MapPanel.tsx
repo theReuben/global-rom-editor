@@ -4,6 +4,7 @@ import { GEN3_MOVEMENT_TYPES } from '../core/games/gen3-constants'
 import { ScriptBuilder } from './ScriptBuilder'
 import { ScriptEditor } from './ScriptEditor'
 import { ShopCard } from './ShopCard'
+import { ItemsCard } from './ItemsCard'
 
 type Tool = 'paint' | 'inspect'
 
@@ -175,6 +176,7 @@ function EventList({
     <div className="event-list">
       {addButtons}
       <ShopCard adapter={adapter} mapKey={mapKey} onEdit={onEdit} />
+      <ItemsCard adapter={adapter} mapKey={mapKey} onEdit={onEdit} />
 
       {scriptTarget &&
         // An event that already has a script opens in the command editor,

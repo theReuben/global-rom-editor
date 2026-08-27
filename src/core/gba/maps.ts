@@ -4,7 +4,7 @@
  * movement permissions, NPC/warp/sign fields).
  */
 import type { Rom } from '../rom'
-import type { CellInfo, MapEntry, MapEvents, MapModule, EventKind, ShopEntry } from '../games/schema'
+import type { CellInfo, MapEntry, MapEvents, MapItemEntry, MapModule, EventKind, ShopEntry } from '../games/schema'
 import { decompressGraphics } from './compress'
 import { decodeTile4bpp, readPalette } from '../tiles'
 import { discoverMaps, type Gen3MapIndex } from './mapscan'
@@ -21,6 +21,25 @@ import { toTitleCase } from '../text'
  * item ids into a decoration list and quietly corrupt the shop.
  */
 const MART_COMMANDS = new Set(['pokemart'])
+
+/** A bg event that hides an item underfoot rather than running a script. */
+const BG_EVENT_HIDDEN_ITEM = 7
+/**
+ * The hidden item's packed word. Both vanilla and the expansion keep the
+ * item in the low bits - the expansion narrows it to 11 to make room for
+ * a wider flag id and a quantity, and vanilla never stores an id that
+ * needs more, so masking to 11 reads either correctly. The quantity bits
+ * read 0 on vanilla, which is why a count only shows when it is above 1.
+ */
+const HIDDEN_ITEM_MASK = 0x7ff
+const HIDDEN_QUANTITY_SHIFT = 24
+const HIDDEN_QUANTITY_MASK = 0x7f
+/** callstd functions: 0 hands an item over, 1 is a found-item pickup. */
+const STD_OBTAIN_ITEM = 0
+const STD_FIND_ITEM = 1
+/** The vars finditem/giveitem load before calling their standard script. */
+const VAR_ITEM = 0x8000
+const VAR_QUANTITY = 0x8001
 /** A guard against a runaway read of a list that is not really a shop. */
 const MAX_SHOP_PRODUCTS = 64
 
@@ -44,6 +63,18 @@ function readProductsFrom(bytes: Uint8Array, off: number): number[] {
     out.push(id)
   }
   return out
+}
+
+/** Little-endian u32, unsigned. */
+function readU32(bytes: Uint8Array, off: number): number {
+  return (bytes[off] | (bytes[off + 1] << 8) | (bytes[off + 2] << 16) | (bytes[off + 3] << 24)) >>> 0
+}
+
+/** Where an instruction's nth argument sits, past the opcode byte. */
+function argOffset(ins: { offset: number; args: { size: number }[] }, n: number): number {
+  let at = ins.offset + 1
+  for (let i = 0; i < n; i++) at += ins.args[i].size
+  return at
 }
 
 export function familyForGameCode(code: string): Family {
@@ -662,6 +693,104 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
       next.forEach((p, i) => rom.writeU16LE(list + i * 2, p))
       rom.writeU16LE(list + next.length * 2, 0)
       return true
+    },
+
+    readItems(key) {
+      const m = load(key)
+      const out: MapItemEntry[] = []
+
+      // Hidden items live in the bg event itself - no script to walk.
+      const sg = eventPtr(m, 'sign')
+      for (let i = 0; i < sg.count; i++) {
+        const o = sg.off + i * SIGN_SIZE
+        if (bytes[o + 5] !== BG_EVENT_HIDDEN_ITEM) continue
+        const packed = readU32(bytes, o + 8)
+        out.push({
+          id: o + 8,
+          source: 'hidden',
+          label: `Hidden ${out.length + 1}`,
+          x: s16(bytes, o),
+          y: s16(bytes, o + 2),
+          item: packed & HIDDEN_ITEM_MASK,
+          quantity: (packed >>> HIDDEN_QUANTITY_SHIFT) & HIDDEN_QUANTITY_MASK,
+        })
+      }
+
+      // Everything else is a script: finditem for a Ball on the ground,
+      // giveitem for an NPC handing something over. Both load the item
+      // into VAR_0x8000 before calling their standard script, so the
+      // callstd is what marks the spot and the loads before it carry the
+      // values.
+      for (const kind of ['npc', 'sign'] as const) {
+        const { off, count, size } = eventPtr(m, kind)
+        for (let i = 0; i < count; i++) {
+          const script = readGbaPointer(bytes, off + i * size + (kind === 'npc' ? 16 : 8))
+          if (script === null) continue
+          const d = disassembleScript(bytes, script)
+          if (!d) continue
+          const o = off + i * size
+          let itemAt: number | null = null
+          let item = 0
+          let quantity = 1
+          let fromVar = false
+          for (const ins of d.instructions) {
+            if (ins.name === 'setorcopyvar') {
+              const dest = ins.args[0]?.value
+              const src = ins.args[1]
+              if (src === undefined) continue
+              // A var as the source means the value is computed at run
+              // time - there is no constant in the script to edit.
+              if (src.value >= 0x4000) {
+                if (dest === VAR_ITEM) fromVar = true
+                continue
+              }
+              if (dest === VAR_ITEM) {
+                item = src.value
+                itemAt = argOffset(ins, 1)
+              } else if (dest === VAR_QUANTITY) quantity = src.value
+              continue
+            }
+            if (ins.name !== 'callstd') continue
+            const fn = ins.args[0]?.value
+            if (fn !== STD_FIND_ITEM && fn !== STD_OBTAIN_ITEM) continue
+            const source = fn === STD_FIND_ITEM ? 'ball' : 'gift'
+            if (itemAt === null) {
+              // A Ball whose script is the shared Common_EventScript_FindItem:
+              // the script reads the item out of the object's own template
+              // (trainerRange doubles as the item, movementRangeX as the
+              // count), so that is what an edit has to change.
+              if (!fromVar || kind !== 'npc') continue
+              itemAt = o + 0x0e
+              item = bytes[itemAt] | (bytes[itemAt + 1] << 8)
+              quantity = (bytes[o + 0x0a] & 0x0f) || 1
+            }
+            out.push({
+              id: itemAt,
+              source,
+              label: `${source === 'ball' ? 'Ball' : 'Gift'} - ${kind === 'npc' ? 'NPC' : 'Sign'} ${i + 1}`,
+              x: s16(bytes, o + (kind === 'npc' ? 4 : 0)),
+              y: s16(bytes, o + (kind === 'npc' ? 6 : 2)),
+              item,
+              quantity,
+            })
+            itemAt = null
+            quantity = 1
+            fromVar = false
+          }
+        }
+      }
+      return out
+    },
+
+    setItem(_key, id, source, item) {
+      if (source === 'hidden') {
+        // The item shares its halfword with the low bits of the flag id,
+        // so only its own bits may change.
+        const low = bytes[id] | (bytes[id + 1] << 8)
+        rom.writeU16LE(id, (low & ~HIDDEN_ITEM_MASK) | (item & HIDDEN_ITEM_MASK))
+      } else {
+        rom.writeU16LE(id, item)
+      }
     },
 
     revertBlocks(key) {

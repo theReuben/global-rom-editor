@@ -411,6 +411,22 @@ export interface ShopEntry {
   products: number[]
 }
 
+/** An item the player can pick up on a map: a Ball, or a hidden find. */
+export interface MapItemEntry {
+  /**
+   * Where the item id is stored - the bg event's packed word for a hidden
+   * item, or the setorcopyvar argument inside a script for the rest. Both
+   * the identity of the entry and where an edit writes.
+   */
+  id: number
+  source: 'hidden' | 'ball' | 'gift'
+  label: string
+  x: number
+  y: number
+  item: number
+  quantity: number
+}
+
 export interface MapEvents {
   npcs: NpcEvent[]
   warps: WarpEvent[]
@@ -504,6 +520,10 @@ export interface MapModule {
   /** Appends a product, relocating the list. False = no free space. */
   addShopProduct(key: string, shopId: number, item: number): boolean
   removeShopProduct(key: string, shopId: number, slot: number): boolean
+  /** Every pickup on the map: hidden items, Ball items and script gifts. */
+  readItems(key: string): MapItemEntry[]
+  /** Replaces the item an entry hands out. In-place; nothing moves. */
+  setItem(key: string, id: number, source: MapItemEntry['source'], item: number): void
   /** Revert all block-grid edits on this map. */
   revertBlocks(key: string): void
 }
