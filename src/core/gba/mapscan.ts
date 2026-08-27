@@ -29,7 +29,13 @@ export interface Gen3MapIndex {
 
 const MAX_MAP_DIM = 0x200
 const MAX_EVENT_COUNT = 200
-const MAX_BANKS = 64
+/**
+ * Emerald ships 34 banks, but a decomp build that compiles the FRLG map
+ * groups back in has 75 - and the check below rejects the whole index
+ * rather than truncating it, so a limit anywhere near the real count
+ * would disable map editing outright on those ROMs.
+ */
+const MAX_BANKS = 256
 const MAX_TOTAL_MAPS = 1500
 
 function u32(bytes: Uint8Array, off: number): number {
