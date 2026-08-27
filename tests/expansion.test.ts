@@ -522,6 +522,32 @@ describe('expansion adapter', () => {
     expect(rom.readU16LE(hidden.id) >> 11).toBe(5)
   })
 
+  it('never offers a branch destination as dialogue', () => {
+    const { a } = adapter()
+    const maps = a.mapModule!
+    const key = maps.entries[0].key
+    const d = maps.readScriptCommands(key, 'npc', 1)!
+    const goto = d.instructions.find((ins) => ins.name === 'goto')!
+    expect(goto).toBeDefined()
+    // Script bytecode decodes as plausible text often enough to fool a
+    // content check, and editing that "dialogue" would write a text
+    // pointer over the jump.
+    expect(goto.args[0].text ?? null).toBeNull()
+    expect(goto.args[0].value).toBe(0x08312800)
+  })
+
+  it('decodes an item\'s bag icon, and copes with one that has none', () => {
+    const { a } = adapter()
+    const items = a.itemModule!
+    const icon = items.icon!(3)!
+    expect(icon).not.toBeNull()
+    expect([icon.width, icon.height]).toEqual([24, 24])
+    // Colour 0 is transparent in every GBA sprite, so a tile painted
+    // entirely in colour 1 must come back fully opaque.
+    expect(icon.pixels[3]).toBe(255)
+    expect(items.icon!(5)).toBeNull()
+  })
+
   it('leaves decoration shops alone', () => {
     const { a } = adapter()
     const maps = a.mapModule!

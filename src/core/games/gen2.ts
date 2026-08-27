@@ -934,6 +934,7 @@ export function tryBuildGen2(rom: Rom, gameName: string, platform: string): Game
     mapModule: gen2maps?.module ?? null,
     trainerModule: trainers?.module ?? null,
     trainerLocations: null,
+    overworldSprite: null,
     trainerSprite: null,
     trainerSpriteCount: null,
     wildModule: wild?.module ?? null,

@@ -77,6 +77,19 @@ function argOffset(ins: { offset: number; args: { size: number }[] }, n: number)
   return at
 }
 
+/**
+ * Whether a pointer argument points at dialogue.
+ *
+ * Not every 4-byte argument does, and script bytecode decodes as
+ * plausible text often enough to fool a content check - a branch to
+ * another script came back as mojibake, and editing that "dialogue"
+ * would have written a text pointer over a jump. The macros name their
+ * text parameters, so the name is the test.
+ */
+function holdsText(command: string, argName: string): boolean {
+  return argName.includes('text') || (command === 'loadword' && argName === 'value')
+}
+
 export function familyForGameCode(code: string): Family {
   if (code.startsWith('AX') || code.startsWith('BPE')) return RSE
   return FRLG
@@ -586,7 +599,8 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
       if (!d) return null
       for (const ins of d.instructions)
         for (const arg of ins.args)
-          if (arg.size === 4 && arg.target === null) arg.text = resolveText(bytes, arg.value)
+          if (arg.size === 4 && arg.target === null && holdsText(ins.name, arg.name))
+            arg.text = resolveText(bytes, arg.value)
       return d
     },
 
@@ -708,6 +722,7 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
         out.push({
           id: o + 8,
           source: 'hidden',
+          event: { kind: 'sign', index: i },
           label: `Hidden ${out.length + 1}`,
           x: s16(bytes, o),
           y: s16(bytes, o + 2),
@@ -767,6 +782,7 @@ export function buildGen3MapModule(rom: Rom, gameCode: string): { module: MapMod
             out.push({
               id: itemAt,
               source,
+              event: { kind, index: i },
               label: `${source === 'ball' ? 'Ball' : 'Gift'} - ${kind === 'npc' ? 'NPC' : 'Sign'} ${i + 1}`,
               x: s16(bytes, o + (kind === 'npc' ? 4 : 0)),
               y: s16(bytes, o + (kind === 'npc' ? 6 : 2)),

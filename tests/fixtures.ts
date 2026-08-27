@@ -791,7 +791,12 @@ function addTrainerOnMap(rom: Uint8Array, ptr: (off: number) => number[], u16: (
   // trainerbattle is 40 bytes, then release + end - without a
   // terminator the walker runs on into whatever follows.
   put(rom, script, [0x6a, 0x5a, 0x5c, 0x00, 0x00, ...u16(3)])
-  put(rom, script + 42, [0x6c, 0x02])
+  // release, then a goto whose target is outside this script, followed
+  // by end. The goto's destination points at bytes that decode as text,
+  // which is exactly the trap: a branch must not be offered for editing
+  // as if it were dialogue.
+  put(rom, script + 42, [0x6c, 0x05, ...ptr(0x312800), 0x02])
+  put(rom, 0x312800, [0xbb, 0xbc, 0xbd, 0xff])
   // A shop on the plain NPC: pokemart (0x86) with a pointer to a
   // zero-terminated item list.
   const shopScript = 0x312680
@@ -1127,6 +1132,17 @@ export function makeGen3ExpansionRom(): Uint8Array {
     put(rom, o + 28, [0, 20]) // holdEffect, holdEffectParam
     put(rom, o + 30, [(1 << 3) | 0]) // pocket 1 (Poké Balls), importance 0
     put(rom, o + 31, [3, 4, 8, 30]) // sortType, type, battleUsage, flingPower
+    // The bag icon: 3x3 tiles of 4bpp, LZ77'd, and a 16-colour palette
+    // right before it. Item 5 deliberately has none, so the editor has
+    // to cope with an item that cannot be pictured.
+    if (i !== 5) {
+      const icon = 0x0a0000 + i * 0x100
+      put(rom, icon, u16(0)) // colour 0: transparent
+      put(rom, icon + 2, u16(0x7c1f)) // colour 1: magenta
+      put(rom, icon + 32, lz77Compress(new Uint8Array(9 * 32).fill(0x11)))
+      put(rom, o + 36, ptr(icon + 32)) // iconPic
+      put(rom, o + 40, ptr(icon)) // iconPalette
+    }
   }
 
   addTrainerTables(rom, ptr, u16, text)

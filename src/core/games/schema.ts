@@ -113,6 +113,11 @@ export interface GameAdapter {
    * and genuinely has no fixed spot.
    */
   trainerLocations: TrainerLocationIndex | null
+  /**
+   * Renders an overworld sprite by graphics id - what an NPC's Sprite
+   * field selects (null = the table was not found).
+   */
+  overworldSprite: ((graphicsId: number) => RenderedImage | null) | null
   /** Renders a trainer's front sprite by pic id (null = table not found). */
   trainerSprite: ((picId: number) => RenderedImage | null) | null
   /** How many trainer pics the sprite table holds (null = not found). */
@@ -420,6 +425,12 @@ export interface MapItemEntry {
    */
   id: number
   source: 'hidden' | 'ball' | 'gift'
+  /**
+   * The event this pickup belongs to, so the map can mark it. Hidden
+   * items are bg events; the other two hang off whatever event runs the
+   * script, which is almost always the Ball or the NPC itself.
+   */
+  event: { kind: EventKind; index: number }
   label: string
   x: number
   y: number

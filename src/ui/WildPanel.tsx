@@ -40,7 +40,12 @@ export function WildPanel({ adapter, onEdit }: { adapter: GameAdapter; onEdit: (
       </div>
       <div className="detail" key={key}>
         <div className="detail-header">
-          <h2 className="entry-title">Wild Pokémon — Map {key}</h2>
+          {/* The list names the place; the heading said "Map 0.16". The
+              label carries the key too ("0.16 - Route 101"), and the
+              heading only needs the name. */}
+          <h2 className="entry-title">
+            Wild Pokémon — {module.entries.find((e) => e.key === key)?.label.split(' — ').pop() ?? key}
+          </h2>
           <button className="ghost" onClick={() => { module.revert(key); onEdit() }}>
             Revert this map's encounters
           </button>

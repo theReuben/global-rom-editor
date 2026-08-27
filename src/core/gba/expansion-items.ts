@@ -26,9 +26,18 @@
  *   +0x28 const u16 *iconPalette
  */
 import type { Rom } from '../rom'
+import {
+  GEN3_HOLD_EFFECTS,
+  GEN3_ITEM_BATTLE_USE,
+  GEN3_ITEM_SORT_TYPES,
+  GEN3_ITEM_USE_TYPES,
+  symbolOptions,
+} from '../games/gen3-symbols'
 import type { EntryHandle, FieldSpec, ItemModule, SelectOption } from '../games/schema'
 import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import { gen3DecodeText, gen3EncodeText } from '../text'
+import { decompressGraphics } from './compress'
+import { decodeTile4bpp, readPalette } from '../tiles'
 
 export const ITEM_ENTRY = 44
 export const IT = {
@@ -44,7 +53,13 @@ export const IT = {
   type: 0x20,
   battleUsage: 0x21,
   flingPower: 0x22,
+  iconPic: 0x24,
+  iconPalette: 0x28,
 } as const
+
+/** Bag icons are 3x3 tiles of 8x8. */
+const ICON_SIZE = 24
+const ICON_TILES = 9
 
 const MAX_NAME = 24
 const MAX_DESCRIPTION = 256
@@ -126,10 +141,10 @@ export function buildExpansionItems(rom: Rom, table: { offset: number; count: nu
 
   const fields: FieldSpec[] = [
     { key: 'price', label: 'Price', kind: 'number', min: 0, max: 0xffffffff, group: 'shop', help: 'The expansion widened this to 32 bits.' },
-    { key: 'holdEffect', label: 'Hold effect', kind: 'number', min: 0, max: 255, group: 'battle', help: 'Hold effect id — see the decomp constants.' },
+    { key: 'holdEffect', label: 'Hold effect', kind: 'select', options: symbolOptions(GEN3_HOLD_EFFECTS), group: 'battle' },
     { key: 'holdEffectParam', label: 'Hold effect value', kind: 'number', min: 0, max: 255, group: 'battle' },
     { key: 'flingPower', label: 'Fling power', kind: 'number', min: 0, max: 255, group: 'battle' },
-    { key: 'battleUsage', label: 'Battle usage', kind: 'number', min: 0, max: 255, group: 'battle' },
+    { key: 'battleUsage', label: 'Battle usage', kind: 'select', options: [{ value: 0, label: 'Not usable in battle' }, ...symbolOptions(GEN3_ITEM_BATTLE_USE)], group: 'battle' },
     { key: 'pocket', label: 'Pocket', kind: 'select', options: POCKETS, group: 'bag' },
     {
       key: 'importance',
@@ -143,9 +158,9 @@ export function buildExpansionItems(rom: Rom, table: { offset: number; count: nu
       group: 'bag',
     },
     { key: 'notConsumed', label: 'Not consumed on use', kind: 'select', options: [{ value: 0, label: 'No' }, { value: 1, label: 'Yes' }], group: 'bag' },
-    { key: 'type', label: 'Field use type', kind: 'number', min: 0, max: 255, group: 'bag' },
+    { key: 'type', label: 'Field use type', kind: 'select', options: symbolOptions(GEN3_ITEM_USE_TYPES), group: 'bag' },
     { key: 'secondaryId', label: 'Secondary id', kind: 'number', min: 0, max: 65535, group: 'bag', help: 'Ball id, TM number, or berry id depending on the item.' },
-    { key: 'sortType', label: 'Sort type', kind: 'number', min: 0, max: 255, group: 'bag' },
+    { key: 'sortType', label: 'Sort type', kind: 'select', options: symbolOptions(GEN3_ITEM_SORT_TYPES), group: 'bag' },
   ]
 
   const module: ItemModule = {
@@ -220,6 +235,46 @@ export function buildExpansionItems(rom: Rom, table: { offset: number; count: nu
 
     setDescription(id, text) {
       return writeSharedText(rom, entryAt(id) + IT.description, text, MAX_DESCRIPTION, sharedText(IT.description))
+    },
+
+    /**
+     * The bag icon: 3x3 tiles of 4bpp, compressed, with an uncompressed
+     * 16-colour palette. Both pointers live in the item's own entry, so
+     * unlike vanilla there is no separate icon table to discover.
+     */
+    icon(id) {
+      const entry = entryAt(id)
+      const pic = readGbaPointer(bytes, entry + IT.iconPic)
+      const pal = readGbaPointer(bytes, entry + IT.iconPalette)
+      if (pic === null || pal === null) return null
+      let tiles: Uint8Array | null = null
+      try {
+        tiles = decompressGraphics(bytes, pic)
+      } catch {
+        return null
+      }
+      if (!tiles || tiles.length < ICON_TILES * 32) return null
+      const colors = readPalette(bytes, pal)
+      const pixels = new Uint8ClampedArray(ICON_SIZE * ICON_SIZE * 4)
+      for (let t = 0; t < ICON_TILES; t++) {
+        const tile = decodeTile4bpp(tiles, t * 32)
+        const ox = (t % 3) * 8
+        const oy = Math.floor(t / 3) * 8
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 8; x++) {
+            const c = tile[y * 8 + x]
+            const o = ((oy + y) * ICON_SIZE + ox + x) * 4
+            // Colour 0 is the transparent one in every GBA sprite.
+            if (c === 0) continue
+            const [r, g, b] = colors[c]
+            pixels[o] = r
+            pixels[o + 1] = g
+            pixels[o + 2] = b
+            pixels[o + 3] = 255
+          }
+        }
+      }
+      return { pixels, width: ICON_SIZE, height: ICON_SIZE }
     },
 
     revert(id) {

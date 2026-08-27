@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Rom } from '../src/core/rom'
 import { buildAdapter } from '../src/core/games'
 import { discoverMaps, scanBankTable } from '../src/core/gba/mapscan'
+import { findOverworldSprites } from '../src/core/gba/overworld-sprites'
 import { makeGen1Rom, makeGen3Rom } from './fixtures'
 
 const loadModule = () => {
@@ -301,5 +302,53 @@ describe('Gen 2 maps', () => {
 
     ptr(0x204, 0x110)
     expect(scanBankTable(bytes, new Set([0x100, 0x110, 0x120]))!.skippedMaps).toBe(0)
+  })
+})
+
+describe('overworld sprites', () => {
+  it('finds the table across the hole a partial build leaves', () => {
+    // Graphics infos, a pointer table that uses them, and a run of
+    // nulls in the middle - the shape left behind when a build compiles
+    // some of the object events out.
+    const bytes = new Uint8Array(0x8000)
+    const write = (at: number, values: number[] | Uint8Array) => bytes.set(values, at)
+    const ptr = (target: number) => [target & 0xff, (target >> 8) & 0xff, (target >> 16) & 0xff, 0x08]
+    const u16 = (v: number) => [v & 0xff, v >> 8]
+
+    // One 16x32 frame of solid colour 1, and a palette whose colour 1
+    // is pure red.
+    write(0x1000, new Uint8Array(256).fill(0x11))
+    write(0x1400, [...ptr(0x1000), ...u16(256), 0, 0]) // SpriteFrameImage
+    write(0x1500, [...u16(0), ...u16(0x001f)]) // transparent, then red
+    write(0x1600, [...ptr(0x1500), ...u16(0x1103), 0, 0]) // {palette, tag}
+    write(0x1608, [...ptr(0x1500), ...u16(0x1104), 0, 0])
+    write(0x1610, [...ptr(0x1500), ...u16(0x1105), 0, 0])
+
+    const COUNT = 40
+    for (let i = 0; i < COUNT; i++) {
+      const at = 0x2000 + i * 0x40
+      write(at, [...u16(0xffff), ...u16(0x1103), ...u16(0xffff), ...u16(256)])
+      write(at + 8, [...u16(16), ...u16(32), 0, 0])
+      write(at + 0x1c, ptr(0x1400))
+    }
+
+    const table = 0x6000
+    for (let i = 0; i < COUNT; i++) write(table + i * 4, ptr(0x2000 + i * 0x40))
+    // 100 empty ids, then one more real entry on the far side of them.
+    const far = table + (COUNT + 100) * 4
+    write(far, ptr(0x2000))
+
+    const sprites = findOverworldSprites(bytes)!
+    expect(sprites).not.toBeNull()
+    expect(sprites.tableOffset).toBe(table)
+    expect(sprites.count).toBe(COUNT + 101)
+    expect(sprites.paletteFor(0x1103)).toBe(0x1500)
+
+    const img = sprites.render(0)!
+    expect([img.width, img.height]).toEqual([16, 32])
+    // Every pixel is colour 1, which the palette makes opaque red.
+    expect([...img.pixels.slice(0, 4)]).toEqual([255, 0, 0, 255])
+    // An id inside the hole has no sprite rather than a wrong one.
+    expect(sprites.render(COUNT + 5)).toBeNull()
   })
 })

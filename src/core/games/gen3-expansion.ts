@@ -15,6 +15,7 @@
  * warning, per invariant 1 — never a guess.
  */
 import { Rom } from '../rom'
+import { findOverworldSprites, type OverworldSprites } from '../gba/overworld-sprites'
 import { gen3Codec } from '../text'
 import { findFreeSpaceAtEnd, readGbaPointer, writeGbaPointer } from '../freespace'
 import { buildGen3MapModule } from '../gba/maps'
@@ -704,6 +705,22 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
    * Trainer ids in this table are the game's own TRAINER_* constants, so
    * the ids map scripts reference index straight into it.
    */
+  /**
+   * Overworld sprites are found on first use: the scan walks the whole
+   * ROM, and most sessions never open a map.
+   */
+  let overworldCache: OverworldSprites | null | undefined
+  const overworldSprite = (graphicsId: number): RenderedImage | null => {
+    if (overworldCache === undefined) {
+      try {
+        overworldCache = findOverworldSprites(bytes)
+      } catch {
+        overworldCache = null
+      }
+    }
+    return overworldCache?.render(graphicsId) ?? null
+  }
+
   let trainerSprite: ((picId: number) => RenderedImage | null) | null = null
   let trainerSpriteCount: number | null = null
   try {
@@ -934,6 +951,7 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     mapModule,
     trainerModule,
     trainerLocations,
+    overworldSprite,
     trainerSprite,
     trainerSpriteCount,
     wildModule,

@@ -1,4 +1,5 @@
 import type { GameAdapter } from '../core/games/schema'
+import { Sprite } from './Sprite'
 
 /**
  * Every item lying around on the selected map.
@@ -22,6 +23,7 @@ export function ItemsCard({
   const module = adapter.mapModule!
   const found = module.readItems(mapKey)
   const options = adapter.itemOptions ?? []
+  const icon = adapter.itemModule?.icon
 
   if (found.length === 0) return null
 
@@ -31,43 +33,36 @@ export function ItemsCard({
         Items on this map
         <span className="bst">{found.length}</span>
       </h3>
-      <table className="grid">
-        <thead>
-          <tr>
-            <th>Where</th>
-            <th>At</th>
-            <th>Item</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {found.map((entry) => (
-            <tr key={`${entry.source}-${entry.id}`}>
-              <td>{entry.label}</td>
-              <td className="muted small">
+      <div className="map-items">
+        {found.map((entry) => (
+          <div className="map-item" key={`${entry.source}-${entry.id}`}>
+            <div className="map-item-head">
+              <Sprite image={icon?.(entry.item) ?? null} scale={1} />
+              <span className={`event-tag ${entry.source === 'hidden' ? 'sign' : 'npc'}`}>
+                {entry.source === 'hidden' ? 'Hidden' : entry.source === 'ball' ? 'Ball' : 'Gift'}
+              </span>
+              <span className="muted small">
                 {entry.x}, {entry.y}
-              </td>
-              <td>
-                <select
-                  value={entry.item}
-                  onChange={(e) => {
-                    module.setItem(mapKey, entry.id, entry.source, Number(e.target.value))
-                    onEdit()
-                  }}
-                >
-                  {!options.some((o) => o.value === entry.item) && (
-                    <option value={entry.item}>Item #{entry.item}</option>
-                  )}
-                  {options.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </td>
-              <td className="muted small">{entry.quantity > 1 ? `×${entry.quantity}` : ''}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                {entry.quantity > 1 ? ` · ×${entry.quantity}` : ''}
+              </span>
+            </div>
+            <select
+              value={entry.item}
+              onChange={(e) => {
+                module.setItem(mapKey, entry.id, entry.source, Number(e.target.value))
+                onEdit()
+              }}
+            >
+              {!options.some((o) => o.value === entry.item) && (
+                <option value={entry.item}>Item #{entry.item}</option>
+              )}
+              {options.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
     </section>
   )
 }
