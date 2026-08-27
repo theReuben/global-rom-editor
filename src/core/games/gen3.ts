@@ -184,6 +184,11 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     const maps = buildGen3MapModule(rom, gameCode)
     if (maps) {
       mapModule = maps.module
+      if (maps.index.skippedMaps > 0)
+        warnings.push(
+          `${maps.index.skippedMaps} map${maps.index.skippedMaps === 1 ? '' : 's'} could not be verified and ` +
+            'are missing from the map list — everything else on this ROM is unaffected.',
+        )
       regions.push({
         name: `Map bank table (${maps.index.banks.length} banks, ${maps.module.entries.length} maps)`,
         offset: maps.index.bankTableOffset,

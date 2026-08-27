@@ -616,6 +616,11 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
       mapModule = maps.module
       mapIndex = maps.index
       mapKeys = new Set(maps.module.entries.map((e) => e.key))
+      if (maps.index.skippedMaps > 0)
+        warnings.push(
+          `${maps.index.skippedMaps} map${maps.index.skippedMaps === 1 ? '' : 's'} could not be verified and ` +
+            'are missing from the map list — everything else on this ROM is unaffected.',
+        )
       regions.push({
         name: `Map bank table (${maps.index.banks.length} banks, ${maps.module.entries.length} maps)`,
         offset: maps.index.bankTableOffset,
