@@ -464,6 +464,8 @@ export function buildGen1Maps(
     writeScriptCommands: () => false,
     // Gen 1/2 shops are not script-driven the way Gen 3's are.
     readShops: () => [],
+    readItems: () => [],
+    setItem: () => {},
     setShopProduct: () => {},
     addShopProduct: () => false,
     removeShopProduct: () => false,

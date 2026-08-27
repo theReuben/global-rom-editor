@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Rom } from '../src/core/rom'
 import { buildAdapter } from '../src/core/games'
-import { discoverMaps } from '../src/core/gba/mapscan'
+import { discoverMaps, scanBankTable } from '../src/core/gba/mapscan'
 import { makeGen1Rom, makeGen3Rom } from './fixtures'
 
 const loadModule = () => {
@@ -273,5 +273,33 @@ describe('Gen 2 maps', () => {
     expect(back.warps).toHaveLength(2)
     expect(back.signs).toHaveLength(1)
     expect(back.npcs).toHaveLength(2)
+  })
+
+  it('counts the maps a bank stopped short of', () => {
+    // scanBankTable only needs the verified header set, so the pointers
+    // can be laid out by hand: two banks, the first holding two map
+    // slots of which the second header is not verified.
+    const bytes = new Uint8Array(0x400)
+    const ptr = (at: number, target: number) => {
+      bytes[at] = target & 0xff
+      bytes[at + 1] = (target >> 8) & 0xff
+      bytes[at + 2] = (target >> 16) & 0xff
+      bytes[at + 3] = 0x08
+    }
+    ptr(0x200, 0x100) // bank 0, map 0 - verified
+    ptr(0x204, 0x110) // bank 0, map 1 - not in the header set
+    ptr(0x208, 0x120) // bank 1, map 0 - verified
+    ptr(0x300, 0x200) // the bank table
+    ptr(0x304, 0x208)
+
+    const index = scanBankTable(bytes, new Set([0x100, 0x120]))!
+    expect(index).not.toBeNull()
+    expect(index.banks.map((b) => b.length)).toEqual([1, 1])
+    // The gap between where bank 0 stopped and where bank 1 starts is
+    // the map the editor cannot show.
+    expect(index.skippedMaps).toBe(1)
+
+    ptr(0x204, 0x110)
+    expect(scanBankTable(bytes, new Set([0x100, 0x110, 0x120]))!.skippedMaps).toBe(0)
   })
 })

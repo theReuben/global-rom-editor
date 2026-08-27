@@ -799,6 +799,28 @@ function addTrainerOnMap(rom: Uint8Array, ptr: (off: number) => number[], u16: (
   put(rom, shopScript, [0x86, ...ptr(shopList), 0x02])
   put(rom, shopList, [...u16(13), ...u16(14), ...u16(0)])
   put(rom, npcs + 16, ptr(shopScript))
+
+  // A Ball on the ground and a hidden item, the two ways the game
+  // stores a pickup. The Ball's script is the shared find-item one, so
+  // the item id lives in the object's own template (trainerRange) and
+  // the count in movementRangeX - nothing in the script names either.
+  const ballScript = 0x3126c0
+  const bgEvents = 0x312780
+  put(rom, events, [3])
+  put(rom, npcs + 48, [3, 6, 0, 0, ...u16(4), ...u16(5), 3, 1, 0x02, 0, ...u16(0), ...u16(13), ...ptr(ballScript), ...u16(0), ...u16(0)])
+  put(rom, ballScript, [
+    0x23, ...ptr(0x312000), // callnative GetItemBallIdAndAmountFromTemplate
+    0x1a, ...u16(0x8000), ...u16(0x800d), // setorcopyvar VAR_0x8000, VAR_RESULT
+    0x1a, ...u16(0x8001), ...u16(0x8009), // setorcopyvar VAR_0x8001, VAR_0x8009
+    0x09, 0x01, // callstd STD_FIND_ITEM
+    0x02,
+  ])
+  put(rom, events + 3, [1])
+  put(rom, events + 16, ptr(bgEvents))
+  // kind 7 = hidden item; the packed word keeps the item in its low
+  // bits and a flag id above them.
+  // The union is 4-aligned, so two padding bytes sit before it.
+  put(rom, bgEvents, [...u16(7), ...u16(8), 3, 7, 0, 0, ...u16(21 | (5 << 11)), ...u16(0)])
 }
 
 /**

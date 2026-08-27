@@ -23,13 +23,26 @@ export interface Gen3MapIndex {
   bankTableOffset: number
   /** banks[bank][map] = map header offset. */
   banks: number[][]
+  /**
+   * Map slots a bank's list stopped short of. A map whose header fails
+   * validation truncates its bank, and the maps behind it go missing
+   * from the editor with nothing to show for it - this is what lets the
+   * adapter say so rather than quietly listing fewer maps.
+   */
+  skippedMaps: number
   tilesetOffsets: Set<number>
   layoutOffsets: Set<number>
 }
 
 const MAX_MAP_DIM = 0x200
 const MAX_EVENT_COUNT = 200
-const MAX_BANKS = 64
+/**
+ * Emerald ships 34 banks, but a decomp build that compiles the FRLG map
+ * groups back in has 75 - and the check below rejects the whole index
+ * rather than truncating it, so a limit anywhere near the real count
+ * would disable map editing outright on those ROMs.
+ */
+const MAX_BANKS = 256
 const MAX_TOTAL_MAPS = 1500
 
 function u32(bytes: Uint8Array, off: number): number {
@@ -165,18 +178,31 @@ export function scanBankTable(bytes: Uint8Array, headers: Set<number>): Gen3MapI
   const startSet = new Set(bankStarts)
   const banks: number[][] = []
   let total = 0
-  for (const start of bankStarts) {
+  let skippedMaps = 0
+  for (let b = 0; b < bankStarts.length; b++) {
+    const start = bankStarts[b]
     const run = memberRun.get(start)!
     const maps: number[] = []
-    for (let p = start; memberRun.get(p) === run; p += 4) {
+    let p = start
+    for (; memberRun.get(p) === run; p += 4) {
       if (p !== start && startSet.has(p)) break
       maps.push(readGbaPointer(bytes, p)!)
       total++
       if (total > MAX_TOTAL_MAPS) return null
     }
+    // Banks sit back to back, so the next one's start is where this one
+    // ends. Stopping before it means the maps in between were rejected.
+    const next = bankStarts[b + 1]
+    if (next !== undefined && next > p) skippedMaps += (next - p) / 4
     banks.push(maps)
   }
-  return { bankTableOffset: bankRun.start, banks, tilesetOffsets: new Set(), layoutOffsets: new Set() }
+  return {
+    bankTableOffset: bankRun.start,
+    banks,
+    skippedMaps,
+    tilesetOffsets: new Set(),
+    layoutOffsets: new Set(),
+  }
 }
 
 /** Run the full bottom-up discovery. */

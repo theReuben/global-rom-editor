@@ -47,7 +47,12 @@ def opcodes(root):
 
 
 def macro_bodies(root):
-    src = open(f'{root}/asm/macros/event.inc', encoding='utf-8').read()
+    # map.inc as well as event.inc: `map \map` is where a warp's two
+    # bytes of map group and number come from, and missing it silently
+    # shortens every warp command by two.
+    src = '\n'.join(
+        open(f'{root}/asm/macros/{f}', encoding='utf-8').read() for f in ('map.inc', 'event.inc')
+    )
     out = {}
     for block in re.split(r'^\s*\.macro\s+', src, flags=re.M)[1:]:
         body = block.split('.endm')[0]
@@ -56,9 +61,60 @@ def macro_bodies(root):
     return out
 
 
+def open_branch(args, spans):
+    spans.append([len(args), None, False, False])
+
+
+def alt_branch(args, spans):
+    """A .else or .elseif: close the branch so far, then start the next."""
+    if not spans:
+        return True
+    if spans[-1][1] is None:
+        spans[-1][1] = len(args)
+        return True
+    if not close_branch(args, spans[-1]):
+        return False
+    spans[-1] = [spans[-1][0], len(args), False, False]
+    return True
+
+
+def close_branch(args, span):
+    """Collapse one conditional to the single branch that assembles.
+
+    Only one branch of an .if ever emits, so both are read and then the
+    duplicate is dropped. A branch containing .error cannot assemble at
+    all - that is how `map` rejects an unknown map id - so it counts as
+    emitting nothing. Two live branches that disagree on their bytes
+    leave the command with no single layout.
+    """
+    start, alt, dead_if, dead_else = span
+    if alt is None:
+        if dead_if:
+            del args[start:]
+            return True
+        return len(args) == start
+    if dead_else:
+        del args[alt:]
+        return True
+    if dead_if:
+        del args[start:alt]
+        return True
+    if [a['size'] for a in args[start:alt]] == [a['size'] for a in args[alt:]]:
+        del args[alt:]
+        return True
+    return False
+
+
+def mark_dead(spans):
+    """The branch we are inside cannot assemble, so it emits nothing."""
+    if spans:
+        spans[-1][3 if spans[-1][1] is not None else 2] = True
+
+
 def parse(lines, ops, macros, seen=()):
     """Yields (opcode, name, args, variable) for each command a macro defines."""
     commands = []          # finished commands
+    branches = []          # open .if/.else spans, as [start, else_start]
     cur = None             # (opcode, args, variable)
 
     def flush():
@@ -71,7 +127,22 @@ def parse(lines, ops, macros, seen=()):
             continue
         for piece in [p.strip() for p in line.split(';') if p.strip()]:
             token = piece.split()[0]
-            if token in HARMLESS or re.match(r'\.if|\.else|\.endif|\.endm', token):
+            if token in ('.error', '.fail'):
+                mark_dead(branches)
+                continue
+            if token in HARMLESS or token == '.endm':
+                continue
+            if token.startswith('.if'):
+                if cur:
+                    open_branch(cur[2], branches)
+                continue
+            if token in ('.else', '.elseif'):
+                if cur and branches and not alt_branch(cur[2], branches):
+                    cur = (cur[0], cur[1], cur[2], True)
+                continue
+            if token == '.endif':
+                if cur and branches and not close_branch(cur[2], branches.pop()):
+                    cur = (cur[0], cur[1], cur[2], True)
                 continue
             if token in EMIT:
                 operand = piece.split(None, 1)[1] if len(piece.split(None, 1)) > 1 else ''
@@ -80,6 +151,7 @@ def parse(lines, ops, macros, seen=()):
                 if token == '.byte' and parts and parts[0] in ops:
                     flush()
                     cur = (ops[parts[0]], macros_name_for(parts[0]), [], False)
+                    branches = []
                     parts = parts[1:]
                 if cur is None:
                     continue
@@ -108,13 +180,30 @@ def parse(lines, ops, macros, seen=()):
 def inline_size(lines, ops, macros, seen):
     """Args emitted by a macro that does not start its own command."""
     args = []
+    branches = []
     for raw in lines:
         line = raw.split('@')[0].strip()
         if not line:
             continue
         for piece in [p.strip() for p in line.split(';') if p.strip()]:
             token = piece.split()[0]
-            if token in HARMLESS or re.match(r'\.if|\.else|\.endif|\.endm', token):
+            if token in ('.error', '.fail'):
+                mark_dead(branches)
+                continue
+            if token in HARMLESS or token == '.endm':
+                continue
+            # Same one-branch-only rule as parse(); a macro whose live
+            # branches disagree has no single size, so it gives up.
+            if token.startswith('.if'):
+                open_branch(args, branches)
+                continue
+            if token in ('.else', '.elseif'):
+                if not alt_branch(args, branches):
+                    return None
+                continue
+            if token == '.endif':
+                if branches and not close_branch(args, branches.pop()):
+                    return None
                 continue
             if token in EMIT:
                 operand = piece.split(None, 1)[1] if len(piece.split(None, 1)) > 1 else ''
