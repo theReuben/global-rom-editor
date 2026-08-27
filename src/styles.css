@@ -870,3 +870,8 @@ input[type='range'] { accent-color: var(--accent); }
 }
 .npc-sprite-row .event-field { flex: 1; min-width: 0; }
 .npc-sprite-row .pixel-sprite { margin-bottom: 4px; }
+
+/* A marker sharing its tile is a quarter of the size; the number in it
+   would be illegible, so it is hidden and the tooltip carries the name. */
+.map-marker.shared .marker-glyph { display: none; }
+.map-marker.shared .marker-name { display: none; }

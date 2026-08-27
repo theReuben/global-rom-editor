@@ -5,9 +5,9 @@
 
 /** Story/progress flags, by number. */
 export const GEN3_FLAG_NAMES: Record<number, string> = {
-  1: "TEMP_1",
-  2: "TEMP_2",
-  3: "TEMP_3",
+  1: "TEMP_SKIP_GABBY_INTERVIEW",
+  2: "TEMP_REGICE_PUZZLE_STARTED",
+  3: "TEMP_REGICE_PUZZLE_FAILED",
   4: "TEMP_4",
   5: "TEMP_5",
   6: "TEMP_6",
@@ -18,10 +18,10 @@ export const GEN3_FLAG_NAMES: Record<number, string> = {
   11: "TEMP_B",
   12: "TEMP_C",
   13: "TEMP_D",
-  14: "TEMP_E",
+  14: "TEMP_HIDE_FOLLOWER",
   15: "TEMP_F",
   16: "TEMP_10",
-  17: "TEMP_11",
+  17: "TEMP_HIDE_MIRAGE_ISLAND_BERRY_TREE",
   18: "TEMP_12",
   19: "TEMP_13",
   20: "TEMP_14",
@@ -426,7 +426,7 @@ export const GEN3_FLAG_NAMES: Record<number, string> = {
   497: "MYSTERY_GIFT_13",
   498: "MYSTERY_GIFT_14",
   499: "MYSTERY_GIFT_15",
-  500: "HIDDEN_ITEMS_START",
+  500: "HIDDEN_ITEM_LAVARIDGE_TOWN_ICE_HEAL",
   501: "HIDDEN_ITEM_TRICK_HOUSE_NUGGET",
   502: "HIDDEN_ITEM_ROUTE_111_STARDUST",
   503: "HIDDEN_ITEM_ROUTE_113_ETHER",
@@ -1400,8 +1400,8 @@ export const GEN3_FLAG_NAMES: Record<number, string> = {
 
 /** Script variables, by number (0x4000 and up). */
 export const GEN3_VAR_NAMES: Record<number, string> = {
-  16384: "TEMP_0",
-  16385: "TEMP_1",
+  16384: "TEMP_CHALLENGE_STATUS",
+  16385: "TEMP_RECORD_MIX_GIFT_ITEM",
   16386: "TEMP_2",
   16387: "TEMP_3",
   16388: "TEMP_4",
@@ -1413,8 +1413,8 @@ export const GEN3_VAR_NAMES: Record<number, string> = {
   16394: "TEMP_A",
   16395: "TEMP_B",
   16396: "TEMP_C",
-  16397: "TEMP_D",
-  16398: "TEMP_E",
+  16397: "TEMP_FRONTIER_TUTOR_SELECTION",
+  16398: "TEMP_PLAYING_PYRAMID_MUSIC",
   16399: "TEMP_F",
   16400: "OBJ_GFX_ID_0",
   16401: "OBJ_GFX_ID_1",

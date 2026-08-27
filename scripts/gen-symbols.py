@@ -74,6 +74,23 @@ def defines(path):
     return out
 
 
+def rank(label):
+    """How much a name tells you, lowest first.
+
+    A value can carry several names. `TEMP_1` and `UNUSED_0x020` say
+    only that a slot exists; `HIDDEN_ITEMS_START` marks where a block
+    begins and belongs to the block, not to its first member. A name
+    that describes what the flag is for beats all of them.
+    """
+    if re.fullmatch(r'(TEMP_)?[0-9A-FX_]+', label):
+        return 3        # TEMP_1, 0x0B4
+    if label.startswith('UNUSED'):
+        return 2
+    if re.search(r'_(START|END|COUNT)$', label):
+        return 1        # the marker for a range, not a flag in itself
+    return 0
+
+
 def resolve(pairs, prefix, drop_zero=True):
     """NAME -> number, for the names that are plain arithmetic.
 
@@ -98,15 +115,22 @@ def resolve(pairs, prefix, drop_zero=True):
         pending = rest
     # Several names can share a value (aliases, and unused slots named
     # after their neighbours). The first definition is the canonical one.
-    # Several names can share a value (aliases, and the stubs that
-    # define the other game's flags as 0). The first definition is the
-    # canonical one. Flags and vars drop 0 - neither starts there, so
-    # anything landing on it is a stub - but sprite and music ids do
-    # start at 0 and keep it.
+    # Several names can share a value: aliases, the stubs that define
+    # the other game's flags as 0, and the markers that name where a
+    # block of flags begins. Definition order does not pick the useful
+    # one - FLAG_TEMP_1 is defined before FLAG_TEMP_SKIP_GABBY_INTERVIEW
+    # and FLAG_HIDDEN_ITEMS_START before the first hidden item - so the
+    # names are ranked and the most descriptive wins.
+    #
+    # Flags and vars drop 0 - neither starts there, so anything landing
+    # on it is a stub - but sprite and music ids do start at 0.
     out = {}
     for name, value in known.items():
-        if name.startswith(prefix) and not (drop_zero and value == 0):
-            out.setdefault(value, name[len(prefix):])
+        if not name.startswith(prefix) or (drop_zero and value == 0):
+            continue
+        label = name[len(prefix):]
+        if value not in out or rank(label) < rank(out[value]):
+            out[value] = label
     return out
 
 

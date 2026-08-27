@@ -84,6 +84,16 @@ function EventMarkers({
     }
     return out
   }, [adapter, module, mapKey])
+  // Several events can stand on one tile - a hidden item under an NPC,
+  // two objects the game swaps between. Stacked exactly, only the last
+  // one drawn can be clicked at all, so a shared tile is split into
+  // quarters and each event takes one. Which tiles are shared has to be
+  // known before any marker is placed, hence the count first.
+  const crowded = new Map<string, number>()
+  for (const e of [...events.npcs, ...events.warps, ...events.signs])
+    crowded.set(`${e.x},${e.y}`, (crowded.get(`${e.x},${e.y}`) ?? 0) + 1)
+  const placed = new Map<string, number>()
+
   const marker = (
     kind: EventKind,
     index: number,
@@ -92,23 +102,38 @@ function EventMarkers({
     title: string,
     body: React.ReactNode,
     extra = '',
-  ) => (
-    <button
-      key={`${kind}${index}`}
-      type="button"
-      className={`map-marker ${kind} ${extra} ${
-        selected?.kind === kind && selected.index === index ? 'selected' : ''
-      }`}
-      title={title}
-      style={{ left: x * 16 * zoom, top: y * 16 * zoom, width: 16 * zoom, height: 16 * zoom }}
-      onClick={(ev) => {
-        ev.stopPropagation()
-        onSelect({ kind, index })
-      }}
-    >
-      {body}
-    </button>
-  )
+  ) => {
+    const tile = `${x},${y}`
+    const sharing = crowded.get(tile) ?? 1
+    const nth = placed.get(tile) ?? 0
+    placed.set(tile, nth + 1)
+    const shared = sharing > 1
+    const size = shared ? 8 * zoom : 16 * zoom
+    const slot = nth % 4
+    return (
+      <button
+        key={`${kind}${index}`}
+        type="button"
+        className={`map-marker ${kind} ${extra} ${shared ? 'shared' : ''} ${
+          selected?.kind === kind && selected.index === index ? 'selected' : ''
+        }`}
+        title={shared ? `${title} — one of ${sharing} on this tile` : title}
+        style={{
+          left: x * 16 * zoom + (shared ? (slot % 2) * size : 0),
+          top: y * 16 * zoom + (shared ? Math.floor(slot / 2) * size : 0),
+          width: size,
+          height: size,
+          zIndex: 2 + nth,
+        }}
+        onClick={(ev) => {
+          ev.stopPropagation()
+          onSelect({ kind, index })
+        }}
+      >
+        {body}
+      </button>
+    )
+  }
   return (
     <>
       {events.npcs.map((e, i) => {
