@@ -120,6 +120,11 @@ export interface GameAdapter {
   overworldSprite: ((graphicsId: number) => RenderedImage | null) | null
   /** Renders a trainer's front sprite by pic id (null = table not found). */
   trainerSprite: ((picId: number) => RenderedImage | null) | null
+  /**
+   * Replaces a trainer's front sprite with an imported 64x64 image.
+   * Returns a message when it cannot be used, null on success.
+   */
+  importTrainerSprite: ((picId: number, image: RenderedImage) => string | null) | null
   /** How many trainer pics the sprite table holds (null = not found). */
   trainerSpriteCount: number | null
   /** Evolution editing (null = not supported / not found). */

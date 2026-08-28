@@ -548,6 +548,52 @@ describe('expansion adapter', () => {
     expect(items.icon!(5)).toBeNull()
   })
 
+  it('imports new artwork over a trainer sprite', () => {
+    const { a, rom } = adapter()
+    expect(a.importTrainerSprite).not.toBeNull()
+    const before = a.trainerSprite!(3)!
+    expect(before).not.toBeNull()
+
+    // Two flat colours and a transparent corner: enough to prove the
+    // palette, the tile order and the transparent index all survive.
+    const pixels = new Uint8ClampedArray(64 * 64 * 4)
+    for (let y = 0; y < 64; y++)
+      for (let x = 0; x < 64; x++) {
+        if (x < 8 && y < 8) continue
+        const o = (y * 64 + x) * 4
+        pixels[o] = x < 32 ? 248 : 0
+        pixels[o + 2] = x < 32 ? 0 : 248
+        pixels[o + 3] = 255
+      }
+    expect(a.importTrainerSprite!(3, { pixels, width: 64, height: 64 })).toBeNull()
+
+    // Read it back through a fresh adapter, the way a reloaded ROM would.
+    const again = buildAdapter(new Rom('again.gba', rom.bytes)).adapter!
+    const after = again.trainerSprite!(3)!
+    const at = (x: number, y: number) => [...after.pixels.slice((y * 64 + x) * 4, (y * 64 + x) * 4 + 4)]
+    expect(at(40, 40)).toEqual([0, 0, 255, 255])
+    expect(at(10, 40)).toEqual([255, 0, 0, 255])
+    expect(at(2, 2)[3]).toBe(0)
+    // The slots either side must be untouched.
+    expect(again.trainerSprite!(2)).not.toBeNull()
+    expect(again.trainerSprite!(4)).not.toBeNull()
+  })
+
+  it('refuses artwork that is the wrong size or too colourful', () => {
+    const { a } = adapter()
+    const small = new Uint8ClampedArray(32 * 32 * 4)
+    expect(a.importTrainerSprite!(3, { pixels: small, width: 32, height: 32 })).toMatch(/64/)
+
+    const busy = new Uint8ClampedArray(64 * 64 * 4)
+    for (let p = 0; p < 64 * 64; p++) {
+      busy[p * 4] = p % 256
+      busy[p * 4 + 1] = (p * 7) % 256
+      busy[p * 4 + 2] = (p * 13) % 256
+      busy[p * 4 + 3] = 255
+    }
+    expect(a.importTrainerSprite!(3, { pixels: busy, width: 64, height: 64 })).toMatch(/colors/)
+  })
+
   it('leaves decoration shops alone', () => {
     const { a } = adapter()
     const maps = a.mapModule!

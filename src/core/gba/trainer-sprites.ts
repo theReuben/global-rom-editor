@@ -21,7 +21,14 @@ import type { RenderedImage } from '../games/schema'
 import { readGbaPointer } from '../freespace'
 import { decompressGraphics } from './compress'
 import { decodeTile4bpp, readPalette, renderTilesRgba } from '../tiles'
-import { readPaletteBytes, PIC_FRAME } from './expansion'
+import {
+  encodePic64,
+  readPaletteBytes,
+  replaceSmolAware,
+  writePaletteBytes,
+  PIC_FRAME,
+} from './expansion'
+import { lz77Compress } from './lz77'
 
 const ENTRY = 32
 const TS = { frontPic: 0x04, picSize: 0x08, picTag: 0x0a, palette: 0x0c } as const
@@ -76,6 +83,11 @@ export interface TrainerSprites {
   offset: number
   count: number
   render: (picId: number) => RenderedImage | null
+  /**
+   * Replaces a trainer's front pic with an imported image. Returns a
+   * message when the image cannot be used, null on success.
+   */
+  importFront: (picId: number, image: RenderedImage) => string | null
 }
 
 export function buildTrainerSprites(rom: Rom): TrainerSprites | null {
@@ -110,5 +122,21 @@ export function buildTrainerSprites(rom: Rom): TrainerSprites | null {
     return out
   }
 
-  return { offset: table.offset, count: table.count, render }
+  const importFront = (picId: number, image: RenderedImage): string | null => {
+    if (picId < 0 || picId >= table.count) return 'Unknown trainer sprite.'
+    const encoded = encodePic64(image)
+    if (typeof encoded === 'string') return encoded
+    const o = table.offset + picId * ENTRY
+    // Every trainer pic in this table is a single 64x64 frame, which the
+    // entry states in picSize - unlike species pics, which animate and
+    // so carry several frames behind one pointer.
+    const gfxError = replaceSmolAware(rom, o + TS.frontPic, lz77Compress(encoded.frame))
+    if (gfxError) return gfxError
+    rom.writeU16LE(o + TS.picSize, PIC_FRAME)
+    writePaletteBytes(rom, o + TS.palette, encoded.palBytes)
+    cache.delete(picId)
+    return null
+  }
+
+  return { offset: table.offset, count: table.count, render, importFront }
 }

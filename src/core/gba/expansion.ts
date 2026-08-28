@@ -858,7 +858,7 @@ export function spritesDecodable(bytes: Uint8Array, table: SpeciesTable): boolea
 }
 
 /** Write a 16-colour palette back over an entry's raw palette slot. */
-function writePaletteBytes(rom: Rom, ptrField: number, palBytes: Uint8Array): void {
+export function writePaletteBytes(rom: Rom, ptrField: number, palBytes: Uint8Array): void {
   const target = readGbaPointer(rom.bytes, ptrField)
   // Blank slot: no palette to overwrite, so give it one.
   if (target === null) {
@@ -922,7 +922,7 @@ const PALETTE_BYTES = 32
  * `lz77CompressedSize`, which reads garbage when the slot holds `smol`
  * data — so the size comes from the codec dispatcher here instead.
  */
-function replaceSmolAware(rom: Rom, ptrField: number, compressed: Uint8Array): string | null {
+export function replaceSmolAware(rom: Rom, ptrField: number, compressed: Uint8Array): string | null {
   const oldPtr = readGbaPointer(rom.bytes, ptrField)
   // A blank species slot has no graphics at all. There is nothing to
   // overwrite, so allocate and point at it - the same path a sprite that
@@ -980,38 +980,10 @@ export function buildExpansionSprites(rom: Rom, table: SpeciesTable): SpriteView
 
   const importPic = (picOff: number, id: number, image: RenderedImage): string | null => {
     if (id < 1 || id > table.count) return 'Unknown species.'
-    if (image.width !== 64 || image.height !== 64)
-      return `Sprites must be exactly 64×64 pixels (got ${image.width}×${image.height}).`
-    const px = image.pixels
-    const bg = px[3] >= 128 ? rgbToBgr555(px[0], px[1], px[2]) : null
-    const paletteWords: number[] = [bg ?? 0]
-    const indexOf = new Map<number, number>()
-    if (bg !== null) indexOf.set(bg, 0)
-    const indices = new Uint8Array(64 * 64)
-    for (let p = 0; p < 64 * 64; p++) {
-      if (px[p * 4 + 3] < 128) continue
-      const word = rgbToBgr555(px[p * 4], px[p * 4 + 1], px[p * 4 + 2])
-      let idx = indexOf.get(word)
-      if (idx === undefined) {
-        if (paletteWords.length >= 16)
-          return 'Too many colors — sprites allow 15 colors plus the transparent background.'
-        idx = paletteWords.length
-        paletteWords.push(word)
-        indexOf.set(word, idx)
-      }
-      indices[p] = idx
-    }
-    while (paletteWords.length < 16) paletteWords.push(0)
+    const encoded = encodePic64(image)
+    if (typeof encoded === 'string') return encoded
+    const { frame, palBytes } = encoded
 
-    const frame = new Uint8Array(PIC_FRAME)
-    for (let t = 0; t < 64; t++) {
-      const tx = (t % 8) * 8
-      const ty = Math.floor(t / 8) * 8
-      const tile = new Uint8Array(64)
-      for (let y = 0; y < 8; y++)
-        for (let x = 0; x < 8; x++) tile[y * 8 + x] = indices[(ty + y) * 64 + tx + x]
-      frame.set(encodeTile4bpp(tile), t * 32)
-    }
     const gfxEntry = field(id, picOff)
     const gfxPtr = readGbaPointer(bytes, gfxEntry)
     // Animated front pics decompress to several frames; keep the
@@ -1022,11 +994,6 @@ export function buildExpansionSprites(rom: Rom, table: SpeciesTable): SpriteView
     for (let o = 0; o < raw.length; o += PIC_FRAME)
       raw.set(frame.subarray(0, Math.min(PIC_FRAME, raw.length - o)), o)
 
-    const palBytes = new Uint8Array(32)
-    paletteWords.forEach((w, i) => {
-      palBytes[i * 2] = w & 0xff
-      palBytes[i * 2 + 1] = w >> 8
-    })
     // Imports are always written as LZ77, even into a `smol` ROM: the
     // expansion's decompressor dispatches on the header, so the game
     // reads it back correctly and this editor needs no smol COMPRESSOR.
@@ -1049,6 +1016,56 @@ export function buildExpansionSprites(rom: Rom, table: SpeciesTable): SpriteView
     importFront: (id, image) => importPic(SP_GFX.frontPic, id, image),
     importBack: (id, image) => importPic(SP_GFX.backPic, id, image),
   }
+}
+
+/**
+ * A 64x64 image as one 4bpp frame plus its 16-colour palette.
+ *
+ * Colour 0 is the transparent one on the GBA, so the pixel at the top
+ * left decides it - that is the convention every sprite sheet in the
+ * decomp follows. Anything transparent maps to it too.
+ *
+ * Returns a message instead when the image cannot be a GBA sprite.
+ */
+export function encodePic64(image: RenderedImage): { frame: Uint8Array; palBytes: Uint8Array } | string {
+  if (image.width !== 64 || image.height !== 64)
+    return `Sprites must be exactly 64×64 pixels (got ${image.width}×${image.height}).`
+  const px = image.pixels
+  const bg = px[3] >= 128 ? rgbToBgr555(px[0], px[1], px[2]) : null
+  const paletteWords: number[] = [bg ?? 0]
+  const indexOf = new Map<number, number>()
+  if (bg !== null) indexOf.set(bg, 0)
+  const indices = new Uint8Array(64 * 64)
+  for (let p = 0; p < 64 * 64; p++) {
+    if (px[p * 4 + 3] < 128) continue
+    const word = rgbToBgr555(px[p * 4], px[p * 4 + 1], px[p * 4 + 2])
+    let idx = indexOf.get(word)
+    if (idx === undefined) {
+      if (paletteWords.length >= 16)
+        return 'Too many colors — sprites allow 15 colors plus the transparent background.'
+      idx = paletteWords.length
+      paletteWords.push(word)
+      indexOf.set(word, idx)
+    }
+    indices[p] = idx
+  }
+  while (paletteWords.length < 16) paletteWords.push(0)
+
+  const frame = new Uint8Array(PIC_FRAME)
+  for (let t = 0; t < 64; t++) {
+    const tx = (t % 8) * 8
+    const ty = Math.floor(t / 8) * 8
+    const tile = new Uint8Array(64)
+    for (let y = 0; y < 8; y++)
+      for (let x = 0; x < 8; x++) tile[y * 8 + x] = indices[(ty + y) * 64 + tx + x]
+    frame.set(encodeTile4bpp(tile), t * 32)
+  }
+  const palBytes = new Uint8Array(32)
+  paletteWords.forEach((w, i) => {
+    palBytes[i * 2] = w & 0xff
+    palBytes[i * 2 + 1] = w >> 8
+  })
+  return { frame, palBytes }
 }
 
 /** 64×64 4bpp = one animation frame. */
