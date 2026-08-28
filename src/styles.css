@@ -875,3 +875,13 @@ input[type='range'] { accent-color: var(--accent); }
    would be illegible, so it is hidden and the tooltip carries the name. */
 .map-marker.shared .marker-glyph { display: none; }
 .map-marker.shared .marker-name { display: none; }
+
+/* The artwork importer sits under the sprite the trainer is using. */
+.sprite-import {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.sprite-import .name-hint { margin: 0; }

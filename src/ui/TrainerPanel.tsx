@@ -193,11 +193,13 @@ function SpritePicker({
   value,
   count,
   onChange,
+  onImported,
 }: {
   adapter: GameAdapter
   value: number
   count: number
   onChange: (v: number) => void
+  onImported: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -221,6 +223,13 @@ function SpritePicker({
           <span className="sprite-id">#{value}</span>
         </span>
       </button>
+      {adapter.importTrainerSprite && (
+        <SpriteImport
+          adapter={adapter}
+          picId={value}
+          onImported={onImported}
+        />
+      )}
       {open && (
         <div className="sprite-picker">
           <input
@@ -249,6 +258,83 @@ function SpritePicker({
             {shown.length === 0 && <div className="empty">No sprites match.</div>}
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+
+/**
+ * Replaces the artwork of whichever sprite slot the trainer uses.
+ *
+ * The slot is shared: several trainers can point at one pic, so
+ * importing over it changes all of them. That is worth saying out loud
+ * rather than discovering later, hence the count in the hint.
+ */
+function SpriteImport({
+  adapter,
+  picId,
+  onImported,
+}: {
+  adapter: GameAdapter
+  picId: number
+  onImported: () => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  const load = async (file: File) => {
+    setError(null)
+    setDone(false)
+    try {
+      const bitmap = await createImageBitmap(file)
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+      const result = adapter.importTrainerSprite!(picId, {
+        pixels: data.data,
+        width: data.width,
+        height: data.height,
+      })
+      if (result) setError(result)
+      else {
+        setDone(true)
+        onImported()
+      }
+    } catch {
+      setError("Couldn't read that image file.")
+    }
+  }
+
+  return (
+    <div className="sprite-import">
+      <button className="ghost small" onClick={() => fileRef.current?.click()}>
+        ⬆ Import artwork
+      </button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          if (f) void load(f)
+          e.target.value = ''
+        }}
+      />
+      {error ? (
+        <span className="name-hint invalid-hint">{error}</span>
+      ) : done ? (
+        <span className="name-hint">Imported. Save the ROM to keep it.</span>
+      ) : (
+        <span className="name-hint">
+          64×64, up to 16 colours. Whatever colour the top-left pixel is
+          becomes the transparent one.
+        </span>
       )}
     </div>
   )
@@ -387,6 +473,7 @@ export function TrainerPanel({
                     value={data.pic}
                     count={adapter.trainerSpriteCount}
                     onChange={(v) => write('pic', v)}
+                    onImported={onEdit}
                   />
                 ) : (
                   <Num label="Sprite ID" value={data.pic} min={0} max={255} onChange={(v) => write('pic', v)} />

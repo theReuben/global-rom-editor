@@ -891,6 +891,7 @@ export function tryBuildGen45(rom: Rom): GameAdapter | null {
     trainerModule,
     trainerLocations: null,
     overworldSprite: null,
+    importTrainerSprite: null,
     trainerSprite: null,
     trainerSpriteCount: null,
     wildModule,

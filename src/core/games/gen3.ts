@@ -433,6 +433,7 @@ export function tryBuildGen3(rom: Rom, gameName: string, platform: string): Game
     trainerModule,
     trainerLocations: null,
     overworldSprite: null,
+    importTrainerSprite: null,
     trainerSprite: null,
     trainerSpriteCount: null,
     wildModule,

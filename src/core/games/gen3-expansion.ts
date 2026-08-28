@@ -722,11 +722,13 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
   }
 
   let trainerSprite: ((picId: number) => RenderedImage | null) | null = null
+  let importTrainerSprite: ((picId: number, image: RenderedImage) => string | null) | null = null
   let trainerSpriteCount: number | null = null
   try {
     const sprites = buildTrainerSprites(rom)
     if (sprites) {
       trainerSprite = sprites.render
+      importTrainerSprite = (picId, image) => sprites.importFront(picId, image)
       trainerSpriteCount = sprites.count
       regions.push({
         name: `Trainer sprites (${sprites.count})`,
@@ -736,6 +738,7 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     }
   } catch {
     trainerSprite = null
+    importTrainerSprite = null
     trainerSpriteCount = null
   }
 
@@ -953,6 +956,7 @@ export function tryBuildGen3Expansion(rom: Rom, gameName: string, platform: stri
     trainerLocations,
     overworldSprite,
     trainerSprite,
+    importTrainerSprite,
     trainerSpriteCount,
     wildModule,
     itemOptions,
